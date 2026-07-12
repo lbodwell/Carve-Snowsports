@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: carve-postgres
+    environment:
+      POSTGRES_DB: carve
+      POSTGRES_PASSWORD: carve
+      POSTGRES_USER: carve
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carve -d carve"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - carve_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  carve_postgres_data:
