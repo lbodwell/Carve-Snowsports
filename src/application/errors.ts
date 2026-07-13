@@ -1,4 +1,5 @@
 export type ApplicationErrorCode =
+  | "UNAUTHENTICATED"
   | "FORBIDDEN"
   | "NOT_FOUND"
   | "VALIDATION"

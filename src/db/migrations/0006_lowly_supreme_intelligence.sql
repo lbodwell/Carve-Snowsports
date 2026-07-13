@@ -1,0 +1,1 @@
+DROP INDEX "grouping_draft_assignments_draft_registration_unique";

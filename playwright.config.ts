@@ -12,7 +12,12 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
     // Keep browser tests isolated from a developer's normal server on 3001.
-    command: `bun run dev -- --host 127.0.0.1 --port ${e2ePort} --strictPort`,
+    command: `bunx vite dev --host 127.0.0.1 --port ${e2ePort} --strictPort`,
+    env: {
+      APP_ORIGIN: baseURL,
+      BETTER_AUTH_URL: baseURL,
+      DEV_IMPERSONATE_USER_EMAIL: "",
+    },
     url: `${baseURL}/health`,
     reuseExistingServer: false,
     timeout: 30_000,

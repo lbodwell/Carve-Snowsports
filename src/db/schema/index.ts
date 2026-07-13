@@ -38,7 +38,9 @@ export const organizations = pgTable(
 export const users = pgTable(
   "users",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    id: text("id")
+      .$defaultFn(() => crypto.randomUUID())
+      .primaryKey(),
     email: varchar("email", { length: 320 }).notNull(),
     name: varchar("name", { length: 200 }).notNull(),
     emailVerified: boolean("email_verified").default(false).notNull(),
@@ -52,10 +54,12 @@ export const users = pgTable(
 export const accounts = pgTable(
   "accounts",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    id: text("id")
+      .$defaultFn(() => crypto.randomUUID())
+      .primaryKey(),
     accountId: varchar("account_id", { length: 255 }).notNull(),
     providerId: varchar("provider_id", { length: 255 }).notNull(),
-    userId: uuid("user_id")
+    userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     accessToken: text("access_token"),
@@ -83,14 +87,14 @@ export const accounts = pgTable(
 export const sessions = pgTable(
   "sessions",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    id: text("id").primaryKey(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     token: varchar("token", { length: 255 }).notNull(),
     createdAt,
     updatedAt,
     ipAddress: varchar("ip_address", { length: 255 }),
     userAgent: text("user_agent"),
-    userId: uuid("user_id")
+    userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
   },
@@ -100,7 +104,7 @@ export const sessions = pgTable(
 export const verifications = pgTable(
   "verifications",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    id: text("id").primaryKey(),
     identifier: varchar("identifier", { length: 320 }).notNull(),
     value: text("value").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -116,7 +120,7 @@ export const organizationMemberships = pgTable(
     organizationId: uuid("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    userId: uuid("user_id")
+    userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     role: varchar("role", { length: 32 }).notNull(),
@@ -128,6 +132,46 @@ export const organizationMemberships = pgTable(
     check(
       "organization_memberships_role_check",
       sql`${table.role} in ('admin', 'coordinator', 'instructor')`,
+    ),
+  ],
+);
+
+export const organizationInvitations = pgTable(
+  "organization_invitations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    email: varchar("email", { length: 320 }).notNull(),
+    role: varchar("role", { length: 32 }).notNull(),
+    invitedByUserId: text("invited_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: varchar("status", { length: 32 }).default("pending").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedByUserId: text("accepted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    index("organization_invitations_org_status_index").on(
+      table.organizationId,
+      table.status,
+    ),
+    uniqueIndex("organization_invitations_pending_email_unique")
+      .on(table.organizationId, table.email)
+      .where(sql`${table.status} = 'pending'`),
+    check(
+      "organization_invitations_role_check",
+      sql`${table.role} in ('admin', 'coordinator', 'instructor')`,
+    ),
+    check(
+      "organization_invitations_status_check",
+      sql`${table.status} in ('pending', 'accepted', 'cancelled', 'expired')`,
     ),
   ],
 );
@@ -301,6 +345,7 @@ export const students = pgTable("students", {
   personId: uuid("person_id")
     .primaryKey()
     .references(() => people.id, { onDelete: "cascade" }),
+  notes: text("notes"),
   createdAt,
   updatedAt,
 });
@@ -309,7 +354,8 @@ export const instructors = pgTable("instructors", {
   personId: uuid("person_id")
     .primaryKey()
     .references(() => people.id, { onDelete: "cascade" }),
-  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  notes: text("notes"),
   createdAt,
   updatedAt,
 });
@@ -401,7 +447,7 @@ export const instructorQualifications = pgTable(
   },
   (table) => [
     primaryKey({
-      columns: [table.instructorId, table.disciplineId, table.abilityLevelId],
+      columns: [table.instructorId, table.disciplineId],
     }),
   ],
 );
@@ -473,7 +519,7 @@ export const auditEvents = pgTable(
     organizationId: uuid("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    actorId: uuid("actor_id").references(() => users.id, {
+    actorId: text("actor_id").references(() => users.id, {
       onDelete: "set null",
     }),
     entityType: varchar("entity_type", { length: 100 }).notNull(),
@@ -540,6 +586,7 @@ export const groupRevisions = pgTable(
         onDelete: "restrict",
       },
     ),
+    notes: text("notes"),
     effectiveFrom: date("effective_from").notNull(),
     effectiveUntil: date("effective_until"),
     createdAt,
@@ -584,6 +631,33 @@ export const groupRecurrences = pgTable(
   ],
 );
 
+export const groupRevisionMemberships = pgTable(
+  "group_revision_memberships",
+  {
+    groupRevisionId: uuid("group_revision_id")
+      .notNull()
+      .references(() => groupRevisions.id, { onDelete: "cascade" }),
+    studentId: uuid("student_id")
+      .notNull()
+      .references(() => students.personId, { onDelete: "restrict" }),
+    registrationId: uuid("registration_id")
+      .notNull()
+      .references(() => registrations.id, { onDelete: "restrict" }),
+    effectiveFrom: date("effective_from").notNull(),
+    effectiveUntil: date("effective_until"),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    primaryKey({ columns: [table.groupRevisionId, table.studentId] }),
+    index("group_revision_memberships_student_index").on(table.studentId),
+    check(
+      "group_revision_memberships_effective_range_check",
+      sql`${table.effectiveUntil} is null or ${table.effectiveUntil} >= ${table.effectiveFrom}`,
+    ),
+  ],
+);
+
 export const lessonInstances = pgTable(
   "lesson_instances",
   {
@@ -621,7 +695,7 @@ export const lessonAttendance = pgTable(
       .references(() => students.personId, { onDelete: "restrict" }),
     status: varchar("status", { length: 32 }).notNull(),
     note: text("note"),
-    recordedBy: uuid("recorded_by").references(() => users.id, {
+    recordedBy: text("recorded_by").references(() => users.id, {
       onDelete: "set null",
     }),
     createdAt,
@@ -649,7 +723,7 @@ export const groupingDrafts = pgTable(
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     publishedAt: timestamp("published_at", { withTimezone: true }),
-    createdBy: uuid("created_by")
+    createdBy: text("created_by")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
     createdAt,
@@ -688,15 +762,29 @@ export const groupingDraftGroups = pgTable(
         onDelete: "set null",
       },
     ),
+    weekday: integer("weekday").default(6).notNull(),
+    timeSlotId: uuid("time_slot_id")
+      .notNull()
+      .references(() => timeSlots.id, { onDelete: "restrict" }),
+    notes: text("notes"),
     createdAt,
     updatedAt,
   },
-  (table) => [index("grouping_draft_groups_draft_index").on(table.draftId)],
+  (table) => [
+    index("grouping_draft_groups_draft_index").on(table.draftId),
+    check(
+      "grouping_draft_groups_weekday_check",
+      sql`${table.weekday} between 0 and 6`,
+    ),
+  ],
 );
 
 export const groupingDraftAssignments = pgTable(
   "grouping_draft_assignments",
   {
+    draftId: uuid("draft_id")
+      .notNull()
+      .references(() => groupingDrafts.id, { onDelete: "cascade" }),
     draftGroupId: uuid("draft_group_id")
       .notNull()
       .references(() => groupingDraftGroups.id, { onDelete: "cascade" }),
@@ -712,6 +800,23 @@ export const groupingDraftAssignments = pgTable(
   ],
 );
 
+export const groupingDraftInstructors = pgTable(
+  "grouping_draft_instructors",
+  {
+    draftGroupId: uuid("draft_group_id")
+      .notNull()
+      .references(() => groupingDraftGroups.id, { onDelete: "cascade" }),
+    instructorId: uuid("instructor_id")
+      .notNull()
+      .references(() => instructors.personId, { onDelete: "restrict" }),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    primaryKey({ columns: [table.draftGroupId, table.instructorId] }),
+  ],
+);
+
 export const draftOperations = pgTable(
   "draft_operations",
   {
@@ -720,7 +825,7 @@ export const draftOperations = pgTable(
     draftId: uuid("draft_id")
       .notNull()
       .references(() => groupingDrafts.id, { onDelete: "cascade" }),
-    actorId: uuid("actor_id")
+    actorId: text("actor_id")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
     baseVersion: integer("base_version").notNull(),
@@ -749,7 +854,7 @@ export const importBatches = pgTable(
     adapterVersion: varchar("adapter_version", { length: 50 }).notNull(),
     fileHash: varchar("file_hash", { length: 128 }).notNull(),
     status: varchar("status", { length: 32 }).default("uploaded").notNull(),
-    uploadedBy: uuid("uploaded_by")
+    uploadedBy: text("uploaded_by")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
     reconciliation: jsonb("reconciliation").$type<Record<string, unknown>>(),

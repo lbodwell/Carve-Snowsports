@@ -57,11 +57,14 @@ describe("database migrations", () => {
     expect(tableNames).toEqual(
       expect.arrayContaining([
         "accounts",
+        "group_revision_memberships",
+        "grouping_draft_instructors",
         "grouping_drafts",
         "import_batches",
         "lesson_attendance",
         "lesson_instances",
         "organizations",
+        "organization_invitations",
         "registrations",
         "students",
       ]),
@@ -71,6 +74,6 @@ describe("database migrations", () => {
       SELECT count(*) FROM drizzle.__drizzle_migrations
     `;
 
-    expect(migrationCount?.count).toBe("4");
+    expect(migrationCount?.count).toBe("11");
   });
 });

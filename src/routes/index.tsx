@@ -32,10 +32,10 @@ function HomePage() {
         />
       </section>
       <Link
-        to="/health"
+        to="/sign-in"
         className="bg-primary text-primary-foreground focus-visible:outline-primary w-fit rounded-md px-4 py-2.5 font-medium outline-offset-4 transition-opacity hover:opacity-90 focus-visible:outline-2"
       >
-        Check service health
+        Staff sign in
       </Link>
     </main>
   );

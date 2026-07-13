@@ -9,13 +9,45 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SignInRouteImport } from './routes/sign-in'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as LessonsRouteImport } from './routes/lessons'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as GroupingRouteImport } from './routes/grouping'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as DemoRouteImport } from './routes/demo'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as LessonsTodayRouteImport } from './routes/lessons/today'
+import { Route as LessonsLessonInstanceIdRouteImport } from './routes/lessons.$lessonInstanceId'
+import { Route as AdminStudentsRouteImport } from './routes/admin/students'
+import { Route as AdminStaffRouteImport } from './routes/admin/staff'
+import { Route as AdminSeasonsRouteImport } from './routes/admin/seasons'
+import { Route as AdminInstructorsRouteImport } from './routes/admin/instructors'
+import { Route as AdminAuditRouteImport } from './routes/admin/audit'
+import { Route as AcceptInvitationInvitationIdRouteImport } from './routes/accept-invitation.$invitationId'
+import { Route as AdminStudentsIndexRouteImport } from './routes/admin/students.index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as AdminStudentsNewRouteImport } from './routes/admin/students.new'
+import { Route as AdminStudentsStudentIdRouteImport } from './routes/admin/students.$studentId'
+import { Route as AdminProgramsProgramIdRouteImport } from './routes/admin/programs.$programId'
 
+const SignInRoute = SignInRouteImport.update({
+  id: '/sign-in',
+  path: '/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LessonsRoute = LessonsRouteImport.update({
+  id: '/lessons',
+  path: '/lessons',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HealthRoute = HealthRouteImport.update({
   id: '/health',
   path: '/health',
@@ -26,9 +58,19 @@ const GroupingRoute = GroupingRouteImport.update({
   path: '/grouping',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DemoRoute = DemoRouteImport.update({
   id: '/demo',
   path: '/demo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -36,69 +78,265 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRoute,
+} as any)
 const LessonsTodayRoute = LessonsTodayRouteImport.update({
-  id: '/lessons/today',
-  path: '/lessons/today',
-  getParentRoute: () => rootRouteImport,
+  id: '/today',
+  path: '/today',
+  getParentRoute: () => LessonsRoute,
+} as any)
+const LessonsLessonInstanceIdRoute = LessonsLessonInstanceIdRouteImport.update({
+  id: '/$lessonInstanceId',
+  path: '/$lessonInstanceId',
+  getParentRoute: () => LessonsRoute,
+} as any)
+const AdminStudentsRoute = AdminStudentsRouteImport.update({
+  id: '/students',
+  path: '/students',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminStaffRoute = AdminStaffRouteImport.update({
+  id: '/staff',
+  path: '/staff',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminSeasonsRoute = AdminSeasonsRouteImport.update({
+  id: '/seasons',
+  path: '/seasons',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminInstructorsRoute = AdminInstructorsRouteImport.update({
+  id: '/instructors',
+  path: '/instructors',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAuditRoute = AdminAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AcceptInvitationInvitationIdRoute =
+  AcceptInvitationInvitationIdRouteImport.update({
+    id: '/accept-invitation/$invitationId',
+    path: '/accept-invitation/$invitationId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const AdminStudentsIndexRoute = AdminStudentsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminStudentsRoute,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminStudentsNewRoute = AdminStudentsNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AdminStudentsRoute,
+} as any)
+const AdminStudentsStudentIdRoute = AdminStudentsStudentIdRouteImport.update({
+  id: '/$studentId',
+  path: '/$studentId',
+  getParentRoute: () => AdminStudentsRoute,
+} as any)
+const AdminProgramsProgramIdRoute = AdminProgramsProgramIdRouteImport.update({
+  id: '/programs/$programId',
+  path: '/programs/$programId',
+  getParentRoute: () => AdminRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/demo': typeof DemoRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/grouping': typeof GroupingRoute
   '/health': typeof HealthRoute
+  '/lessons': typeof LessonsRouteWithChildren
+  '/reset-password': typeof ResetPasswordRoute
+  '/sign-in': typeof SignInRoute
+  '/accept-invitation/$invitationId': typeof AcceptInvitationInvitationIdRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/instructors': typeof AdminInstructorsRoute
+  '/admin/seasons': typeof AdminSeasonsRoute
+  '/admin/staff': typeof AdminStaffRoute
+  '/admin/students': typeof AdminStudentsRouteWithChildren
+  '/lessons/$lessonInstanceId': typeof LessonsLessonInstanceIdRoute
   '/lessons/today': typeof LessonsTodayRoute
+  '/admin/': typeof AdminIndexRoute
+  '/admin/programs/$programId': typeof AdminProgramsProgramIdRoute
+  '/admin/students/$studentId': typeof AdminStudentsStudentIdRoute
+  '/admin/students/new': typeof AdminStudentsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/admin/students/': typeof AdminStudentsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/demo': typeof DemoRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/grouping': typeof GroupingRoute
   '/health': typeof HealthRoute
+  '/lessons': typeof LessonsRouteWithChildren
+  '/reset-password': typeof ResetPasswordRoute
+  '/sign-in': typeof SignInRoute
+  '/accept-invitation/$invitationId': typeof AcceptInvitationInvitationIdRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/instructors': typeof AdminInstructorsRoute
+  '/admin/seasons': typeof AdminSeasonsRoute
+  '/admin/staff': typeof AdminStaffRoute
+  '/lessons/$lessonInstanceId': typeof LessonsLessonInstanceIdRoute
   '/lessons/today': typeof LessonsTodayRoute
+  '/admin': typeof AdminIndexRoute
+  '/admin/programs/$programId': typeof AdminProgramsProgramIdRoute
+  '/admin/students/$studentId': typeof AdminStudentsStudentIdRoute
+  '/admin/students/new': typeof AdminStudentsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/admin/students': typeof AdminStudentsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/demo': typeof DemoRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/grouping': typeof GroupingRoute
   '/health': typeof HealthRoute
+  '/lessons': typeof LessonsRouteWithChildren
+  '/reset-password': typeof ResetPasswordRoute
+  '/sign-in': typeof SignInRoute
+  '/accept-invitation/$invitationId': typeof AcceptInvitationInvitationIdRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/instructors': typeof AdminInstructorsRoute
+  '/admin/seasons': typeof AdminSeasonsRoute
+  '/admin/staff': typeof AdminStaffRoute
+  '/admin/students': typeof AdminStudentsRouteWithChildren
+  '/lessons/$lessonInstanceId': typeof LessonsLessonInstanceIdRoute
   '/lessons/today': typeof LessonsTodayRoute
+  '/admin/': typeof AdminIndexRoute
+  '/admin/programs/$programId': typeof AdminProgramsProgramIdRoute
+  '/admin/students/$studentId': typeof AdminStudentsStudentIdRoute
+  '/admin/students/new': typeof AdminStudentsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/admin/students/': typeof AdminStudentsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/demo' | '/grouping' | '/health' | '/lessons/today' | '/api/auth/$'
+    | '/'
+    | '/admin'
+    | '/demo'
+    | '/forgot-password'
+    | '/grouping'
+    | '/health'
+    | '/lessons'
+    | '/reset-password'
+    | '/sign-in'
+    | '/accept-invitation/$invitationId'
+    | '/admin/audit'
+    | '/admin/instructors'
+    | '/admin/seasons'
+    | '/admin/staff'
+    | '/admin/students'
+    | '/lessons/$lessonInstanceId'
+    | '/lessons/today'
+    | '/admin/'
+    | '/admin/programs/$programId'
+    | '/admin/students/$studentId'
+    | '/admin/students/new'
+    | '/api/auth/$'
+    | '/admin/students/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/demo' | '/grouping' | '/health' | '/lessons/today' | '/api/auth/$'
+  to:
+    | '/'
+    | '/demo'
+    | '/forgot-password'
+    | '/grouping'
+    | '/health'
+    | '/lessons'
+    | '/reset-password'
+    | '/sign-in'
+    | '/accept-invitation/$invitationId'
+    | '/admin/audit'
+    | '/admin/instructors'
+    | '/admin/seasons'
+    | '/admin/staff'
+    | '/lessons/$lessonInstanceId'
+    | '/lessons/today'
+    | '/admin'
+    | '/admin/programs/$programId'
+    | '/admin/students/$studentId'
+    | '/admin/students/new'
+    | '/api/auth/$'
+    | '/admin/students'
   id:
     | '__root__'
     | '/'
+    | '/admin'
     | '/demo'
+    | '/forgot-password'
     | '/grouping'
     | '/health'
+    | '/lessons'
+    | '/reset-password'
+    | '/sign-in'
+    | '/accept-invitation/$invitationId'
+    | '/admin/audit'
+    | '/admin/instructors'
+    | '/admin/seasons'
+    | '/admin/staff'
+    | '/admin/students'
+    | '/lessons/$lessonInstanceId'
     | '/lessons/today'
+    | '/admin/'
+    | '/admin/programs/$programId'
+    | '/admin/students/$studentId'
+    | '/admin/students/new'
     | '/api/auth/$'
+    | '/admin/students/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRouteWithChildren
   DemoRoute: typeof DemoRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
   GroupingRoute: typeof GroupingRoute
   HealthRoute: typeof HealthRoute
-  LessonsTodayRoute: typeof LessonsTodayRoute
+  LessonsRoute: typeof LessonsRouteWithChildren
+  ResetPasswordRoute: typeof ResetPasswordRoute
+  SignInRoute: typeof SignInRoute
+  AcceptInvitationInvitationIdRoute: typeof AcceptInvitationInvitationIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/sign-in': {
+      id: '/sign-in'
+      path: '/sign-in'
+      fullPath: '/sign-in'
+      preLoaderRoute: typeof SignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lessons': {
+      id: '/lessons'
+      path: '/lessons'
+      fullPath: '/lessons'
+      preLoaderRoute: typeof LessonsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/health': {
       id: '/health'
       path: '/health'
@@ -113,11 +351,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GroupingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/demo': {
       id: '/demo'
       path: '/demo'
       fullPath: '/demo'
       preLoaderRoute: typeof DemoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -127,12 +379,75 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/lessons/today': {
       id: '/lessons/today'
-      path: '/lessons/today'
+      path: '/today'
       fullPath: '/lessons/today'
       preLoaderRoute: typeof LessonsTodayRouteImport
+      parentRoute: typeof LessonsRoute
+    }
+    '/lessons/$lessonInstanceId': {
+      id: '/lessons/$lessonInstanceId'
+      path: '/$lessonInstanceId'
+      fullPath: '/lessons/$lessonInstanceId'
+      preLoaderRoute: typeof LessonsLessonInstanceIdRouteImport
+      parentRoute: typeof LessonsRoute
+    }
+    '/admin/students': {
+      id: '/admin/students'
+      path: '/students'
+      fullPath: '/admin/students'
+      preLoaderRoute: typeof AdminStudentsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/staff': {
+      id: '/admin/staff'
+      path: '/staff'
+      fullPath: '/admin/staff'
+      preLoaderRoute: typeof AdminStaffRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/seasons': {
+      id: '/admin/seasons'
+      path: '/seasons'
+      fullPath: '/admin/seasons'
+      preLoaderRoute: typeof AdminSeasonsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/instructors': {
+      id: '/admin/instructors'
+      path: '/instructors'
+      fullPath: '/admin/instructors'
+      preLoaderRoute: typeof AdminInstructorsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/audit': {
+      id: '/admin/audit'
+      path: '/audit'
+      fullPath: '/admin/audit'
+      preLoaderRoute: typeof AdminAuditRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/accept-invitation/$invitationId': {
+      id: '/accept-invitation/$invitationId'
+      path: '/accept-invitation/$invitationId'
+      fullPath: '/accept-invitation/$invitationId'
+      preLoaderRoute: typeof AcceptInvitationInvitationIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/admin/students/': {
+      id: '/admin/students/'
+      path: '/'
+      fullPath: '/admin/students/'
+      preLoaderRoute: typeof AdminStudentsIndexRouteImport
+      parentRoute: typeof AdminStudentsRoute
     }
     '/api/auth/$': {
       id: '/api/auth/$'
@@ -141,15 +456,92 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/students/new': {
+      id: '/admin/students/new'
+      path: '/new'
+      fullPath: '/admin/students/new'
+      preLoaderRoute: typeof AdminStudentsNewRouteImport
+      parentRoute: typeof AdminStudentsRoute
+    }
+    '/admin/students/$studentId': {
+      id: '/admin/students/$studentId'
+      path: '/$studentId'
+      fullPath: '/admin/students/$studentId'
+      preLoaderRoute: typeof AdminStudentsStudentIdRouteImport
+      parentRoute: typeof AdminStudentsRoute
+    }
+    '/admin/programs/$programId': {
+      id: '/admin/programs/$programId'
+      path: '/programs/$programId'
+      fullPath: '/admin/programs/$programId'
+      preLoaderRoute: typeof AdminProgramsProgramIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
   }
 }
 
+interface AdminStudentsRouteChildren {
+  AdminStudentsStudentIdRoute: typeof AdminStudentsStudentIdRoute
+  AdminStudentsNewRoute: typeof AdminStudentsNewRoute
+  AdminStudentsIndexRoute: typeof AdminStudentsIndexRoute
+}
+
+const AdminStudentsRouteChildren: AdminStudentsRouteChildren = {
+  AdminStudentsStudentIdRoute: AdminStudentsStudentIdRoute,
+  AdminStudentsNewRoute: AdminStudentsNewRoute,
+  AdminStudentsIndexRoute: AdminStudentsIndexRoute,
+}
+
+const AdminStudentsRouteWithChildren = AdminStudentsRoute._addFileChildren(
+  AdminStudentsRouteChildren,
+)
+
+interface AdminRouteChildren {
+  AdminAuditRoute: typeof AdminAuditRoute
+  AdminInstructorsRoute: typeof AdminInstructorsRoute
+  AdminSeasonsRoute: typeof AdminSeasonsRoute
+  AdminStaffRoute: typeof AdminStaffRoute
+  AdminStudentsRoute: typeof AdminStudentsRouteWithChildren
+  AdminIndexRoute: typeof AdminIndexRoute
+  AdminProgramsProgramIdRoute: typeof AdminProgramsProgramIdRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminAuditRoute: AdminAuditRoute,
+  AdminInstructorsRoute: AdminInstructorsRoute,
+  AdminSeasonsRoute: AdminSeasonsRoute,
+  AdminStaffRoute: AdminStaffRoute,
+  AdminStudentsRoute: AdminStudentsRouteWithChildren,
+  AdminIndexRoute: AdminIndexRoute,
+  AdminProgramsProgramIdRoute: AdminProgramsProgramIdRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
+interface LessonsRouteChildren {
+  LessonsLessonInstanceIdRoute: typeof LessonsLessonInstanceIdRoute
+  LessonsTodayRoute: typeof LessonsTodayRoute
+}
+
+const LessonsRouteChildren: LessonsRouteChildren = {
+  LessonsLessonInstanceIdRoute: LessonsLessonInstanceIdRoute,
+  LessonsTodayRoute: LessonsTodayRoute,
+}
+
+const LessonsRouteWithChildren =
+  LessonsRoute._addFileChildren(LessonsRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRouteWithChildren,
   DemoRoute: DemoRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
   GroupingRoute: GroupingRoute,
   HealthRoute: HealthRoute,
-  LessonsTodayRoute: LessonsTodayRoute,
+  LessonsRoute: LessonsRouteWithChildren,
+  ResetPasswordRoute: ResetPasswordRoute,
+  SignInRoute: SignInRoute,
+  AcceptInvitationInvitationIdRoute: AcceptInvitationInvitationIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
