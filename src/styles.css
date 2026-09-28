@@ -42,6 +42,13 @@
   --color-secondary: var(--secondary);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
+  --color-pm-forest: var(--pm-forest);
+  --color-pm-green: var(--pm-green);
+  --color-pm-orange: var(--pm-orange);
+  --color-pm-orange-foreground: var(--pm-orange-foreground);
+  --color-pm-amber: var(--pm-amber);
+  --color-pm-mist: var(--pm-mist);
+  --color-pm-cream: var(--pm-cream);
   --radius-xl: calc(var(--radius) * 1.4);
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
@@ -81,6 +88,13 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --pm-forest: #244617;
+  --pm-green: #315925;
+  --pm-orange: #d88a00;
+  --pm-orange-foreground: #925d00;
+  --pm-amber: #f0ad35;
+  --pm-mist: #edf4e9;
+  --pm-cream: #f6f5ee;
 }
 
 * {
@@ -94,11 +108,26 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+.staff-workspace {
+  --primary: var(--pm-forest);
+  --primary-foreground: white;
+  --secondary: var(--pm-mist);
+  --secondary-foreground: var(--pm-forest);
+  --accent: var(--pm-mist);
+  --accent-foreground: var(--pm-forest);
+  --ring: var(--pm-green);
+  font-family: var(--font-sans);
+}
+
 button,
 input,
 textarea,
 select {
   font: inherit;
+}
+
+select:not(:disabled) {
+  cursor: pointer;
 }
 
 .dark {

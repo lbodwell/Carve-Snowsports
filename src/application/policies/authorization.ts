@@ -74,6 +74,7 @@ export const staffNavigation = [
   },
   { to: "/admin/seasons", label: "Seasons", permission: "program:manage" },
   { to: "/admin/students", label: "Students", permission: "people:manage" },
+  { to: "/admin/surveys", label: "Surveys", permission: "people:manage" },
   {
     to: "/admin/audit",
     label: "Audit",
@@ -84,6 +85,7 @@ export const staffNavigation = [
     label: "Instructors",
     permission: "people:manage",
   },
+  { to: "/admin/imports", label: "Imports", permission: "import:manage" },
   { to: "/grouping", label: "Grouping", permission: "grouping:edit" },
   { to: "/admin/staff", label: "Staff", permission: "people:invite" },
 ] as const;

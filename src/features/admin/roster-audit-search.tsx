@@ -5,6 +5,13 @@ import { AuditHistoryPanel } from "@/features/admin/audit-history-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { searchRosterAuditHistory } from "@/server/functions/audit-history";
 
 type RosterAuditEvent = {
@@ -95,22 +102,25 @@ export function RosterAuditSearch({
         </div>
         <div className="grid gap-2">
           <Label htmlFor="audit-entity-type">Record type</Label>
-          <select
-            id="audit-entity-type"
-            className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+          <Select
             value={entityType}
-            onChange={(event) =>
+            onValueChange={(value) =>
               setEntityType(
-                event.target.value as (typeof entityTypeOptions)[number]["value"],
+                value as (typeof entityTypeOptions)[number]["value"],
               )
             }
           >
-            {entityTypeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="audit-entity-type">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {entityTypeOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex items-end">
           <Button type="submit" disabled={busy}>

@@ -17,6 +17,7 @@ import {
   registrations,
   seasons,
   students,
+  surveys,
   timeSlots,
   users,
 } from "@/db/schema";
@@ -25,6 +26,21 @@ const organizationName = "Carve Demo Ski School";
 const developmentAdminEmail = "admin@carve.local";
 const developmentAdminPassword =
   process.env.DEV_ADMIN_PASSWORD ?? "carve-local-admin";
+
+async function seedDemoSurvey(organizationId: string) {
+  await db
+    .insert(surveys)
+    .values({
+      organizationId,
+      slug: "pre-lesson",
+      title: "Pre-lesson student information",
+      status: "open",
+      definitionKey: "pre_lesson_intake",
+      definitionVersion: 1,
+      allowAnonymous: true,
+    })
+    .onConflictDoNothing();
+}
 
 async function seedDevelopmentAdmin(organizationId: string) {
   let [user] = await db
@@ -74,6 +90,7 @@ async function seed() {
     .where(eq(organizations.name, organizationName));
   if (existing[0]) {
     await seedDevelopmentAdmin(existing[0].id);
+    await seedDemoSurvey(existing[0].id);
     console.info("Demo data already exists.");
     return;
   }
@@ -241,6 +258,7 @@ async function seed() {
     .where(eq(organizations.name, organizationName));
   if (!organization) throw new Error("Unable to find the demo organization.");
   await seedDevelopmentAdmin(organization.id);
+  await seedDemoSurvey(organization.id);
 
   console.info("Seeded Carve demo data.");
 }

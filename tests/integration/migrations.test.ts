@@ -61,12 +61,18 @@ describe("database migrations", () => {
         "grouping_draft_instructors",
         "grouping_drafts",
         "import_batches",
+        "import_files",
         "lesson_attendance",
         "lesson_instances",
         "organizations",
         "organization_invitations",
         "registrations",
+        "registration_parties",
+        "registration_sources",
         "students",
+        "survey_invitations",
+        "survey_responses",
+        "surveys",
       ]),
     );
 
@@ -74,6 +80,6 @@ describe("database migrations", () => {
       SELECT count(*) FROM drizzle.__drizzle_migrations
     `;
 
-    expect(migrationCount?.count).toBe("11");
+    expect(migrationCount?.count).toBe("15");
   });
 });

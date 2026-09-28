@@ -15,19 +15,22 @@ import { Route as LessonsRouteImport } from './routes/lessons'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as GroupingRouteImport } from './routes/grouping'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
-import { Route as DemoRouteImport } from './routes/demo'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as SurveysSlugRouteImport } from './routes/surveys.$slug'
 import { Route as LessonsTodayRouteImport } from './routes/lessons/today'
 import { Route as LessonsLessonInstanceIdRouteImport } from './routes/lessons.$lessonInstanceId'
+import { Route as AdminSurveysRouteImport } from './routes/admin/surveys'
 import { Route as AdminStudentsRouteImport } from './routes/admin/students'
 import { Route as AdminStaffRouteImport } from './routes/admin/staff'
 import { Route as AdminSeasonsRouteImport } from './routes/admin/seasons'
 import { Route as AdminInstructorsRouteImport } from './routes/admin/instructors'
+import { Route as AdminImportsRouteImport } from './routes/admin/imports'
 import { Route as AdminAuditRouteImport } from './routes/admin/audit'
 import { Route as AcceptInvitationInvitationIdRouteImport } from './routes/accept-invitation.$invitationId'
 import { Route as AdminStudentsIndexRouteImport } from './routes/admin/students.index'
+import { Route as SurveysSlugTokenRouteImport } from './routes/surveys.$slug.$token'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as AdminStudentsNewRouteImport } from './routes/admin/students.new'
 import { Route as AdminStudentsStudentIdRouteImport } from './routes/admin/students.$studentId'
@@ -63,11 +66,6 @@ const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
   path: '/forgot-password',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DemoRoute = DemoRouteImport.update({
-  id: '/demo',
-  path: '/demo',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -83,6 +81,11 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AdminRoute,
 } as any)
+const SurveysSlugRoute = SurveysSlugRouteImport.update({
+  id: '/surveys/$slug',
+  path: '/surveys/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LessonsTodayRoute = LessonsTodayRouteImport.update({
   id: '/today',
   path: '/today',
@@ -92,6 +95,11 @@ const LessonsLessonInstanceIdRoute = LessonsLessonInstanceIdRouteImport.update({
   id: '/$lessonInstanceId',
   path: '/$lessonInstanceId',
   getParentRoute: () => LessonsRoute,
+} as any)
+const AdminSurveysRoute = AdminSurveysRouteImport.update({
+  id: '/surveys',
+  path: '/surveys',
+  getParentRoute: () => AdminRoute,
 } as any)
 const AdminStudentsRoute = AdminStudentsRouteImport.update({
   id: '/students',
@@ -113,6 +121,11 @@ const AdminInstructorsRoute = AdminInstructorsRouteImport.update({
   path: '/instructors',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminImportsRoute = AdminImportsRouteImport.update({
+  id: '/imports',
+  path: '/imports',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminAuditRoute = AdminAuditRouteImport.update({
   id: '/audit',
   path: '/audit',
@@ -128,6 +141,11 @@ const AdminStudentsIndexRoute = AdminStudentsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AdminStudentsRoute,
+} as any)
+const SurveysSlugTokenRoute = SurveysSlugTokenRouteImport.update({
+  id: '/$token',
+  path: '/$token',
+  getParentRoute: () => SurveysSlugRoute,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
@@ -153,7 +171,6 @@ const AdminProgramsProgramIdRoute = AdminProgramsProgramIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
-  '/demo': typeof DemoRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/grouping': typeof GroupingRoute
   '/health': typeof HealthRoute
@@ -162,22 +179,25 @@ export interface FileRoutesByFullPath {
   '/sign-in': typeof SignInRoute
   '/accept-invitation/$invitationId': typeof AcceptInvitationInvitationIdRoute
   '/admin/audit': typeof AdminAuditRoute
+  '/admin/imports': typeof AdminImportsRoute
   '/admin/instructors': typeof AdminInstructorsRoute
   '/admin/seasons': typeof AdminSeasonsRoute
   '/admin/staff': typeof AdminStaffRoute
   '/admin/students': typeof AdminStudentsRouteWithChildren
+  '/admin/surveys': typeof AdminSurveysRoute
   '/lessons/$lessonInstanceId': typeof LessonsLessonInstanceIdRoute
   '/lessons/today': typeof LessonsTodayRoute
+  '/surveys/$slug': typeof SurveysSlugRouteWithChildren
   '/admin/': typeof AdminIndexRoute
   '/admin/programs/$programId': typeof AdminProgramsProgramIdRoute
   '/admin/students/$studentId': typeof AdminStudentsStudentIdRoute
   '/admin/students/new': typeof AdminStudentsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/surveys/$slug/$token': typeof SurveysSlugTokenRoute
   '/admin/students/': typeof AdminStudentsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/demo': typeof DemoRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/grouping': typeof GroupingRoute
   '/health': typeof HealthRoute
@@ -186,23 +206,26 @@ export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
   '/accept-invitation/$invitationId': typeof AcceptInvitationInvitationIdRoute
   '/admin/audit': typeof AdminAuditRoute
+  '/admin/imports': typeof AdminImportsRoute
   '/admin/instructors': typeof AdminInstructorsRoute
   '/admin/seasons': typeof AdminSeasonsRoute
   '/admin/staff': typeof AdminStaffRoute
+  '/admin/surveys': typeof AdminSurveysRoute
   '/lessons/$lessonInstanceId': typeof LessonsLessonInstanceIdRoute
   '/lessons/today': typeof LessonsTodayRoute
+  '/surveys/$slug': typeof SurveysSlugRouteWithChildren
   '/admin': typeof AdminIndexRoute
   '/admin/programs/$programId': typeof AdminProgramsProgramIdRoute
   '/admin/students/$studentId': typeof AdminStudentsStudentIdRoute
   '/admin/students/new': typeof AdminStudentsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/surveys/$slug/$token': typeof SurveysSlugTokenRoute
   '/admin/students': typeof AdminStudentsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
-  '/demo': typeof DemoRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/grouping': typeof GroupingRoute
   '/health': typeof HealthRoute
@@ -211,17 +234,21 @@ export interface FileRoutesById {
   '/sign-in': typeof SignInRoute
   '/accept-invitation/$invitationId': typeof AcceptInvitationInvitationIdRoute
   '/admin/audit': typeof AdminAuditRoute
+  '/admin/imports': typeof AdminImportsRoute
   '/admin/instructors': typeof AdminInstructorsRoute
   '/admin/seasons': typeof AdminSeasonsRoute
   '/admin/staff': typeof AdminStaffRoute
   '/admin/students': typeof AdminStudentsRouteWithChildren
+  '/admin/surveys': typeof AdminSurveysRoute
   '/lessons/$lessonInstanceId': typeof LessonsLessonInstanceIdRoute
   '/lessons/today': typeof LessonsTodayRoute
+  '/surveys/$slug': typeof SurveysSlugRouteWithChildren
   '/admin/': typeof AdminIndexRoute
   '/admin/programs/$programId': typeof AdminProgramsProgramIdRoute
   '/admin/students/$studentId': typeof AdminStudentsStudentIdRoute
   '/admin/students/new': typeof AdminStudentsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/surveys/$slug/$token': typeof SurveysSlugTokenRoute
   '/admin/students/': typeof AdminStudentsIndexRoute
 }
 export interface FileRouteTypes {
@@ -229,7 +256,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
-    | '/demo'
     | '/forgot-password'
     | '/grouping'
     | '/health'
@@ -238,22 +264,25 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/accept-invitation/$invitationId'
     | '/admin/audit'
+    | '/admin/imports'
     | '/admin/instructors'
     | '/admin/seasons'
     | '/admin/staff'
     | '/admin/students'
+    | '/admin/surveys'
     | '/lessons/$lessonInstanceId'
     | '/lessons/today'
+    | '/surveys/$slug'
     | '/admin/'
     | '/admin/programs/$programId'
     | '/admin/students/$studentId'
     | '/admin/students/new'
     | '/api/auth/$'
+    | '/surveys/$slug/$token'
     | '/admin/students/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/demo'
     | '/forgot-password'
     | '/grouping'
     | '/health'
@@ -262,22 +291,25 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/accept-invitation/$invitationId'
     | '/admin/audit'
+    | '/admin/imports'
     | '/admin/instructors'
     | '/admin/seasons'
     | '/admin/staff'
+    | '/admin/surveys'
     | '/lessons/$lessonInstanceId'
     | '/lessons/today'
+    | '/surveys/$slug'
     | '/admin'
     | '/admin/programs/$programId'
     | '/admin/students/$studentId'
     | '/admin/students/new'
     | '/api/auth/$'
+    | '/surveys/$slug/$token'
     | '/admin/students'
   id:
     | '__root__'
     | '/'
     | '/admin'
-    | '/demo'
     | '/forgot-password'
     | '/grouping'
     | '/health'
@@ -286,24 +318,27 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/accept-invitation/$invitationId'
     | '/admin/audit'
+    | '/admin/imports'
     | '/admin/instructors'
     | '/admin/seasons'
     | '/admin/staff'
     | '/admin/students'
+    | '/admin/surveys'
     | '/lessons/$lessonInstanceId'
     | '/lessons/today'
+    | '/surveys/$slug'
     | '/admin/'
     | '/admin/programs/$programId'
     | '/admin/students/$studentId'
     | '/admin/students/new'
     | '/api/auth/$'
+    | '/surveys/$slug/$token'
     | '/admin/students/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
-  DemoRoute: typeof DemoRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   GroupingRoute: typeof GroupingRoute
   HealthRoute: typeof HealthRoute
@@ -311,6 +346,7 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   SignInRoute: typeof SignInRoute
   AcceptInvitationInvitationIdRoute: typeof AcceptInvitationInvitationIdRoute
+  SurveysSlugRoute: typeof SurveysSlugRouteWithChildren
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -358,13 +394,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ForgotPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/demo': {
-      id: '/demo'
-      path: '/demo'
-      fullPath: '/demo'
-      preLoaderRoute: typeof DemoRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/admin': {
       id: '/admin'
       path: '/admin'
@@ -386,6 +415,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/surveys/$slug': {
+      id: '/surveys/$slug'
+      path: '/surveys/$slug'
+      fullPath: '/surveys/$slug'
+      preLoaderRoute: typeof SurveysSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/lessons/today': {
       id: '/lessons/today'
       path: '/today'
@@ -399,6 +435,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/lessons/$lessonInstanceId'
       preLoaderRoute: typeof LessonsLessonInstanceIdRouteImport
       parentRoute: typeof LessonsRoute
+    }
+    '/admin/surveys': {
+      id: '/admin/surveys'
+      path: '/surveys'
+      fullPath: '/admin/surveys'
+      preLoaderRoute: typeof AdminSurveysRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/admin/students': {
       id: '/admin/students'
@@ -428,6 +471,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminInstructorsRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/imports': {
+      id: '/admin/imports'
+      path: '/imports'
+      fullPath: '/admin/imports'
+      preLoaderRoute: typeof AdminImportsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/audit': {
       id: '/admin/audit'
       path: '/audit'
@@ -448,6 +498,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/students/'
       preLoaderRoute: typeof AdminStudentsIndexRouteImport
       parentRoute: typeof AdminStudentsRoute
+    }
+    '/surveys/$slug/$token': {
+      id: '/surveys/$slug/$token'
+      path: '/$token'
+      fullPath: '/surveys/$slug/$token'
+      preLoaderRoute: typeof SurveysSlugTokenRouteImport
+      parentRoute: typeof SurveysSlugRoute
     }
     '/api/auth/$': {
       id: '/api/auth/$'
@@ -498,20 +555,24 @@ const AdminStudentsRouteWithChildren = AdminStudentsRoute._addFileChildren(
 
 interface AdminRouteChildren {
   AdminAuditRoute: typeof AdminAuditRoute
+  AdminImportsRoute: typeof AdminImportsRoute
   AdminInstructorsRoute: typeof AdminInstructorsRoute
   AdminSeasonsRoute: typeof AdminSeasonsRoute
   AdminStaffRoute: typeof AdminStaffRoute
   AdminStudentsRoute: typeof AdminStudentsRouteWithChildren
+  AdminSurveysRoute: typeof AdminSurveysRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminProgramsProgramIdRoute: typeof AdminProgramsProgramIdRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminAuditRoute: AdminAuditRoute,
+  AdminImportsRoute: AdminImportsRoute,
   AdminInstructorsRoute: AdminInstructorsRoute,
   AdminSeasonsRoute: AdminSeasonsRoute,
   AdminStaffRoute: AdminStaffRoute,
   AdminStudentsRoute: AdminStudentsRouteWithChildren,
+  AdminSurveysRoute: AdminSurveysRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminProgramsProgramIdRoute: AdminProgramsProgramIdRoute,
 }
@@ -531,10 +592,21 @@ const LessonsRouteChildren: LessonsRouteChildren = {
 const LessonsRouteWithChildren =
   LessonsRoute._addFileChildren(LessonsRouteChildren)
 
+interface SurveysSlugRouteChildren {
+  SurveysSlugTokenRoute: typeof SurveysSlugTokenRoute
+}
+
+const SurveysSlugRouteChildren: SurveysSlugRouteChildren = {
+  SurveysSlugTokenRoute: SurveysSlugTokenRoute,
+}
+
+const SurveysSlugRouteWithChildren = SurveysSlugRoute._addFileChildren(
+  SurveysSlugRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
-  DemoRoute: DemoRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   GroupingRoute: GroupingRoute,
   HealthRoute: HealthRoute,
@@ -542,6 +614,7 @@ const rootRouteChildren: RootRouteChildren = {
   ResetPasswordRoute: ResetPasswordRoute,
   SignInRoute: SignInRoute,
   AcceptInvitationInvitationIdRoute: AcceptInvitationInvitationIdRoute,
+  SurveysSlugRoute: SurveysSlugRouteWithChildren,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

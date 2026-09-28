@@ -533,6 +533,103 @@ export const auditEvents = pgTable(
   ],
 );
 
+export const surveys = pgTable(
+  "surveys",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    slug: varchar("slug", { length: 100 }).notNull(),
+    title: varchar("title", { length: 200 }).notNull(),
+    status: varchar("status", { length: 32 }).default("draft").notNull(),
+    definitionKey: varchar("definition_key", { length: 100 }).notNull(),
+    definitionVersion: integer("definition_version").default(1).notNull(),
+    allowAnonymous: boolean("allow_anonymous").default(false).notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("surveys_slug_unique").on(table.slug),
+    index("surveys_organization_status_index").on(
+      table.organizationId,
+      table.status,
+    ),
+    check(
+      "surveys_status_check",
+      sql`${table.status} in ('draft', 'open', 'closed')`,
+    ),
+  ],
+);
+
+export const surveyInvitations = pgTable(
+  "survey_invitations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    surveyId: uuid("survey_id")
+      .notNull()
+      .references(() => surveys.id, { onDelete: "cascade" }),
+    email: varchar("email", { length: 320 }).notNull(),
+    token: varchar("token", { length: 128 }).notNull(),
+    lastOpenedAt: timestamp("last_opened_at", { withTimezone: true }),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("survey_invitations_survey_email_unique").on(
+      table.surveyId,
+      table.email,
+    ),
+    uniqueIndex("survey_invitations_token_unique").on(table.token),
+  ],
+);
+
+export const surveyResponses = pgTable(
+  "survey_responses",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    surveyId: uuid("survey_id")
+      .notNull()
+      .references(() => surveys.id, { onDelete: "cascade" }),
+    invitationId: uuid("invitation_id").references(() => surveyInvitations.id, {
+      onDelete: "set null",
+    }),
+    answers: jsonb("answers").$type<Record<string, unknown>>().notNull(),
+    childFirstName: varchar("child_first_name", { length: 100 }).notNull(),
+    childLastName: varchar("child_last_name", { length: 100 }).notNull(),
+    childDateOfBirth: date("child_date_of_birth").notNull(),
+    matchStatus: varchar("match_status", { length: 32 })
+      .default("unmatched")
+      .notNull(),
+    suggestedStudentId: uuid("suggested_student_id").references(
+      () => students.personId,
+      { onDelete: "set null" },
+    ),
+    confirmedStudentId: uuid("confirmed_student_id").references(
+      () => students.personId,
+      { onDelete: "set null" },
+    ),
+    submittedAt: timestamp("submitted_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    index("survey_responses_survey_submitted_index").on(
+      table.surveyId,
+      table.submittedAt,
+    ),
+    index("survey_responses_suggested_student_index").on(
+      table.suggestedStudentId,
+    ),
+    check(
+      "survey_responses_match_status_check",
+      sql`${table.matchStatus} in ('unmatched', 'unique', 'ambiguous')`,
+    ),
+  ],
+);
+
 export const seasonGroups = pgTable(
   "season_groups",
   {
@@ -853,7 +950,14 @@ export const importBatches = pgTable(
     sourceAdapter: varchar("source_adapter", { length: 100 }).notNull(),
     adapterVersion: varchar("adapter_version", { length: 50 }).notNull(),
     fileHash: varchar("file_hash", { length: 128 }).notNull(),
+    inputSetHash: varchar("input_set_hash", { length: 128 }),
+    programId: uuid("program_id").references(() => programs.id, {
+      onDelete: "restrict",
+    }),
     status: varchar("status", { length: 32 }).default("uploaded").notNull(),
+    workflowRunId: varchar("workflow_run_id", { length: 255 }),
+    workflowPhase: varchar("workflow_phase", { length: 64 }),
+    failureCode: varchar("failure_code", { length: 100 }),
     uploadedBy: text("uploaded_by")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
@@ -867,6 +971,31 @@ export const importBatches = pgTable(
       table.organizationId,
       table.sourceAdapter,
       table.fileHash,
+    ),
+  ],
+);
+
+export const importFiles = pgTable(
+  "import_files",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    batchId: uuid("batch_id")
+      .notNull()
+      .references(() => importBatches.id, { onDelete: "cascade" }),
+    sourceKind: varchar("source_kind", { length: 32 }).notNull(),
+    originalName: varchar("original_name", { length: 255 }).notNull(),
+    rawHash: varchar("raw_hash", { length: 128 }).notNull(),
+    storageKey: varchar("storage_key", { length: 500 }),
+    rowCount: integer("row_count").notNull(),
+    status: varchar("status", { length: 32 }).default("validated").notNull(),
+    retentionUntil: timestamp("retention_until", { withTimezone: true }),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("import_files_batch_source_unique").on(
+      table.batchId,
+      table.sourceKind,
     ),
   ],
 );
@@ -893,5 +1022,58 @@ export const importRows = pgTable(
       table.rowNumber,
     ),
     index("import_rows_batch_status_index").on(table.batchId, table.status),
+  ],
+);
+
+export const registrationSources = pgTable(
+  "registration_sources",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    registrationId: uuid("registration_id")
+      .notNull()
+      .references(() => registrations.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    sourceSystem: varchar("source_system", { length: 100 }).notNull(),
+    sourceKey: varchar("source_key", { length: 500 }).notNull(),
+    firstSeenBatchId: uuid("first_seen_batch_id").references(
+      () => importBatches.id,
+      { onDelete: "set null" },
+    ),
+    lastSeenBatchId: uuid("last_seen_batch_id").references(
+      () => importBatches.id,
+      { onDelete: "set null" },
+    ),
+    sourceStatus: varchar("source_status", { length: 32 }).notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("registration_sources_unique").on(
+      table.organizationId,
+      table.sourceSystem,
+      table.sourceKey,
+    ),
+  ],
+);
+
+export const registrationParties = pgTable(
+  "registration_parties",
+  {
+    registrationId: uuid("registration_id")
+      .notNull()
+      .references(() => registrations.id, { onDelete: "cascade" }),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => people.id, { onDelete: "restrict" }),
+    role: varchar("role", { length: 32 }).notNull(),
+    sourceSystem: varchar("source_system", { length: 100 }).notNull(),
+    sourceKey: varchar("source_key", { length: 500 }).notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    primaryKey({ columns: [table.registrationId, table.personId, table.role] }),
   ],
 );

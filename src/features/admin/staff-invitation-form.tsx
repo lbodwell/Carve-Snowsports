@@ -11,6 +11,13 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { inviteStaffMember } from "@/server/functions/staff-invitations";
 
 const roleLabels: Record<Role, string> = {
@@ -64,18 +71,21 @@ export function StaffInvitationForm({
         </Field>
         <Field>
           <FieldLabel htmlFor="invite-role">Role</FieldLabel>
-          <select
-            id="invite-role"
+          <Select
             value={role}
-            onChange={(event) => setRole(event.target.value as Role)}
-            className="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-9 w-full rounded-md border px-3 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+            onValueChange={(value) => setRole(value as Role)}
           >
-            {roles.map((option) => (
-              <option key={option} value={option}>
-                {roleLabels[option]}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="invite-role">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {roles.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {roleLabels[option]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Field>
         {error ? <FieldError>{error}</FieldError> : null}
         <Button type="submit" disabled={isSubmitting}>

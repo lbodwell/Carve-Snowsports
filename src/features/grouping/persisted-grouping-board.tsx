@@ -10,6 +10,16 @@ import {
 import { useMemo, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +29,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   approveGroupingDraft,
   assignDraftInstructor,
@@ -97,6 +116,8 @@ export function PersistedGroupingBoard({
     workspace.timeSlots[0]?.id ?? "",
   );
   const [busy, setBusy] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const draft = workspace.draft;
   const groups = useMemo(
@@ -248,23 +269,7 @@ export function PersistedGroupingBoard({
             <Button
               size="sm"
               disabled={busy}
-              onClick={() => {
-                if (
-                  !window.confirm(
-                    "Publish this draft? Stable group numbers and lesson instances will be created.",
-                  )
-                ) {
-                  return;
-                }
-                void mutate(() =>
-                  publishGroupingDraft({
-                    data: {
-                      draftId: draft.id,
-                      idempotencyKey: crypto.randomUUID(),
-                    },
-                  }),
-                );
-              }}
+              onClick={() => setPublishOpen(true)}
             >
               Publish groups
             </Button>
@@ -274,36 +279,46 @@ export function PersistedGroupingBoard({
 
       <Card>
         <CardContent className="flex flex-wrap items-end gap-3 pt-6">
-          <label className="grid gap-1 text-sm font-medium">
+          <label className="grid min-w-40 gap-1 text-sm font-medium">
             Day
-            <select
-              className="border-input bg-background h-9 rounded-md border px-3 text-sm"
-              value={weekday}
-              onChange={(event) => setWeekday(Number(event.target.value))}
+            <Select
+              value={String(weekday)}
+              onValueChange={(value) => setWeekday(Number(value))}
             >
-              {weekdays.map((label, value) => (
-                <option key={label} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {weekdays.map((label, value) => (
+                  <SelectItem key={label} value={String(value)}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
-          <label className="grid gap-1 text-sm font-medium">
+          <label className="grid min-w-40 gap-1 text-sm font-medium">
             Time
-            <select
-              className="border-input bg-background h-9 rounded-md border px-3 text-sm"
-              value={timeSlotId}
-              onChange={(event) => setTimeSlotId(event.target.value)}
-            >
-              {workspace.timeSlots.map((slot) => (
-                <option key={slot.id} value={slot.id}>
-                  {slot.label}
-                </option>
-              ))}
-            </select>
+            <Select value={timeSlotId} onValueChange={setTimeSlotId}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {workspace.timeSlots.map((slot) => (
+                  <SelectItem key={slot.id} value={slot.id}>
+                    {slot.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
           <Button
-            disabled={busy || !isEditing || !timeSlotId || workspace.disciplines.length === 0}
+            disabled={
+              busy ||
+              !isEditing ||
+              !timeSlotId ||
+              workspace.disciplines.length === 0
+            }
             onClick={() =>
               mutate(() =>
                 createDraftGroup({
@@ -355,7 +370,10 @@ export function PersistedGroupingBoard({
               </p>
             ) : (
               unplaced.map((student) => (
-                <div key={student.registrationId} className="rounded-lg border p-3">
+                <div
+                  key={student.registrationId}
+                  className="rounded-lg border p-3"
+                >
                   <StudentSummary student={student} />
                   {workspace.unplacedReasons[student.registrationId] ? (
                     <p className="text-muted-foreground mt-1 text-xs">
@@ -425,19 +443,7 @@ export function PersistedGroupingBoard({
                         }),
                       )
                     }
-                    onDelete={() => {
-                      if (!window.confirm("Delete this draft group?")) return;
-                      void mutate(() =>
-                        deleteDraftGroup({
-                          data: {
-                            draftId: draft.id,
-                            baseVersion: draft.version,
-                            commandId: crypto.randomUUID(),
-                            groupId: group.id,
-                          },
-                        }),
-                      );
-                    }}
+                    onDelete={() => setDeleteGroupId(group.id)}
                   />
                   <InstructorConfiguration
                     busy={busy}
@@ -529,6 +535,68 @@ export function PersistedGroupingBoard({
           })}
         </section>
       </div>
+      <AlertDialog open={publishOpen} onOpenChange={setPublishOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Publish this draft?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Stable group numbers and lesson instances will be created.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                void mutate(() =>
+                  publishGroupingDraft({
+                    data: {
+                      draftId: draft.id,
+                      idempotencyKey: crypto.randomUUID(),
+                    },
+                  }),
+                )
+              }
+            >
+              Publish groups
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={deleteGroupId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteGroupId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this draft group?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Students in the group will return to the unplaced list.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep group</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!deleteGroupId) return;
+                void mutate(() =>
+                  deleteDraftGroup({
+                    data: {
+                      draftId: draft.id,
+                      baseVersion: draft.version,
+                      commandId: crypto.randomUUID(),
+                      groupId: deleteGroupId,
+                    },
+                  }),
+                );
+              }}
+            >
+              Delete group
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -559,16 +627,16 @@ function InstructorConfiguration({
         {instructors.map((instructor) => (
           <label
             key={instructor.id}
-            className="flex items-center gap-1.5 text-xs"
+            className="flex cursor-pointer items-center gap-1.5 text-xs"
           >
-            <input
-              type="checkbox"
+            <Checkbox
               disabled={readOnly}
               checked={selected.includes(instructor.id)}
-              onChange={(event) => {
-                const next = event.target.checked
-                  ? [...selected, instructor.id]
-                  : selected.filter((id) => id !== instructor.id);
+              onCheckedChange={(checked) => {
+                const next =
+                  checked === true
+                    ? [...selected, instructor.id]
+                    : selected.filter((id) => id !== instructor.id);
                 setSelected(next);
                 if (!next.includes(lead)) setLead(next[0] ?? "");
               }}
@@ -580,21 +648,25 @@ function InstructorConfiguration({
       <div className="flex items-end gap-2">
         <label className="grid flex-1 gap-1 text-xs font-medium">
           Lead
-          <select
-            className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+          <Select
             disabled={readOnly}
-            value={lead}
-            onChange={(event) => setLead(event.target.value)}
+            value={lead || "none"}
+            onValueChange={(value) => setLead(value === "none" ? "" : value)}
           >
-            <option value="">Unassigned</option>
-            {instructors
-              .filter((instructor) => selected.includes(instructor.id))
-              .map((instructor) => (
-                <option key={instructor.id} value={instructor.id}>
-                  {instructor.firstName} {instructor.lastName}
-                </option>
-              ))}
-          </select>
+            <SelectTrigger size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Unassigned</SelectItem>
+              {instructors
+                .filter((instructor) => selected.includes(instructor.id))
+                .map((instructor) => (
+                  <SelectItem key={instructor.id} value={instructor.id}>
+                    {instructor.firstName} {instructor.lastName}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
         </label>
         <Button
           type="button"
@@ -646,82 +718,100 @@ function GroupConfiguration({
       <div className="grid grid-cols-2 gap-2">
         <label className="grid gap-1 text-xs font-medium">
           Day
-          <select
-            className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+          <Select
             disabled={readOnly}
-            value={weekday}
-            onChange={(event) => setWeekday(Number(event.target.value))}
+            value={String(weekday)}
+            onValueChange={(value) => setWeekday(Number(value))}
           >
-            {weekdays.map((label, value) => (
-              <option key={label} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {weekdays.map((label, value) => (
+                <SelectItem key={label} value={String(value)}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
         <label className="grid gap-1 text-xs font-medium">
           Time
-          <select
-            className="border-input bg-background h-8 rounded-md border px-2 text-xs"
-            value={timeSlotId}
-            onChange={(event) => setTimeSlotId(event.target.value)}
-          >
-            {workspace.timeSlots.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
+          <Select value={timeSlotId} onValueChange={setTimeSlotId}>
+            <SelectTrigger size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {workspace.timeSlots.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
         <label className="grid gap-1 text-xs font-medium">
           Discipline
-          <select
-            className="border-input bg-background h-8 rounded-md border px-2 text-xs"
-            value={disciplineId}
-            onChange={(event) => setDisciplineId(event.target.value)}
-          >
-            {workspace.disciplines.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
+          <Select value={disciplineId} onValueChange={setDisciplineId}>
+            <SelectTrigger size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {workspace.disciplines.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
         <label className="grid gap-1 text-xs font-medium">
           Level
-          <select
-            className="border-input bg-background h-8 rounded-md border px-2 text-xs"
-            value={abilityLevelId}
-            onChange={(event) => setAbilityLevelId(event.target.value)}
+          <Select
+            value={abilityLevelId || "any"}
+            onValueChange={(value) =>
+              setAbilityLevelId(value === "any" ? "" : value)
+            }
           >
-            <option value="">Any</option>
-            {workspace.abilityLevels.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="any">Any</SelectItem>
+              {workspace.abilityLevels.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
         <label className="grid gap-1 text-xs font-medium">
           Ages
-          <select
-            className="border-input bg-background h-8 rounded-md border px-2 text-xs"
-            value={ageBandId}
-            onChange={(event) => setAgeBandId(event.target.value)}
+          <Select
+            value={ageBandId || "any"}
+            onValueChange={(value) =>
+              setAgeBandId(value === "any" ? "" : value)
+            }
           >
-            <option value="">Any</option>
-            {workspace.ageBands.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="any">Any</SelectItem>
+              {workspace.ageBands.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
       </div>
       <label className="grid gap-1 text-xs font-medium">
         Notes
-        <textarea
-          className="border-input bg-background min-h-16 rounded-md border p-2 text-xs"
+        <Textarea
+          className="min-h-16 text-xs"
           disabled={readOnly}
           value={notes}
           onChange={(event) => setNotes(event.target.value)}

@@ -20,6 +20,21 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   createAbilityLevelRecord,
   createAgeBandRecord,
   createDisciplineRecord,
@@ -335,15 +350,11 @@ function DisciplineSection({
               <FieldLabel htmlFor={`discipline-active-${programId}`}>
                 Status
               </FieldLabel>
-              <select
+              <ActiveSelect
                 id={`discipline-active-${programId}`}
-                className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
-                value={active ? "active" : "inactive"}
-                onChange={(event) => setActive(event.target.value === "active")}
-              >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
+                active={active}
+                onChange={setActive}
+              />
             </Field>
           ) : null}
         </ConfigurationForm>
@@ -514,15 +525,11 @@ function AbilityLevelSection({
               <FieldLabel htmlFor={`level-active-${programId}`}>
                 Status
               </FieldLabel>
-              <select
+              <ActiveSelect
                 id={`level-active-${programId}`}
-                className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
-                value={active ? "active" : "inactive"}
-                onChange={(event) => setActive(event.target.value === "active")}
-              >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
+                active={active}
+                onChange={setActive}
+              />
             </Field>
           ) : null}
         </ConfigurationForm>
@@ -690,15 +697,11 @@ function AgeBandSection({
               <FieldLabel htmlFor={`age-active-${programId}`}>
                 Status
               </FieldLabel>
-              <select
+              <ActiveSelect
                 id={`age-active-${programId}`}
-                className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
-                value={active ? "active" : "inactive"}
-                onChange={(event) => setActive(event.target.value === "active")}
-              >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
+                active={active}
+                onChange={setActive}
+              />
             </Field>
           ) : null}
         </ConfigurationForm>
@@ -886,20 +889,41 @@ function TimeSlotSection({
               <FieldLabel htmlFor={`slot-active-${programId}`}>
                 Status
               </FieldLabel>
-              <select
+              <ActiveSelect
                 id={`slot-active-${programId}`}
-                className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
-                value={active ? "active" : "inactive"}
-                onChange={(event) => setActive(event.target.value === "active")}
-              >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
+                active={active}
+                onChange={setActive}
+              />
             </Field>
           ) : null}
         </ConfigurationForm>
       ) : null}
     </ConfigurationSection>
+  );
+}
+
+function ActiveSelect({
+  active,
+  id,
+  onChange,
+}: {
+  active: boolean;
+  id: string;
+  onChange: (active: boolean) => void;
+}) {
+  return (
+    <Select
+      value={active ? "active" : "inactive"}
+      onValueChange={(value) => onChange(value === "active")}
+    >
+      <SelectTrigger id={id}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="active">Active</SelectItem>
+        <SelectItem value="inactive">Inactive</SelectItem>
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -945,33 +969,27 @@ function ConfigurationTable({
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border">
-      <table className="min-w-full text-sm">
-        <thead className="bg-muted/50 text-left">
-          <tr>
+    <div className="rounded-xl border">
+      <Table>
+        <TableHeader>
+          <TableRow>
             {headers.map((header) => (
-              <th
-                key={header || "actions"}
-                scope="col"
-                className="px-4 py-3 font-medium"
-              >
+              <TableHead key={header || "actions"}>
                 {header || <span className="sr-only">Actions</span>}
-              </th>
+              </TableHead>
             ))}
-          </tr>
-        </thead>
-        <tbody>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {rows.map((cells, index) => (
-            <tr key={index} className="border-t">
+            <TableRow key={index}>
               {cells.map((cell, cellIndex) => (
-                <td key={cellIndex} className="px-4 py-3">
-                  {cell}
-                </td>
+                <TableCell key={cellIndex}>{cell}</TableCell>
               ))}
-            </tr>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }

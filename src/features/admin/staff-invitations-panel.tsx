@@ -10,6 +10,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { StaffInvitationForm } from "@/features/admin/staff-invitation-form";
 import {
   cancelStaffInvite,
@@ -79,8 +87,8 @@ export function StaffInvitationsPanel({
             <CardTitle>Send invitation</CardTitle>
             <CardDescription>
               In development, invitation links are logged to the server console.
-              Set `RESEND_API_KEY` and `EMAIL_FROM` in production to deliver
-              email.
+              Production requires `RESEND_API_KEY` and `EMAIL_FROM`; invites
+              fail instead of creating a link nobody receives.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -102,34 +110,31 @@ export function StaffInvitationsPanel({
                 No invitations have been sent yet.
               </p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[36rem] text-left text-sm">
-                  <thead className="text-muted-foreground border-b">
-                    <tr>
-                      <th className="py-2 pr-4 font-medium">Email</th>
-                      <th className="py-2 pr-4 font-medium">Role</th>
-                      <th className="py-2 pr-4 font-medium">Status</th>
-                      <th className="py-2 pr-4 font-medium">Expires</th>
-                      <th className="py-2 font-medium">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              <div className="rounded-xl border">
+                <Table className="min-w-[36rem]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Role</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Expires</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {invitations.map((invitation) => (
-                      <tr
-                        key={invitation.id}
-                        className="border-b last:border-0"
-                      >
-                        <td className="py-3 pr-4">{invitation.email}</td>
-                        <td className="py-3 pr-4">
+                      <TableRow key={invitation.id}>
+                        <TableCell>{invitation.email}</TableCell>
+                        <TableCell>
                           {roleLabels[invitation.role as Role]}
-                        </td>
-                        <td className="py-3 pr-4">
+                        </TableCell>
+                        <TableCell>
                           <Badge variant="outline">{invitation.status}</Badge>
-                        </td>
-                        <td className="text-muted-foreground py-3 pr-4">
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
                           {formatDate(invitation.expiresAt)}
-                        </td>
-                        <td className="py-3">
+                        </TableCell>
+                        <TableCell>
                           {invitation.status === "pending" ? (
                             <Button
                               type="button"
@@ -145,11 +150,11 @@ export function StaffInvitationsPanel({
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             )}
           </CardContent>

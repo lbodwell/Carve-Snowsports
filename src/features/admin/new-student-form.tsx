@@ -11,7 +11,16 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { createStudent } from "@/server/functions/student-roster";
 
 type NewStudentFormProps = {
@@ -102,11 +111,15 @@ export function NewStudentForm({
             <FieldLabel htmlFor="student-date-of-birth">
               Date of birth
             </FieldLabel>
-            <Input
+            <DatePicker
               id="student-date-of-birth"
-              type="date"
               value={dateOfBirth}
-              onChange={(event) => setDateOfBirth(event.target.value)}
+              onValueChange={setDateOfBirth}
+              placeholder="Choose a birthdate"
+              defaultMonth={new Date(new Date().getFullYear() - 10, 0, 1)}
+              startMonth={new Date(new Date().getFullYear() - 100, 0, 1)}
+              endMonth={new Date()}
+              disabledDates={{ after: new Date() }}
               required
             />
             <FieldDescription>
@@ -116,35 +129,45 @@ export function NewStudentForm({
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
               <FieldLabel htmlFor="student-discipline">Discipline</FieldLabel>
-              <select
-                id="student-discipline"
-                className="border-input bg-background h-9 rounded-md border px-3 text-sm"
-                value={disciplineId}
-                onChange={(event) => setDisciplineId(event.target.value)}
+              <Select
+                value={disciplineId || "none"}
+                onValueChange={(value) =>
+                  setDisciplineId(value === "none" ? "" : value)
+                }
               >
-                <option value="">Not set</option>
-                {disciplines.map((discipline) => (
-                  <option key={discipline.id} value={discipline.id}>
-                    {discipline.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="student-discipline">
+                  <SelectValue placeholder="Not set" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not set</SelectItem>
+                  {disciplines.map((discipline) => (
+                    <SelectItem key={discipline.id} value={discipline.id}>
+                      {discipline.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
             <Field>
               <FieldLabel htmlFor="student-level">Ability level</FieldLabel>
-              <select
-                id="student-level"
-                className="border-input bg-background h-9 rounded-md border px-3 text-sm"
-                value={abilityLevelId}
-                onChange={(event) => setAbilityLevelId(event.target.value)}
+              <Select
+                value={abilityLevelId || "none"}
+                onValueChange={(value) =>
+                  setAbilityLevelId(value === "none" ? "" : value)
+                }
               >
-                <option value="">Not set</option>
-                {abilityLevels.map((level) => (
-                  <option key={level.id} value={level.id}>
-                    {level.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="student-level">
+                  <SelectValue placeholder="Not set" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not set</SelectItem>
+                  {abilityLevels.map((level) => (
+                    <SelectItem key={level.id} value={level.id}>
+                      {level.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
           </div>
           {[
@@ -169,18 +192,16 @@ export function NewStudentForm({
             <FieldLabel htmlFor="student-medical">
               Medical/support information
             </FieldLabel>
-            <textarea
+            <Textarea
               id="student-medical"
-              className="border-input bg-background min-h-20 rounded-md border p-3 text-sm"
               value={medicalInfo}
               onChange={(event) => setMedicalInfo(event.target.value)}
             />
           </Field>
           <Field>
             <FieldLabel htmlFor="student-notes">Placement notes</FieldLabel>
-            <textarea
+            <Textarea
               id="student-notes"
-              className="border-input bg-background min-h-20 rounded-md border p-3 text-sm"
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
             />

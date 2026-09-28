@@ -12,7 +12,27 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   archiveStudent,
   updateStudent,
@@ -66,7 +86,6 @@ export function StudentDetailEditor({
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
-  const [showArchiveConfirmation, setShowArchiveConfirmation] = useState(false);
 
   const isRegistered = student.registrationId != null;
 
@@ -173,11 +192,19 @@ export function StudentDetailEditor({
             <FieldLabel htmlFor="edit-student-date-of-birth">
               Date of birth
             </FieldLabel>
-            <Input
+            <DatePicker
               id="edit-student-date-of-birth"
-              type="date"
               value={dateOfBirth}
-              onChange={(event) => setDateOfBirth(event.target.value)}
+              onValueChange={setDateOfBirth}
+              placeholder="Choose a birthdate"
+              defaultMonth={
+                dateOfBirth
+                  ? undefined
+                  : new Date(new Date().getFullYear() - 10, 0, 1)
+              }
+              startMonth={new Date(new Date().getFullYear() - 100, 0, 1)}
+              endMonth={new Date()}
+              disabledDates={{ after: new Date() }}
               required
             />
             <FieldDescription>
@@ -190,37 +217,47 @@ export function StudentDetailEditor({
               <FieldLabel htmlFor="edit-student-discipline">
                 Discipline
               </FieldLabel>
-              <select
-                id="edit-student-discipline"
-                className="border-input bg-background h-9 rounded-md border px-3 text-sm"
-                value={disciplineId}
-                onChange={(event) => setDisciplineId(event.target.value)}
+              <Select
+                value={disciplineId || "none"}
+                onValueChange={(value) =>
+                  setDisciplineId(value === "none" ? "" : value)
+                }
               >
-                <option value="">Not set</option>
-                {disciplines.map((discipline) => (
-                  <option key={discipline.id} value={discipline.id}>
-                    {discipline.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="edit-student-discipline">
+                  <SelectValue placeholder="Not set" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not set</SelectItem>
+                  {disciplines.map((discipline) => (
+                    <SelectItem key={discipline.id} value={discipline.id}>
+                      {discipline.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
             <Field>
               <FieldLabel htmlFor="edit-student-level">
                 Ability level
               </FieldLabel>
-              <select
-                id="edit-student-level"
-                className="border-input bg-background h-9 rounded-md border px-3 text-sm"
-                value={abilityLevelId}
-                onChange={(event) => setAbilityLevelId(event.target.value)}
+              <Select
+                value={abilityLevelId || "none"}
+                onValueChange={(value) =>
+                  setAbilityLevelId(value === "none" ? "" : value)
+                }
               >
-                <option value="">Not set</option>
-                {abilityLevels.map((level) => (
-                  <option key={level.id} value={level.id}>
-                    {level.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="edit-student-level">
+                  <SelectValue placeholder="Not set" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not set</SelectItem>
+                  {abilityLevels.map((level) => (
+                    <SelectItem key={level.id} value={level.id}>
+                      {level.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
           </div>
           <Field>
@@ -257,9 +294,8 @@ export function StudentDetailEditor({
             <FieldLabel htmlFor="edit-medical-info">
               Medical/support information
             </FieldLabel>
-            <textarea
+            <Textarea
               id="edit-medical-info"
-              className="border-input bg-background min-h-24 rounded-md border p-3 text-sm"
               value={medicalInfo}
               onChange={(event) => setMedicalInfo(event.target.value)}
             />
@@ -268,9 +304,8 @@ export function StudentDetailEditor({
             <FieldLabel htmlFor="edit-student-notes">
               Placement notes
             </FieldLabel>
-            <textarea
+            <Textarea
               id="edit-student-notes"
-              className="border-input bg-background min-h-24 rounded-md border p-3 text-sm"
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
             />
@@ -302,43 +337,34 @@ export function StudentDetailEditor({
             the working roster while retaining the audit history.
           </p>
         </div>
-        {showArchiveConfirmation ? (
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <p className="flex-1 text-sm font-medium">
-              Archive {student.firstName} {student.lastName}?
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setShowArchiveConfirmation(false)}
-            >
-              Keep student
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              disabled={isArchiving}
-              onClick={handleArchive}
-            >
-              <Archive data-icon="inline-start" />
-              {isArchiving ? "Archiving…" : "Archive"}
-            </Button>
-          </div>
-        ) : (
-          <div>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              onClick={() => setShowArchiveConfirmation(true)}
-            >
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button type="button" variant="destructive" size="sm">
               <Archive data-icon="inline-start" />
               Archive student
             </Button>
-          </div>
-        )}
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Archive {student.firstName} {student.lastName}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                This removes the student and their active registrations from the
+                working roster. Audit history is retained.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep student</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={isArchiving}
+                onClick={() => void handleArchive()}
+              >
+                {isArchiving ? "Archiving…" : "Archive"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </section>
     </div>
   );

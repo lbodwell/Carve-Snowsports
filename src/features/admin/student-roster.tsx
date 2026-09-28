@@ -12,6 +12,21 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { registerStudent } from "@/server/functions/student-roster";
 
 type StudentRow = {
@@ -220,39 +235,25 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-lg border">
-              <table className="w-full min-w-[70rem] text-left text-sm">
-                <thead className="bg-muted/50 text-muted-foreground text-xs">
-                  <tr>
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      Student
-                    </th>
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      Date of birth
-                    </th>
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      Registration
-                    </th>
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      Placement
-                    </th>
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      Guardian
-                    </th>
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      Medical/support
-                    </th>
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      Next step
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
+            <div className="rounded-xl border">
+              <Table className="min-w-[70rem]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Student</TableHead>
+                    <TableHead>Date of birth</TableHead>
+                    <TableHead>Registration</TableHead>
+                    <TableHead>Placement</TableHead>
+                    <TableHead>Guardian</TableHead>
+                    <TableHead>Medical/support</TableHead>
+                    <TableHead>Next step</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {filteredStudents.map((student) => {
                     const isRegistered = student.registrationId != null;
                     return (
-                      <tr key={student.id} className="hover:bg-muted/30">
-                        <td className="px-4 py-3 font-medium">
+                      <TableRow key={student.id}>
+                        <TableCell className="font-medium">
                           <Link
                             to="/admin/students/$studentId"
                             params={{ studentId: student.id }}
@@ -260,11 +261,11 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
                           >
                             {student.firstName} {student.lastName}
                           </Link>
-                        </td>
-                        <td className="text-muted-foreground px-4 py-3">
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
                           {student.dateOfBirth ?? "Not recorded"}
-                        </td>
-                        <td className="px-4 py-3">
+                        </TableCell>
+                        <TableCell>
                           <Badge
                             variant={isRegistered ? "secondary" : "outline"}
                           >
@@ -272,25 +273,25 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
                               ? statusLabel(student.registrationStatus)
                               : "Not registered"}
                           </Badge>
-                        </td>
-                        <td className="text-muted-foreground px-4 py-3">
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
                           {student.disciplineLabel ?? "Not set"}
                           {student.abilityLevelLabel
                             ? ` · ${student.abilityLevelLabel}`
                             : ""}
-                        </td>
-                        <td className="text-muted-foreground px-4 py-3">
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
                           <div>{student.guardianName || "Not recorded"}</div>
                           <div className="text-xs">
                             {student.guardianPhone || student.guardianEmail}
                           </div>
-                        </td>
-                        <td className="text-muted-foreground max-w-56 px-4 py-3">
+                        </TableCell>
+                        <TableCell className="text-muted-foreground max-w-56">
                           <span className="line-clamp-2">
                             {student.medicalInfo || "—"}
                           </span>
-                        </td>
-                        <td className="text-muted-foreground px-4 py-3">
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
                           {isRegistered ? (
                             "Ready for grouping review"
                           ) : (
@@ -306,12 +307,12 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
                                 : "Register"}
                             </Button>
                           )}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>
@@ -353,17 +354,18 @@ function FilterSelect({
   return (
     <label className="grid gap-1 text-sm font-medium">
       {label}
-      <select
-        className="border-input bg-background h-9 rounded-md border px-2 text-sm"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        {options.map(([optionValue, optionLabel]) => (
-          <option key={optionValue} value={optionValue}>
-            {optionLabel}
-          </option>
-        ))}
-      </select>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map(([optionValue, optionLabel]) => (
+            <SelectItem key={optionValue} value={optionValue}>
+              {optionLabel}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </label>
   );
 }

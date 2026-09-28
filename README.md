@@ -17,6 +17,10 @@ read-only UX and domain reference; it is not deployed by this project.
 4. Optionally load the demo roster with `bun run db:seed`.
 5. Start the app with `bun run dev`.
 
+Production deploy: see `docs/operations/vercel-deployment.md`. Use
+`bun run db:bootstrap` for an empty organization and admin, never `db:seed`,
+when the database will hold real staff or student data.
+
 ## Quality gates
 
 ```bash

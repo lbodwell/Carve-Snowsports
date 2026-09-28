@@ -1,6 +1,6 @@
 # Carve production rebuild handoff
 
-Last updated: 2026-07-12
+Last updated: 2026-09-07
 
 ## Where we are
 
@@ -16,37 +16,52 @@ ready for real staff data, production deployment, or cutover.
 Use this document to pick up implementation without re-discovering what is wired
 today versus what remains from `docs/plan.md`.
 
-## Next session: implement the import pipeline
+## Next session: productionize the import pipeline
 
-The immediate priority is **step 4 below** — the 2025–26 CSV import pipeline
-described in `docs/plan.md` (PR 11). **Do not start implementation until
-representative redacted source rows and field dictionaries are available.**
+The immediate priority is end-to-end validation and production configuration of
+the Aspenware import workflow. `CustomerProductListing.csv` is required;
+by-order and prompt exports are optional enrichments. The broad
+`CustomerDetailFromProductWithDOB.csv` export is deliberately unsupported.
 
-### Prerequisites before coding
+The current `/admin/imports` UI accepts individual CSVs or a ZIP. It validates
+supported headers, preserves validated files in private import storage, and
+starts a Vercel Workflow for asynchronous reconciliation. In production,
+configure a private Vercel Blob store for Preview and Production, grant the
+deployment Blob/OIDC access, and monitor import workflow runs in Vercel.
+Uploaded source files are temporary private objects; do not copy them to
+application logs, database JSON, or support tickets.
 
-- Redacted registration export samples and a field dictionary for the known
-  2025–26 headers.
-- Decisions on identity matching, attendance value semantics, product-date
-  mapping, and column-to-lesson-date mappings for attendance columns.
+### Prerequisites before production use
 
-### Suggested implementation order (once samples exist)
+- Redacted registration export samples and a field dictionary for the
+  Aspenware report headers.
+- Decisions on identity-match review, source status handling, and time-slot
+  mapping for product session labels.
+- A private Vercel Blob store, `BLOB_READ_WRITE_TOKEN` for non-Vercel/local
+  execution, and the Vercel Workflow capability enabled for the project.
+- A live Docker/Postgres environment for migration and integration-test
+  verification. Docker Desktop was unavailable during the latest local run.
 
-1. **Upload and staging** — import batch tables, file hash, adapter version,
-   structural validation; no domain-table writes on parse failure.
-2. **Normalize and preview** — canonical staging DTOs with row/column provenance;
-   persisted no-write reconciliation summary.
-3. **Matching and ambiguity queue** — deterministic keys first; human review for
-   uncertain person matches (no silent fuzzy match).
-4. **Idempotent apply** — transactional chunks; protect Carve-owned fields;
-   downloadable error export.
-5. **Tests** — golden files, integration apply tests, load test on representative
-   file size.
+### Remaining import hardening
+
+1. **Direct Blob uploads** — replace the current server-function transfer path
+   with authenticated browser-to-Blob uploads before accepting large source
+   files in production.
+2. **Identity review** — add a human ambiguity queue for unbound people; do not
+   introduce name-only auto-matching.
+3. **Workflow approval** — make Apply signal a durable workflow approval step,
+   rather than relying on a synchronous apply call.
+4. **Operational verification** — run migration, import integration, ZIP, and
+   browser tests against representative redacted files; configure raw-file
+   retention cleanup.
 
 ### Key references
 
 - Plan sequence: `docs/plan.md` → “PR 11 — Production import apply and reconciliation”
 - Import contract: `docs/imports/` (when populated) and `docs/plan.md` → “Known legacy registration source”
-- Domain preview slice: `src/domain/imports/` (header detection exists; not wired to upload)
+- Import domain and upload validation: `src/domain/imports/`
+- Import application service: `src/application/services/registration-import-service.server.ts`
+- Workflow entry point: `src/workflows/aspenware-import.ts`
 
 ## Current status
 
@@ -56,7 +71,7 @@ representative redacted source rows and field dictionaries are available.**
   Prettier.
 - GitHub Actions CI: format, lint, typecheck, unit tests, integration tests
   (migrations against disposable `carve_test`), E2E smoke, and production build.
-- Local Postgres via Docker on port 5433; **eleven** Drizzle migrations; idempotent
+- Local Postgres via Docker on port 5433; **fourteen** Drizzle migrations; idempotent
   seed in `src/db/seed.ts`.
 - Vitest unit project uses `DATABASE_URL=carve`; integration project overrides
   both `DATABASE_URL` and `TEST_DATABASE_URL` to `carve_test` and runs test
@@ -79,7 +94,8 @@ representative redacted source rows and field dictionaries are available.**
 - Role-aware navigation and route guards: instructors land on `/lessons`;
   coordinators/admins see permission-filtered admin navigation.
 - Production email delivery via Resend when `RESEND_API_KEY` and `EMAIL_FROM`
-  are configured; otherwise messages log to the console in development.
+  are configured. Development logs messages to the console. Production
+  refuses invitations and password resets if mail is not configured.
 - Role-specific sensitive-field projections on student roster/detail, grouping
   roster reads, and instructor lesson rosters via
   `src/application/policies/sensitive-field-projection.ts`.
@@ -193,13 +209,19 @@ Local admin: `admin@carve.local` / `DEV_ADMIN_PASSWORD` (default
 
 ### Imports, and production ops
 
-**Not started / prototype only** ← **next session (after samples)**
+**Implemented locally; production hardening remains**
 
-- `/demo` — database connectivity smoke route only.
-- CSV import: header validation and no-write preview in domain code only; no
-  upload, staging, matching, or apply pipeline.
-- No Neon/Vercel projects, production secrets, observability, backup restore
-  evidence, or cutover rehearsal.
+- `/admin/imports` — authorized upload of individual CSVs or a ZIP, header-based
+  role validation, required listing enforcement, and asynchronous status polling.
+- `src/domain/imports/aspenware-upload.ts` validates CSV roles; ZIP expansion
+  rejects encrypted archives, unsafe paths, duplicate roles, and oversized files.
+- Import batches/files/rows, source fingerprints, and purchaser parties are
+  persisted. Vercel Workflow reconciliation is started with a batch ID only.
+- Private import storage uses Vercel Blob when deployed and a local private
+  directory during development.
+- Remaining: direct-to-Blob client uploads, durable approval/cancellation,
+  import integration/E2E tests, retention sweep, deployment observability, and
+  production secrets/cutover rehearsal.
 
 ### Domain and tests
 
@@ -225,23 +247,23 @@ bun run dev
 
 Primary staff routes:
 
-| Route                          | Purpose                         |
-| ------------------------------ | ------------------------------- |
-| `/sign-in`                     | Staff authentication            |
-| `/admin`                       | Season operations overview      |
-| `/admin/seasons`               | Seasons and programs            |
-| `/admin/programs/$programId`   | Program configuration           |
-| `/admin/students`              | Student roster                  |
-| `/admin/audit`                 | Roster-wide audit search        |
-| `/admin/instructors`           | Instructor roster               |
-| `/admin/staff`                 | Staff invitations (admin)       |
-| `/accept-invitation/$id`       | Accept a staff invitation       |
-| `/lessons`                     | Instructor lesson schedule      |
-| `/lessons/$lessonInstanceId`   | Instructor lesson roster        |
-| `/grouping`                    | Grouping draft workspace        |
+| Route                        | Purpose                        |
+| ---------------------------- | ------------------------------ |
+| `/sign-in`                   | Staff authentication           |
+| `/admin`                     | Season operations overview     |
+| `/admin/seasons`             | Seasons and programs           |
+| `/admin/programs/$programId` | Program configuration          |
+| `/admin/students`            | Student roster                 |
+| `/admin/audit`               | Roster-wide audit search       |
+| `/admin/instructors`         | Instructor roster              |
+| `/admin/staff`               | Staff invitations (admin)      |
+| `/admin/imports`             | Aspenware import upload/status |
+| `/accept-invitation/$id`     | Accept a staff invitation      |
+| `/lessons`                   | Instructor lesson schedule     |
+| `/lessons/$lessonInstanceId` | Instructor lesson roster       |
+| `/grouping`                  | Grouping draft workspace       |
 
-`/demo` remains a small Postgres connectivity example. If port 3001 is busy,
-Vite picks the next available port.
+If port 3001 is busy, Vite picks the next available port.
 
 Cleanup:
 
@@ -256,12 +278,12 @@ data.
 
 Work in this order unless product input changes priorities.
 
-### 1. Implement the import pipeline ← **start here**
+### 1. Harden the import pipeline ← **start here**
 
-- Obtain redacted source rows and field dictionaries for the 2025–26 export.
-- Define identity, attendance, and date-mapping semantics.
-- Build staged upload, row validation, reconciliation preview, ambiguity review,
-  idempotent apply, and error exports.
+- Configure private Blob and Vercel Workflow in Preview/Production.
+- Replace server-function file transfer with direct Blob uploads.
+- Add manual identity review, durable approval/cancellation, and retention
+  cleanup before processing real staff data.
 
 ### 2. Complete lesson operations for instructors (PR 10)
 
@@ -304,23 +326,26 @@ Work in this order unless product input changes priorities.
 - Migration `0010` adds `group_revision_memberships` (student placements on
   published group revisions). Publication copies draft assignments into this
   table.
+- Migrations `0011`–`0013` add multi-file import staging, registration source
+  provenance/purchaser parties, and workflow/storage metadata.
 
 ## Verification
 
-Last full local verification: 2026-07-12 (unit, integration, typecheck, lint,
-build).
+Latest local verification: 2026-09-07 (import unit tests, typecheck, lint, and
+build). Integration and E2E tests were not run because Docker Desktop was not
+available.
 
 ```bash
 bun run format:check
 bun run lint
 bun run typecheck
-bun run test              # 27 unit tests
-bun run test:integration  # 17 integration tests, 6 files
+bun run test
+bun run test:integration
 bun run test:e2e
 bun run build
 ```
 
-Integration tests apply all **eleven** migrations to a fresh `carve_test` database.
+Integration tests apply all **fourteen** migrations to a fresh `carve_test` database.
 E2E runs against Postgres on isolated port 3101 with seeded admin sign-in.
 
 Re-run the full suite after schema, auth, grouping, import, or E2E changes.

@@ -17,7 +17,23 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   createProgramRecord,
   createSeasonRecord,
@@ -237,31 +253,31 @@ export function SeasonProgramConfiguration({
                     <FieldLabel htmlFor="season-starts-on">
                       Start date
                     </FieldLabel>
-                    <Input
+                    <DatePicker
                       id="season-starts-on"
-                      type="date"
                       value={seasonForm.startsOn}
-                      onChange={(event) =>
+                      onValueChange={(value) =>
                         setSeasonForm((current) => ({
                           ...current,
-                          startsOn: event.target.value,
+                          startsOn: value,
                         }))
                       }
+                      placeholder="Choose a start date"
                       required
                     />
                   </Field>
                   <Field>
                     <FieldLabel htmlFor="season-ends-on">End date</FieldLabel>
-                    <Input
+                    <DatePicker
                       id="season-ends-on"
-                      type="date"
                       value={seasonForm.endsOn}
-                      onChange={(event) =>
+                      onValueChange={(value) =>
                         setSeasonForm((current) => ({
                           ...current,
-                          endsOn: event.target.value,
+                          endsOn: value,
                         }))
                       }
+                      placeholder="Choose an end date"
                       required
                     />
                   </Field>
@@ -269,24 +285,26 @@ export function SeasonProgramConfiguration({
                 {editingSeasonId ? (
                   <Field>
                     <FieldLabel htmlFor="season-status">Status</FieldLabel>
-                    <select
-                      id="season-status"
-                      className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+                    <Select
                       value={seasonForm.status}
-                      onChange={(event) =>
+                      onValueChange={(value) =>
                         setSeasonForm((current) => ({
                           ...current,
-                          status: event.target
-                            .value as (typeof seasonStatuses)[number],
+                          status: value as (typeof seasonStatuses)[number],
                         }))
                       }
                     >
-                      {seasonStatuses.map((status) => (
-                        <option key={status} value={status}>
-                          {statusLabel(status)}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id="season-status">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {seasonStatuses.map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {statusLabel(status)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </Field>
                 ) : null}
                 {error ? <FieldError>{error}</FieldError> : null}
@@ -398,24 +416,26 @@ export function SeasonProgramConfiguration({
                         <FieldLabel htmlFor={`program-status-${season.id}`}>
                           Status
                         </FieldLabel>
-                        <select
-                          id={`program-status-${season.id}`}
-                          className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+                        <Select
                           value={programForm.status}
-                          onChange={(event) =>
+                          onValueChange={(value) =>
                             setProgramForm((current) => ({
                               ...current,
-                              status: event.target
-                                .value as (typeof programStatuses)[number],
+                              status: value as (typeof programStatuses)[number],
                             }))
                           }
                         >
-                          {programStatuses.map((status) => (
-                            <option key={status} value={status}>
-                              {statusLabel(status)}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger id={`program-status-${season.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {programStatuses.map((status) => (
+                              <SelectItem key={status} value={status}>
+                                {statusLabel(status)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </Field>
                     ) : null}
                     {error && programSeasonId === season.id ? (
@@ -446,46 +466,40 @@ export function SeasonProgramConfiguration({
                   No programs in this season yet.
                 </p>
               ) : (
-                <div className="overflow-x-auto rounded-lg border">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-muted/50 text-left">
-                      <tr>
-                        <th scope="col" className="px-4 py-3 font-medium">
-                          Program
-                        </th>
-                        <th scope="col" className="px-4 py-3 font-medium">
-                          Status
-                        </th>
-                        <th scope="col" className="px-4 py-3 font-medium">
-                          Configuration
-                        </th>
-                        <th scope="col" className="px-4 py-3 font-medium">
+                <div className="rounded-xl border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Program</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Configuration</TableHead>
+                        <TableHead>
                           <span className="sr-only">Actions</span>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {season.programs.map((program) => (
-                        <tr key={program.id} className="border-t">
-                          <td className="px-4 py-3">
+                        <TableRow key={program.id}>
+                          <TableCell>
                             <div className="font-medium">{program.name}</div>
                             {program.description ? (
                               <div className="text-muted-foreground mt-1">
                                 {program.description}
                               </div>
                             ) : null}
-                          </td>
-                          <td className="px-4 py-3">
+                          </TableCell>
+                          <TableCell>
                             <Badge variant="outline">
                               {statusLabel(program.status)}
                             </Badge>
-                          </td>
-                          <td className="text-muted-foreground px-4 py-3">
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
                             {program.disciplineCount} disciplines ·{" "}
                             {program.abilityLevelCount} levels ·{" "}
                             {program.timeSlotCount} time slots
-                          </td>
-                          <td className="px-4 py-3 text-right">
+                          </TableCell>
+                          <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
                               <Button asChild variant="ghost" size="sm">
                                 <Link
@@ -506,11 +520,11 @@ export function SeasonProgramConfiguration({
                                 Edit
                               </Button>
                             </div>
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
               )}
             </CardContent>

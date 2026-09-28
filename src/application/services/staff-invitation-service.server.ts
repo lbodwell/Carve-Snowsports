@@ -15,6 +15,7 @@ import {
   users,
 } from "@/db/schema";
 import { sendStaffInvitationEmail } from "@/server/mail/staff-invitation-mail.server";
+import { requireDeliverableEmail } from "@/server/mail/transport.server";
 
 const invitationTtlMs = 1000 * 60 * 60 * 24 * 7;
 
@@ -122,6 +123,7 @@ export async function createStaffInvitation(
   input: z.infer<typeof createStaffInvitationSchema>,
 ) {
   requirePermission(actor, "people:invite");
+  requireDeliverableEmail();
 
   const email = input.email.trim().toLowerCase();
   const [existingUser] = await db

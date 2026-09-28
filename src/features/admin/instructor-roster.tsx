@@ -4,6 +4,16 @@ import { useRouter } from "@tanstack/react-router";
 
 import { AuditHistoryPanel } from "@/features/admin/audit-history-panel";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +23,24 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import {
   archiveInstructor,
   saveInstructor,
@@ -53,6 +80,8 @@ export function InstructorRoster({
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [instructorToArchive, setInstructorToArchive] =
+    useState<InstructorRow | null>(null);
   const [auditHistory, setAuditHistory] = useState<
     Awaited<ReturnType<typeof getInstructorAuditHistory>>
   >([]);
@@ -157,13 +186,10 @@ export function InstructorRoster({
   }
 
   async function handleArchive(instructor: InstructorRow) {
-    if (
-      !window.confirm(`Archive ${instructor.firstName} ${instructor.lastName}?`)
-    )
-      return;
     setError(null);
     try {
       await archiveInstructor({ data: { instructorId: instructor.id } });
+      setInstructorToArchive(null);
       await router.invalidate();
     } catch (caught) {
       setError(
@@ -240,13 +266,12 @@ export function InstructorRoster({
                     key={disciplineKey}
                     className="flex items-center gap-2 text-sm"
                   >
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={form[disciplineKey]}
-                      onChange={(event) =>
+                      onCheckedChange={(checked) =>
                         setForm((current) => ({
                           ...current,
-                          [disciplineKey]: event.target.checked,
+                          [disciplineKey]: checked === true,
                         }))
                       }
                     />
@@ -256,8 +281,7 @@ export function InstructorRoster({
               </fieldset>
               <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
                 Notes
-                <textarea
-                  className="border-input bg-background min-h-24 rounded-md border px-3 py-2 text-sm"
+                <Textarea
                   value={form.notes}
                   onChange={(event) =>
                     setForm((current) => ({
@@ -339,17 +363,18 @@ export function InstructorRoster({
                 </Button>
               ) : null}
             </label>
-            <label className="grid gap-1 text-sm font-medium">
+            <label className="grid min-w-40 gap-1 text-sm font-medium">
               <span className="sr-only">Discipline</span>
-              <select
-                className="border-input bg-background h-9 rounded-md border px-3 text-sm"
-                value={discipline}
-                onChange={(event) => setDiscipline(event.target.value)}
-              >
-                <option value="all">All disciplines</option>
-                <option value="ski">Ski</option>
-                <option value="snowboard">Snowboard</option>
-              </select>
+              <Select value={discipline} onValueChange={setDiscipline}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All disciplines</SelectItem>
+                  <SelectItem value="ski">Ski</SelectItem>
+                  <SelectItem value="snowboard">Snowboard</SelectItem>
+                </SelectContent>
+              </Select>
             </label>
           </div>
           {error && !showForm ? (
@@ -357,26 +382,26 @@ export function InstructorRoster({
               {error}
             </p>
           ) : null}
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full min-w-[44rem] text-left text-sm">
-              <thead className="bg-muted/50 text-muted-foreground text-xs">
-                <tr>
-                  {["Instructor", "Disciplines", "Contact", "Notes", ""].map(
-                    (heading, index) => (
-                      <th key={index} className="px-4 py-3 font-medium">
-                        {heading}
-                      </th>
-                    ),
-                  )}
-                </tr>
-              </thead>
-              <tbody className="divide-y">
+          <div className="rounded-xl border">
+            <Table className="min-w-[44rem]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Instructor</TableHead>
+                  <TableHead>Disciplines</TableHead>
+                  <TableHead>Contact</TableHead>
+                  <TableHead>Notes</TableHead>
+                  <TableHead>
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {filtered.map((instructor) => (
-                  <tr key={instructor.id}>
-                    <td className="px-4 py-3 font-medium">
+                  <TableRow key={instructor.id}>
+                    <TableCell className="font-medium">
                       {instructor.firstName} {instructor.lastName}
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell>
                       <div className="flex gap-1">
                         {instructor.disciplines.map((item) => (
                           <Badge key={item.key} variant="outline">
@@ -384,17 +409,17 @@ export function InstructorRoster({
                           </Badge>
                         ))}
                       </div>
-                    </td>
-                    <td className="text-muted-foreground px-4 py-3">
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
                       <div>{instructor.phone || "—"}</div>
                       <div>{instructor.email}</div>
-                    </td>
-                    <td className="text-muted-foreground max-w-64 px-4 py-3">
+                    </TableCell>
+                    <TableCell className="text-muted-foreground max-w-64">
                       <span className="line-clamp-2">
                         {instructor.notes || "—"}
                       </span>
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell>
                       <div className="flex justify-end gap-1">
                         <Button
                           type="button"
@@ -409,20 +434,50 @@ export function InstructorRoster({
                           type="button"
                           size="icon-xs"
                           variant="ghost"
-                          onClick={() => handleArchive(instructor)}
+                          onClick={() => setInstructorToArchive(instructor)}
                           aria-label={`Archive ${instructor.firstName} ${instructor.lastName}`}
                         >
                           <Trash2 />
                         </Button>
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </CardContent>
       </Card>
+      <AlertDialog
+        open={instructorToArchive !== null}
+        onOpenChange={(open) => {
+          if (!open) setInstructorToArchive(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Archive {instructorToArchive?.firstName}{" "}
+              {instructorToArchive?.lastName}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the instructor from the working roster. Audit history
+              is retained.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep instructor</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (instructorToArchive)
+                  void handleArchive(instructorToArchive);
+              }}
+            >
+              Archive
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

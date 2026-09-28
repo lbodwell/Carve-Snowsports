@@ -1,6 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import { getServiceHealth } from "@/server/functions/health";
+
 export const Route = createFileRoute("/health")({
+  loader: async () => {
+    const health = await getServiceHealth();
+    if (!health.ok) {
+      throw new Error("Database unavailable");
+    }
+    return health;
+  },
   component: HealthPage,
   head: () => ({ meta: [{ title: "Carve service health" }] }),
 });

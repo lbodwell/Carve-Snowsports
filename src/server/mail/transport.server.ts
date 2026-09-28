@@ -1,3 +1,4 @@
+import { ApplicationError } from "@/application/errors";
 import { env } from "@/server/env.server";
 
 export type OutboundEmail = {
@@ -45,18 +46,25 @@ export function canDeliverProductionEmail() {
   return Boolean(env.RESEND_API_KEY && env.EMAIL_FROM);
 }
 
+export function requireDeliverableEmail(
+  nodeEnv = process.env.NODE_ENV,
+  configured = canDeliverProductionEmail(),
+) {
+  if (nodeEnv === "production" && !configured) {
+    throw new ApplicationError(
+      "INVALID_STATE",
+      "Email delivery is not configured. Set RESEND_API_KEY and EMAIL_FROM before inviting staff or sending password resets.",
+    );
+  }
+}
+
 export async function sendEmail(email: OutboundEmail) {
   if (canDeliverProductionEmail()) {
     await sendWithResend(email);
     return;
   }
 
-  if (process.env.NODE_ENV !== "production") {
-    console.info(formatConsoleEmail(email));
-    return;
-  }
+  requireDeliverableEmail();
 
-  console.warn(
-    `[mail] Production email delivery is not configured. Message to ${email.to} was not sent.`,
-  );
+  console.info(formatConsoleEmail(email));
 }

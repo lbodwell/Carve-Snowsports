@@ -3,7 +3,9 @@ import { expect, test } from "@playwright/test";
 const developmentAdminPassword =
   process.env.DEV_ADMIN_PASSWORD ?? "carve-local-admin";
 
-test("serves health and the database-backed demo roster", async ({ page }) => {
+test("serves health and the authenticated staff workspace", async ({
+  page,
+}) => {
   page.on("request", (request) => {
     if (request.url().includes("auth")) console.info("request", request.url());
   });
@@ -97,6 +99,8 @@ test("serves health and the database-backed demo roster", async ({ page }) => {
   await expect(page.getByText(/submitted/i)).toBeVisible();
 
   await page.goto("/admin/audit");
-  await expect(page.getByRole("heading", { name: "Roster audit" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Roster audit" }),
+  ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Results" })).toBeVisible();
 });

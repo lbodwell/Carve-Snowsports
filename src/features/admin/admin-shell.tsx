@@ -2,10 +2,13 @@ import { Link } from "@tanstack/react-router";
 import {
   CalendarDays,
   CalendarRange,
+  ClipboardList,
+  FileUp,
   GraduationCap,
   History,
   LayoutDashboard,
   LogOut,
+  Menu,
   UserPlus,
   UsersRound,
 } from "lucide-react";
@@ -19,6 +22,14 @@ import {
 } from "@/application/policies/authorization";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { authClient } from "@/features/auth/auth-client";
 import { getStaffSession } from "@/server/functions/session";
 
@@ -26,8 +37,10 @@ const navigationIcons = {
   "/admin": LayoutDashboard,
   "/admin/seasons": CalendarRange,
   "/admin/students": UsersRound,
+  "/admin/surveys": ClipboardList,
   "/admin/audit": History,
   "/admin/instructors": GraduationCap,
+  "/admin/imports": FileUp,
   "/grouping": CalendarDays,
   "/admin/staff": UserPlus,
   "/lessons": CalendarDays,
@@ -37,6 +50,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Awaited<
     ReturnType<typeof getStaffSession>
   > | null>(null);
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
 
   useEffect(() => {
     void getStaffSession().then(setSession);
@@ -52,28 +66,93 @@ export function AdminShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="bg-muted/30 min-h-svh">
-      <header className="bg-background border-b">
+    <div className="staff-workspace bg-pm-cream/70 min-h-svh">
+      <header className="border-pm-orange bg-pm-forest border-t-4 text-white shadow-sm">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-          <Link
-            to={session ? getStaffHomePath(session.role as Role) : "/admin"}
-            className="flex min-w-0 items-center gap-3"
-          >
-            <span className="bg-primary text-primary-foreground flex size-8 items-center justify-center rounded-lg text-sm font-semibold">
-              C
-            </span>
-            <span className="truncate text-sm font-semibold">Carve</span>
-            <Badge variant="secondary">Staff workspace</Badge>
-          </Link>
+          <div className="flex min-w-0 items-center gap-2">
+            <Sheet
+              open={mobileNavigationOpen}
+              onOpenChange={setMobileNavigationOpen}
+            >
+              <SheetTrigger asChild>
+                <Button
+                  className="text-white hover:bg-white/10 hover:text-white lg:hidden"
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  aria-label="Open staff navigation"
+                >
+                  <Menu aria-hidden="true" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent
+                className="staff-workspace bg-pm-cream/95"
+                side="left"
+              >
+                <SheetHeader className="bg-pm-forest border-b text-left">
+                  <SheetTitle className="text-white">
+                    Pleasant Mountain
+                  </SheetTitle>
+                  <SheetDescription className="text-white/70">
+                    Staff workspace navigation
+                  </SheetDescription>
+                </SheetHeader>
+                <nav
+                  aria-label="Mobile admin navigation"
+                  className="flex flex-col gap-1 p-3"
+                >
+                  {navigation.map((item) => {
+                    const Icon =
+                      navigationIcons[item.to as keyof typeof navigationIcons];
+                    return (
+                      <Link
+                        key={item.to}
+                        to={item.to}
+                        activeOptions={{ exact: item.exact ?? false }}
+                        onClick={() => setMobileNavigationOpen(false)}
+                        className="text-muted-foreground hover:bg-pm-mist hover:text-pm-forest flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors"
+                        activeProps={{
+                          className:
+                            "flex h-10 items-center gap-2 rounded-lg bg-pm-forest px-3 text-sm font-medium text-white",
+                        }}
+                      >
+                        <Icon aria-hidden="true" />
+                        {item.label}
+                      </Link>
+                    );
+                  })}
+                </nav>
+              </SheetContent>
+            </Sheet>
+            <Link
+              to={session ? getStaffHomePath(session.role as Role) : "/admin"}
+              className="flex min-w-0 items-center gap-3"
+            >
+              <span className="bg-pm-orange flex size-9 items-center justify-center rounded-xl text-xs font-bold text-white shadow-sm">
+                PM
+              </span>
+              <span className="truncate text-sm font-semibold">
+                Pleasant Mountain
+              </span>
+              <Badge className="hidden border-white/15 bg-white/10 text-white sm:inline-flex">
+                Staff workspace
+              </Badge>
+            </Link>
+          </div>
           <div className="flex items-center gap-3">
             {session ? (
-              <p className="text-muted-foreground hidden text-sm sm:block">
+              <p className="hidden text-sm text-white/75 sm:block">
                 {session.user.name}
               </p>
             ) : null}
-            <Button type="button" variant="ghost" onClick={signOut}>
+            <Button
+              className="text-white hover:bg-white/10 hover:text-white"
+              type="button"
+              variant="ghost"
+              onClick={signOut}
+            >
               <LogOut aria-hidden />
-              Sign out
+              <span className="hidden sm:inline">Sign out</span>
             </Button>
           </div>
         </div>
@@ -82,7 +161,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:flex-row lg:px-8">
         <nav
           aria-label="Admin navigation"
-          className="flex shrink-0 gap-1 overflow-x-auto lg:w-48 lg:flex-col"
+          className="bg-background hidden h-fit shrink-0 rounded-2xl border p-2 shadow-sm lg:flex lg:w-52 lg:flex-col lg:gap-1"
         >
           {navigation.map((item) => {
             const Icon =
@@ -92,10 +171,10 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 key={item.to}
                 to={item.to}
                 activeOptions={{ exact: item.exact ?? false }}
-                className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors"
+                className="text-muted-foreground hover:bg-pm-mist hover:text-pm-forest flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors"
                 activeProps={{
                   className:
-                    "flex h-9 items-center gap-2 rounded-lg bg-secondary px-3 text-sm font-medium text-foreground",
+                    "flex h-9 items-center gap-2 rounded-lg bg-pm-forest px-3 text-sm font-medium text-white",
                 }}
               >
                 <Icon aria-hidden />
