@@ -40,11 +40,11 @@ These are implemented. Do not re-do them as code work:
 
 ### Still required from you before testers sign in
 
-1. **Apply migrations yourself.** `vite build` does not run Drizzle. Use the
-   Neon **direct** URL with `bun run db:migrate`.
+1. **Confirm the production build migrated.** The Vercel build command runs
+   `bun run db:migrate` against the injected unpooled URL, then builds.
 2. **Bootstrap the empty database.** Track A may use `bun run db:seed`
    (synthetic students). Track B must use `bun run db:bootstrap` and never
-   seed.
+   seed. Pull env with the Vercel CLI; do not paste `DATABASE_URL`.
 3. **Configure Resend** on the Production environment. Invites will now fail
    loudly if you skip this.
 
@@ -75,18 +75,26 @@ Create these before touching Vercel env vars.
 
 ### 1. Neon Postgres
 
-1. Create a Neon project in `us-east-1` (or the region closest to Vercel).
-2. Create two databases or two branches:
-   - `carve` production branch
-   - optional `carve-preview` branch if you will use Preview deployments
-3. Copy **both** connection strings:
-   - **Pooled** (`-pooler`) — use this as Vercel `DATABASE_URL`. The app
-     already sets `prepare: false` in `src/db/client.server.ts`.
-   - **Direct** (no pooler) — use this only on your laptop for
-     `bun run db:migrate`.
-4. Enable **PITR / backups** on the production branch and write down how to
-   restore. The release runbook requires a documented restore point before
-   cutover.
+Prefer the **Vercel Marketplace Neon integration**. It creates the database
+and injects `DATABASE_URL` (pooled) plus `DATABASE_URL_UNPOOLED` (direct)
+into Production and Preview. You do not paste a connection string, and you
+do not need a separate neon.com login for the app to connect.
+
+1. In the Vercel project, add **Neon Postgres**. Leave Neon Auth off —
+   Carve already uses Better Auth.
+2. Confirm `DATABASE_URL` and `DATABASE_URL_UNPOOLED` appear on Production
+   (and Preview if you want it). The app reads `DATABASE_URL` at runtime
+   with `prepare: false` in `src/db/client.server.ts`.
+3. Production builds run `bun run db:migrate` against the unpooled URL, then
+   `bun run build`. Do not log in to neon.com just to migrate.
+4. To run `db:bootstrap` from this laptop, log into the **Vercel CLI**
+   (`vercel login`, then `vercel link` and
+   `vercel env pull .env.local --environment=production --yes`). That pulls
+   the injected URL. Do not create a Neon website account for this.
+5. Optional later: enable Neon preview branching in the Vercel integration
+   so Preview deployments get their own branch. Not required for beta.
+6. Enable **PITR / backups** on the production branch (from the Vercel
+   Neon store page) and write down how to restore before cutover.
 
 ### 2. Resend
 

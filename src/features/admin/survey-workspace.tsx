@@ -58,9 +58,14 @@ import {
 
 type Workspace = Awaited<ReturnType<typeof getAdminSurveyWorkspace>>;
 
-const sessionLabels = Object.fromEntries(
-  surveySessions.map((option) => [option.key, option.label]),
-);
+const sessionLabels: Record<string, string> = {
+  ...Object.fromEntries(
+    surveySessions.map((option) => [option.key, option.label]),
+  ),
+  // Legacy keys from earlier Thursday/Friday options without session splits.
+  "thursday-am-0930-1100": "Thursday AM (9:30–11)",
+  "friday-am-0930-1100": "Friday AM (9:30–11)",
+};
 const levelLabels = Object.fromEntries(
   surveyLevels.map((option) => [option.key, option.label]),
 );

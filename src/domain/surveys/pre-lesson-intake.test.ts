@@ -65,6 +65,30 @@ describe("pre-lesson intake survey", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  test("accepts Thursday and Friday session options", () => {
+    expect(
+      preLessonIntakeAnswersSchema.parse({
+        ...validAnswers,
+        session: "thursday-am-0930-1100-session-1",
+      }).session,
+    ).toBe("thursday-am-0930-1100-session-1");
+    expect(
+      preLessonIntakeAnswersSchema.parse({
+        ...validAnswers,
+        session: "friday-am-0930-1100-session-2",
+      }).session,
+    ).toBe("friday-am-0930-1100-session-2");
+  });
+
+  test("accepts lift experience at another mountain", () => {
+    expect(
+      preLessonIntakeAnswersSchema.parse({
+        ...validAnswers,
+        lifts: ["another-mountain"],
+      }).lifts,
+    ).toEqual(["another-mountain"]);
+  });
 });
 
 describe("survey student matching", () => {

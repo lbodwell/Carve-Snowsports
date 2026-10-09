@@ -6,8 +6,22 @@ export const disciplines = ["ski", "snowboard"] as const;
 export type SurveyDiscipline = (typeof disciplines)[number];
 
 export const surveySessions = [
-  { key: "thursday-am-0930-1100", label: "Thursday AM (9:30–11)" },
-  { key: "friday-am-0930-1100", label: "Friday AM (9:30–11)" },
+  {
+    key: "thursday-am-0930-1100-session-1",
+    label: "Thursday AM (9:30–11) — session 1 (starting Jan 7)",
+  },
+  {
+    key: "thursday-am-0930-1100-session-2",
+    label: "Thursday AM (9:30–11) — session 2 (starting Feb 4)",
+  },
+  {
+    key: "friday-am-0930-1100-session-1",
+    label: "Friday AM (9:30–11) — session 1 (starting Jan 8)",
+  },
+  {
+    key: "friday-am-0930-1100-session-2",
+    label: "Friday AM (9:30–11) — session 2 (starting Feb 5)",
+  },
   { key: "saturday-am-1000-1200", label: "Saturday AM (10–12)" },
   { key: "saturday-pm-1300-1500", label: "Saturday PM (1–3)" },
   { key: "saturday-full-1000-1500", label: "Saturday Full (10–3)" },
@@ -72,6 +86,7 @@ export const surveyLifts = [
   { key: "pine-quad", label: "Pine Quad" },
   { key: "summit-express-quad", label: "Summit Express Quad" },
   { key: "sunnyside-triple-east", label: "Sunnyside Triple (East)" },
+  { key: "another-mountain", label: "Lift at another mountain" },
 ] as const;
 
 const dateSchema = z
