@@ -299,9 +299,9 @@ describe("lesson authorization integration", () => {
 
     const schedule = await getInstructorLessonSchedule(actor);
     expect(schedule.lessons.length).toBeGreaterThan(0);
-    expect(schedule.lessons.some((lesson) => lesson.id === lessonInstanceId)).toBe(
-      true,
-    );
+    expect(
+      schedule.lessons.some((lesson) => lesson.id === lessonInstanceId),
+    ).toBe(true);
 
     const roster = await getLessonInstanceRoster(actor, {
       lessonInstanceId,

@@ -8,6 +8,12 @@ Carve is a TanStack Start / Nitro app. Vercel hosts the app. Neon hosts
 Postgres. Resend sends staff invitation and password-reset email. Vercel Blob
 and Vercel Workflows are required only for `/admin/imports`.
 
+For this existing project, use [Controlled production releases](production-release.md)
+for the provisioned resource inventory, GitHub credentials, and coordinated pipeline
+activation. The sections below also describe initial setup for a new installation.
+The live dashboard's legacy build override must still be replaced during cutover;
+repository changes alone do not prove the new pipeline is active.
+
 Two tracks exist. Do not mix them.
 
 | Track                   | Who                                   | Data                              | Ready now?                                               |
@@ -40,8 +46,9 @@ These are implemented. Do not re-do them as code work:
 
 ### Still required from you before testers sign in
 
-1. **Confirm the production build migrated.** The Vercel build command runs
-   `bun run db:migrate` against the injected unpooled URL, then builds.
+1. **Apply reviewed migrations explicitly.** The repository build command is
+   `vite build`; it does not migrate. Run `bun run db:migrate` against the intended
+   direct/unpooled URL in the controlled deployment process, outside the build.
 2. **Bootstrap the empty database.** Track A may use `bun run db:seed`
    (synthetic students). Track B must use `bun run db:bootstrap` and never
    seed. Pull env with the Vercel CLI; do not paste `DATABASE_URL`.
@@ -53,11 +60,14 @@ These are implemented. Do not re-do them as code work:
 1. **Data-policy gate is still open.** Retention, deletion, access-review, and
    incident-response policies are required before real child data
    (`docs/security/baseline.md`).
-2. **Import apply auto-creates people** from Aspenware names with no identity
-   review queue. Wrong matches become working roster records.
-3. **Import files still travel through server functions**, not direct
-   browser-to-Blob uploads. Large exports can hit Vercel body / timeout limits.
-4. **Apply is a synchronous call**, not a durable workflow approval step.
+2. **Rehearse identity review and survey matching** with representative redacted
+   exports. Stable external IDs are reused; possible existing students require a
+   link/create decision. Missing birthdates require human survey review.
+3. **Configure private Blob client uploads.** Deployed imports use short-lived
+   browser upload tokens and require `BLOB_READ_WRITE_TOKEN` from a private store.
+   Verify the actual Preview/Production configuration before real exports.
+4. **Verify durable reconciliation and apply** in Vercel Workflow, including
+   failure/retry behavior. Both now use explicit Workflow steps and the Vite plugin.
 5. **No error tracking** (Sentry or similar). Production mail/import failures
    that escape fail-closed checks still live in Vercel function logs.
 6. **Instructor attendance / notes / substitutions are not persisted.**
@@ -85,14 +95,16 @@ do not need a separate neon.com login for the app to connect.
 2. Confirm `DATABASE_URL` and `DATABASE_URL_UNPOOLED` appear on Production
    (and Preview if you want it). The app reads `DATABASE_URL` at runtime
    with `prepare: false` in `src/db/client.server.ts`.
-3. Production builds run `bun run db:migrate` against the unpooled URL, then
-   `bun run build`. Do not log in to neon.com just to migrate.
+3. Production builds run `bun run build` only. Apply reviewed migrations using
+   `bun run db:migrate` against the direct/unpooled URL in a serialized release
+   job, before promoting the new application. The existing CI workflow tests
+   migrations locally; it does not migrate Neon or gate the current deploy hook.
 4. To run `db:bootstrap` from this laptop, log into the **Vercel CLI**
    (`vercel login`, then `vercel link` and
    `vercel env pull .env.local --environment=production --yes`). That pulls
    the injected URL. Do not create a Neon website account for this.
-5. Optional later: enable Neon preview branching in the Vercel integration
-   so Preview deployments get their own branch. Not required for beta.
+5. Give Preview its own Neon branch or separate database. Preview migrations,
+   imports, and synthetic tests must not write to the production database.
 6. Enable **PITR / backups** on the production branch (from the Vercel
    Neon store page) and write down how to restore before cutover.
 
@@ -118,7 +130,11 @@ do not need a separate neon.com login for the app to connect.
    - Output: leave default (Nitro / TanStack Start detection)
 4. Enable **Vercel Blob** on the project (private store) if testers will
    upload imports.
-5. Enable **Vercel Workflows** on the project if testers will upload imports.
+5. Deploy the existing **Workflow SDK** integration if testers will upload
+   imports. Vercel supplies managed workflow storage and queues; no separate
+   Redis, worker server, or queue database is needed. Enable Fluid compute and
+   system environment variables, and verify runs appear in the Workflow view.
+   Do not set local-only `WORKFLOW_LOCAL_*` variables on Vercel.
 6. Add a Production domain. Prefer a stable hostname
    (`carve.pleasantmountain.com`) over the raw `*.vercel.app` URL so auth
    cookies and invite links stay stable.
@@ -143,7 +159,7 @@ if Preview URLs differ from Production.
 | `LOG_LEVEL`                  | `info`                                              | `info` or `debug`                    | No                                           |
 | `DEV_IMPERSONATE_USER_EMAIL` | **unset**                                           | **unset**                            | Dev-only; ignored when `NODE_ENV=production` |
 | `DEV_ADMIN_PASSWORD`         | Do not set on Vercel                                | Do not set                           | Seed/e2e only                                |
-| `BLOB_READ_WRITE_TOKEN`      | Usually omit on Vercel (OIDC)                       | Omit                                 | Imports only; local Blob testing             |
+| `BLOB_READ_WRITE_TOKEN`      | Private Blob store server token                     | Separate private Preview store       | Imports; issues scoped client-upload tokens  |
 
 Generate the auth secret locally:
 
@@ -163,7 +179,54 @@ $env:DATABASE_URL = "postgresql://USER:PASSWORD@ep-....neon.tech/carve?sslmode=r
 bun run db:migrate
 ```
 
-Confirm 15 migrations applied (`0000`–`0014`).
+The current migration journal contains 16 migrations (`0000`–`0015`).
+`drizzle-kit migrate` applies only pending journal entries, including the new
+lesson-session calendar migration. `drizzle.config.ts` prefers
+`DATABASE_URL_UNPOOLED`; confirm it targets the intended environment. Generate
+and review migrations in development; do not use `drizzle-kit push` or generate
+new migrations during a production release.
+
+## Recommended production release control
+
+Keep Vercel hosting/builds and automatic isolated Preview deployments. Use
+GitHub Actions to orchestrate production releases from an exact checked-out
+commit. The existing `.github/workflows/ci.yml` is verification only; a
+production release job is implemented in `.github/workflows/production-release.yml`.
+It remains inactive until committed/pushed, its GitHub environment credentials are
+configured, and the legacy build setting is removed. Follow
+[the activation guide](production-release.md#activate-once-credentials-are-ready).
+
+1. Complete quality checks and a staging import rehearsal against a separate
+   database and private Blob store.
+2. Serialize production release jobs (`cancel-in-progress: false`) and scope
+   the production database credentials to that job/environment.
+3. Build a staged production deployment from the tested commit using Vercel's
+   remote build, e.g. `vercel deploy --prod --skip-domain`. Wait for it to be
+   ready without assigning the production domain.
+4. Apply reviewed pending migrations through the direct/unpooled connection.
+   Stop on failure; do not promote. A migration runner should also take a
+   Postgres advisory lock to protect against an overlapping manual migration.
+5. Check health and read-only application smoke tests on the staged deployment.
+   Run write-heavy import tests in staging, not against live roster data.
+6. Promote that exact deployment with `vercel promote <deployment-url>`.
+
+Disable the existing independent production hook/automatic production path
+when this pipeline takes ownership, otherwise it can race the migration job.
+Calling a hook after CI is insufficient if the hook builds the latest branch
+head rather than the tested commit. Keep Preview releases independent and
+isolated from production data.
+
+Use additive, backward-compatible migrations so the old app and in-flight
+import workflows can keep running while the schema changes. For a rename or
+removal, add the replacement first, deploy compatible code and backfill, then
+remove the old field in a later release after old callers have drained.
+The latest `0015` migration adds columns with defaults and preserves existing
+regular-season behavior; it does not delete or rewrite roster records.
+
+Relevant platform documentation: [Workflow deployment](https://workflow-sdk.dev/docs/deploying),
+[private Blob client uploads](https://vercel.com/docs/vercel-blob/client-upload),
+[staged Vercel deployments](https://vercel.com/docs/cli/deploying-from-cli), and
+[Drizzle migration execution](https://orm.drizzle.team/docs/drizzle-kit-migrate).
 
 ### Track A bootstrap (synthetic beta)
 
@@ -207,9 +270,11 @@ password. It refuses `Carve Demo Ski School` and `@carve.local` addresses.
 ## Deploy
 
 1. Push this branch and import the repo on Vercel (TanStack Start + Bun).
-2. Confirm Vercel env vars are saved for Production. Preview deployments
-   reuse those values but rewrite the public origin from `VERCEL_URL`.
-3. Trigger the Production deployment.
+2. Confirm Vercel env vars are saved for Production. Preview uses a separate
+   database, private Blob store, and auth secret; its public origin is rewritten
+   from `VERCEL_URL`.
+3. For this project, run the controlled **Production release** GitHub workflow
+   after completing its activation guide. Do not invoke an independent deploy hook.
 4. Wait for the build. First failure modes:
    - missing required env → server module throws on boot
    - Neon not migrated → `/health` fails
@@ -269,17 +334,18 @@ Does not work yet:
 
 - Persisted attendance, lesson notes, substitutions
 - Printable / CSV lesson export
-- Identity-review import apply
 - Microsoft Entra sign-in (`docs/security/entra-migration.md`)
 
 ## Rollback
 
 - **App:** Vercel → Deployments → promote the previous Production deployment.
-- **Schema:** Drizzle migrations in this repo are forward-only. Do not apply
-  an unreviewed migration to production. Restore Neon PITR if a migration
-  must be undone.
-- **Bad import apply:** restore the pre-import Neon point. Applied people
-  are real roster rows.
+- **Schema:** App rollback does not roll back the database. Prefer a reviewed
+  forward fix; backward-compatible schema changes keep the previous app usable.
+  PITR is disaster recovery: restore to an isolated branch and assess newer
+  writes before replacing the live database.
+- **Bad import apply:** inspect the batch and audit trail before planning a
+  targeted correction. A whole-database restore also removes unrelated writes
+  made since the restore point; it is not a routine import Undo operation.
 
 ## Related docs
 

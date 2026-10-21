@@ -2,3 +2,8 @@ src/routeTree.gen.ts
 .output
 .nitro
 node_modules
+.tmp
+.agents
+.local-imports
+# Drizzle owns the formatting of generated migration metadata.
+src/db/migrations/meta

@@ -10,6 +10,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import { useState } from "react";
+import { SurveyMatchReview } from "./survey-match-review";
 import type { FormEvent } from "react";
 
 import type { getAdminSurveyWorkspace } from "@/server/functions/surveys";
@@ -52,7 +53,9 @@ import {
 } from "@/domain/surveys/pre-lesson-intake";
 import {
   addParentSurveyInvitation,
+  confirmParentSurveyMatch,
   generateParentSurveyInvitations,
+  reconcileParentSurveyMatches,
   saveSurveyAccess,
 } from "@/server/functions/surveys";
 
@@ -111,6 +114,7 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [needsReviewOnly, setNeedsReviewOnly] = useState(true);
 
   if (!survey) {
     return (
@@ -434,119 +438,191 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
         <CardHeader>
           <CardTitle className="text-lg">Responses</CardTitle>
           <CardDescription>
-            Suggested matches use exact child name and birthdate. Review medical
-            details here; nothing is applied automatically.
+            Exact child name and birthdate matches link automatically. Uncertain
+            responses stay here for review. Linking preserves existing roster
+            details and keeps medical answers out of grouping rules.
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={needsReviewOnly}
+                onChange={(event) => setNeedsReviewOnly(event.target.checked)}
+              />
+              Needs review only (
+              {
+                workspace.responses.filter(
+                  (response) => !response.confirmedStudentId,
+                ).length
+              }
+              )
+            </label>
+            <Button
+              variant="outline"
+              disabled={busy !== null}
+              onClick={() =>
+                void run(
+                  "matching",
+                  () => reconcileParentSurveyMatches(),
+                  "Matching refreshed. Uncertain responses still need your review.",
+                )
+              }
+            >
+              Check matches again
+            </Button>
+          </div>
+          {needsReviewOnly &&
+            workspace.responses.length > 0 &&
+            workspace.responses.every(
+              (response) => response.confirmedStudentId,
+            ) && (
+              <p className="text-pm-green py-4 text-sm">
+                All responses are linked. Clear the filter to review them.
+              </p>
+            )}
           {workspace.responses.length === 0 ? (
             <p className="text-muted-foreground text-sm">
               No responses have been submitted.
             </p>
           ) : (
             <Accordion type="multiple" className="flex flex-col gap-3">
-              {workspace.responses.map((response) => {
-                const answers = response.answers;
-                return (
-                  <AccordionItem
-                    className="overflow-hidden rounded-xl border last:border-b data-[state=open]:border-[#315925]/30 data-[state=open]:bg-[#edf4e9]/20"
-                    key={response.id}
-                    value={response.id}
-                  >
-                    <AccordionTrigger className="px-4 py-4 hover:bg-[#edf4e9]/40 hover:no-underline">
-                      <div className="flex w-full flex-wrap items-center justify-between gap-3 pr-2 text-left">
-                        <div>
-                          <p className="font-medium">
-                            {response.childFirstName} {response.childLastName}
-                          </p>
-                          <p className="text-muted-foreground text-sm font-normal">
-                            Born {response.childDateOfBirth} ·{" "}
-                            {answers.discipline === "ski"
-                              ? "Skier"
-                              : "Snowboarder"}{" "}
-                            · {levelLabels[answers.level]}
-                          </p>
-                        </div>
-                        <Badge
-                          className={
-                            response.matchStatus === "unique"
-                              ? "border-[#315925]/20 bg-[#edf4e9] text-[#244617]"
-                              : "border-[#d88a00]/25 bg-[#fff6e6] text-[#925d00]"
-                          }
-                          variant="outline"
-                        >
-                          {response.matchStatus === "unique"
-                            ? "Suggested match"
-                            : response.matchStatus}
-                        </Badge>
-                      </div>
-                    </AccordionTrigger>
-                    <AccordionContent className="bg-background/70 border-t px-4 pt-4 pb-4">
-                      <div className="grid gap-4 text-sm sm:grid-cols-2">
-                        <div>
-                          <p className="font-medium">Parent email</p>
-                          <p className="text-muted-foreground">
-                            {answers.parentEmail}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="font-medium">Session</p>
-                          <p className="text-muted-foreground">
-                            {sessionLabels[answers.session]}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="font-medium">Comfortable lifts</p>
-                          <p className="text-muted-foreground">
-                            {answers.lifts
-                              .map((lift) => liftLabels[lift])
-                              .join(", ")}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="font-medium">Medical concerns</p>
-                          <p className="text-muted-foreground whitespace-pre-wrap">
-                            {answers.medicalConcerns || "None provided"}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="font-medium">Additional information</p>
-                          <p className="text-muted-foreground whitespace-pre-wrap">
-                            {answers.additionalInformation || "None provided"}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="font-medium">Submitted</p>
-                          <p className="text-muted-foreground">
-                            {formatDate(response.submittedAt)}
-                          </p>
-                        </div>
-                        {response.suggestedStudentId ? (
+              {workspace.responses
+                .filter(
+                  (response) =>
+                    !needsReviewOnly || !response.confirmedStudentId,
+                )
+                .map((response) => {
+                  const answers = response.answers;
+                  return (
+                    <AccordionItem
+                      className="overflow-hidden rounded-xl border last:border-b data-[state=open]:border-[#315925]/30 data-[state=open]:bg-[#edf4e9]/20"
+                      key={response.id}
+                      value={response.id}
+                    >
+                      <AccordionTrigger className="px-4 py-4 hover:bg-[#edf4e9]/40 hover:no-underline">
+                        <div className="flex w-full flex-wrap items-center justify-between gap-3 pr-2 text-left">
                           <div>
-                            <p className="font-medium">Suggested student</p>
-                            <Button
-                              asChild
-                              className="h-auto cursor-pointer justify-start p-0 text-[#315925]"
-                              type="button"
-                              variant="link"
-                            >
-                              <Link
-                                to="/admin/students/$studentId"
-                                params={{
-                                  studentId: response.suggestedStudentId,
-                                }}
-                              >
-                                {response.suggestedFirstName}{" "}
-                                {response.suggestedLastName}
-                              </Link>
-                            </Button>
+                            <p className="font-medium">
+                              {response.childFirstName} {response.childLastName}
+                            </p>
+                            <p className="text-muted-foreground text-sm font-normal">
+                              Born {response.childDateOfBirth} ·{" "}
+                              {answers.discipline === "ski"
+                                ? "Skier"
+                                : "Snowboarder"}{" "}
+                              · {levelLabels[answers.level]}
+                            </p>
                           </div>
-                        ) : null}
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                );
-              })}
+                          <Badge
+                            className={
+                              response.matchStatus === "unique"
+                                ? "border-[#315925]/20 bg-[#edf4e9] text-[#244617]"
+                                : "border-[#d88a00]/25 bg-[#fff6e6] text-[#925d00]"
+                            }
+                            variant="outline"
+                          >
+                            {response.confirmedStudentId
+                              ? "Linked"
+                              : response.matchStatus}
+                          </Badge>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="bg-background/70 border-t px-4 pt-4 pb-4">
+                        <div className="grid gap-4 text-sm sm:grid-cols-2">
+                          <div>
+                            <p className="font-medium">Parent email</p>
+                            <p className="text-muted-foreground">
+                              {answers.parentEmail}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="font-medium">Session</p>
+                            <p className="text-muted-foreground">
+                              {sessionLabels[answers.session]}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="font-medium">Comfortable lifts</p>
+                            <p className="text-muted-foreground">
+                              {answers.lifts
+                                .map((lift) => liftLabels[lift])
+                                .join(", ")}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="font-medium">Medical concerns</p>
+                            <p className="text-muted-foreground whitespace-pre-wrap">
+                              {answers.medicalConcerns || "None provided"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="font-medium">
+                              Additional information
+                            </p>
+                            <p className="text-muted-foreground whitespace-pre-wrap">
+                              {answers.additionalInformation || "None provided"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="font-medium">Submitted</p>
+                            <p className="text-muted-foreground">
+                              {formatDate(response.submittedAt)}
+                            </p>
+                          </div>
+                          {response.suggestedStudentId ? (
+                            <div>
+                              <p className="font-medium">Suggested student</p>
+                              <Button
+                                asChild
+                                className="h-auto cursor-pointer justify-start p-0 text-[#315925]"
+                                type="button"
+                                variant="link"
+                              >
+                                <Link
+                                  to="/admin/students/$studentId"
+                                  params={{
+                                    studentId: response.suggestedStudentId,
+                                  }}
+                                >
+                                  {response.suggestedFirstName}{" "}
+                                  {response.suggestedLastName}
+                                </Link>
+                              </Button>
+                            </div>
+                          ) : null}
+                        </div>
+                        <SurveyMatchReview
+                          key={`${response.id}:${response.confirmedStudentId}`}
+                          students={workspace.students}
+                          programs={workspace.programs}
+                          response={response}
+                          busy={busy !== null}
+                          onConfirm={(
+                            studentId,
+                            fillMissingBirthDate,
+                            programId,
+                          ) =>
+                            void run(
+                              "match",
+                              () =>
+                                confirmParentSurveyMatch({
+                                  data: {
+                                    responseId: response.id,
+                                    studentId,
+                                    fillMissingBirthDate,
+                                    programId,
+                                  },
+                                }),
+                              "Student match confirmed.",
+                            )
+                          }
+                        />
+                      </AccordionContent>
+                    </AccordionItem>
+                  );
+                })}
             </Accordion>
           )}
         </CardContent>

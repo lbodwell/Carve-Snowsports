@@ -75,7 +75,10 @@ async function assertInstructorLessonAccess(
     })
     .from(lessonInstances)
     .innerJoin(timeSlots, eq(lessonInstances.timeSlotId, timeSlots.id))
-    .innerJoin(groupRevisions, eq(lessonInstances.groupRevisionId, groupRevisions.id))
+    .innerJoin(
+      groupRevisions,
+      eq(lessonInstances.groupRevisionId, groupRevisions.id),
+    )
     .innerJoin(seasonGroups, eq(groupRevisions.seasonGroupId, seasonGroups.id))
     .innerJoin(programs, eq(seasonGroups.programId, programs.id))
     .innerJoin(seasons, eq(seasonGroups.seasonId, seasons.id))
@@ -107,7 +110,10 @@ export async function getInstructorLessonSchedule(actor: Actor) {
     })
     .from(lessonInstances)
     .innerJoin(timeSlots, eq(lessonInstances.timeSlotId, timeSlots.id))
-    .innerJoin(groupRevisions, eq(lessonInstances.groupRevisionId, groupRevisions.id))
+    .innerJoin(
+      groupRevisions,
+      eq(lessonInstances.groupRevisionId, groupRevisions.id),
+    )
     .innerJoin(seasonGroups, eq(groupRevisions.seasonGroupId, seasonGroups.id))
     .innerJoin(programs, eq(seasonGroups.programId, programs.id))
     .innerJoin(seasons, eq(seasonGroups.seasonId, seasons.id))
@@ -150,10 +156,7 @@ export async function getLessonInstanceRoster(
       eq(groupRevisionMemberships.registrationId, registrations.id),
     )
     .leftJoin(disciplines, eq(registrations.disciplineId, disciplines.id))
-    .leftJoin(
-      abilityLevels,
-      eq(registrations.abilityLevelId, abilityLevels.id),
-    )
+    .leftJoin(abilityLevels, eq(registrations.abilityLevelId, abilityLevels.id))
     .where(
       and(
         eq(groupRevisionMemberships.groupRevisionId, lesson.groupRevisionId),

@@ -3,8 +3,10 @@ import type {
   GroupingRegistration,
   GroupingRules,
 } from "@/domain/grouping/engine";
+import type { SessionCalendar } from "@/domain/calendar/session-calendar";
+import { computeAgeOnDate } from "@/domain/calendar/student-age";
 
-export const GROUPING_RULE_SET_VERSION = 1;
+export const GROUPING_RULE_SET_VERSION = 2;
 
 export const DEFAULT_GROUPING_RULES: GroupingRules = {
   maximumStudentsPerGroup: 6,
@@ -16,20 +18,6 @@ export const DEFAULT_DRAFT_WEEKDAY = 6;
 
 export function ageBandEngineKey(minimumAge: number, maximumAge: number) {
   return `${minimumAge}-${maximumAge}`;
-}
-
-export function computeAgeOnDate(dateOfBirth: string, referenceDate: string) {
-  const birth = new Date(`${dateOfBirth}T00:00:00Z`);
-  const reference = new Date(`${referenceDate}T00:00:00Z`);
-  let age = reference.getUTCFullYear() - birth.getUTCFullYear();
-  if (
-    reference.getUTCMonth() < birth.getUTCMonth() ||
-    (reference.getUTCMonth() === birth.getUTCMonth() &&
-      reference.getUTCDate() < birth.getUTCDate())
-  ) {
-    age -= 1;
-  }
-  return age;
 }
 
 export function resolveAgeBandForBirthDate(
@@ -56,6 +44,7 @@ export function resolveAgeBandForBirthDate(
 export type GroupingProgramSnapshot = {
   seasonStartsOn: string;
   defaultTimeSlotId: string;
+  timeSlots?: ReadonlyArray<SessionCalendar & { id: string }>;
   disciplines: ReadonlyArray<{ id: string; key: string }>;
   ageBands: ReadonlyArray<{
     id: string;
@@ -65,6 +54,7 @@ export type GroupingProgramSnapshot = {
   abilityLevels: ReadonlyArray<{ id: string; numericRank: number }>;
   registrations: ReadonlyArray<{
     id: string;
+    studentId?: string;
     disciplineId: string | null;
     disciplineKey: string | null;
     abilityLevelId: string | null;
@@ -72,6 +62,8 @@ export type GroupingProgramSnapshot = {
     dateOfBirth: string | null;
     ageBandId: string | null;
     ageBandEngineKey: string | null;
+    schedule?: { weekday: number; timeSlotId: string } | null;
+    needsSchedule?: boolean;
   }>;
   instructors: ReadonlyArray<{
     id: string;
@@ -100,7 +92,7 @@ export function buildEngineInput(snapshot: GroupingProgramSnapshot): {
     id: instructor.id,
     disciplines: instructor.disciplineKeys,
     available: instructor.disciplineKeys.size > 0,
-    capacity: 4,
+    capacity: 1,
   }));
 
   return {

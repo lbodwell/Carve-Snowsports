@@ -1,6 +1,23 @@
 # Carve production rebuild handoff
 
-Last updated: 2026-09-07
+Pipeline hardening update: [Controlled production releases](production-release.md)
+documents the implemented GitHub workflows, migration safeguards, isolated Preview
+Neon database, separate private Blob stores, and saved GitHub environment
+protections. Credentials and coordinated activation remain required; the workflows
+are not active until committed and pushed. No hosted migration or release was run
+during this setup.
+
+Current administrator workflow update: 2026-10-19.
+
+Read [Administrator readiness review](administrator-readiness-review.md) and
+[Administrator guide](../product/administrator-grouping.md) first. They cover the
+redesigned builder, reviewed session mappings, incremental suggestions, private
+client uploads, durable apply, import identity decisions, and survey matching.
+Session 1/2 now remain separate cohorts while dates are pending; weekend hours
+are AM 10–12, PM 1–3, and Full Day 10–3. Migration
+`0015_lesson-session-calendars.sql` is required before deploying these changes.
+The snapshot below is retained as the historical 2026-09-07 handoff; its counts
+and statements about unfinished import/grouping UI are superseded by that review.
 
 ## Where we are
 

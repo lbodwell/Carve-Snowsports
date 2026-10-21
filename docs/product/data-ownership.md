@@ -10,6 +10,17 @@
 | Attendance and dated lesson notes        | Carve                         | Record against a lesson instance.                                                        |
 | Pricing/product data                     | External registration system  | Preserve source snapshots only when operationally needed; Carve is not a billing system. |
 
+Parent survey answers remain attributed intake evidence. Confirmed identity
+links are persisted separately from suggestions and are never silently rematched.
+An authorized reviewer can explicitly fill a missing birthdate and missing
+program-specific discipline/ability from a response; populated values survive.
+Purchaser contacts are not automatically interpreted as guardian relationships.
+
+`registrations.source_snapshot.groupingSchedule` is a Carve-owned reviewed
+mapping of imported session evidence. Reimports preserve it, along with draft
+and published placements. Mapping one import cohort does not overwrite another
+reviewed mapping or an already placed registration.
+
 ## Sensitive information
 
 Student health/support records, emergency contacts, addresses, and guardian

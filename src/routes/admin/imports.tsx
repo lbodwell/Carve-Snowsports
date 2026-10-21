@@ -12,5 +12,9 @@ export const Route = createFileRoute("/admin/imports")({
 
 function RegistrationImportPage() {
   const programs = Route.useLoaderData();
-  return <AdminShell><RegistrationImportWorkspace programs={programs} /></AdminShell>;
+  return (
+    <AdminShell>
+      <RegistrationImportWorkspace programs={programs} />
+    </AdminShell>
+  );
 }

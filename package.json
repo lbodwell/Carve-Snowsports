@@ -21,6 +21,7 @@
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:migrate": "drizzle-kit migrate",
+    "db:migrate:release": "bun run scripts/migrate-release.ts",
     "db:studio": "drizzle-kit studio",
     "db:seed": "bun run src/db/seed.ts",
     "db:bootstrap": "bun run src/db/bootstrap-production.ts",

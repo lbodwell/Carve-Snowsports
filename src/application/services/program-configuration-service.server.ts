@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { Actor } from "@/application/policies/authorization";
@@ -10,6 +10,9 @@ import {
   ageBands,
   auditEvents,
   disciplines,
+  groupRecurrences,
+  groupingDrafts,
+  organizations,
   programs,
   seasons,
   timeSlots,
@@ -25,7 +28,94 @@ const configKeySchema = z
 const localTimeSchema = z
   .string()
   .trim()
-  .regex(/^\d{2}:\d{2}$/, "Enter a valid time in HH:MM format.");
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Enter a valid time in HH:MM format.");
+
+const calendarFields = {
+  cohort: z.enum(["season", "session-1", "session-2"]).default("season"),
+  startsOn: z.iso.date().nullable().default(null),
+  endsOn: z.iso.date().nullable().default(null),
+  excludedDates: z.array(z.iso.date()).max(366).default([]),
+};
+
+async function validateSessionCalendar(
+  actor: Actor,
+  programId: string,
+  input: {
+    startsOn: string | null;
+    endsOn: string | null;
+    excludedDates: Array<string>;
+    cohort: string;
+    timeSlotId?: string;
+  },
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+) {
+  const program = await assertProgramInOrganization(actor, programId);
+  const [season] = await tx
+    .select()
+    .from(seasons)
+    .where(eq(seasons.id, program.seasonId));
+  if (!season) throw new ApplicationError("NOT_FOUND", "Season not found.");
+  if (
+    Boolean(input.startsOn) !== Boolean(input.endsOn) ||
+    (input.startsOn &&
+      input.endsOn &&
+      (input.startsOn > input.endsOn ||
+        input.startsOn < season.startsOn ||
+        input.endsOn > season.endsOn))
+  ) {
+    throw new ApplicationError(
+      "VALIDATION",
+      "Choose both session dates in order, within the season, or leave both blank for the whole season.",
+    );
+  }
+  if (
+    input.excludedDates.some(
+      (date) =>
+        date < (input.startsOn ?? season.startsOn) ||
+        date > (input.endsOn ?? season.endsOn),
+    )
+  ) {
+    throw new ApplicationError(
+      "VALIDATION",
+      "No-lesson dates must fall inside the session's date range.",
+    );
+  }
+  if (input.cohort !== "season" && input.startsOn && input.endsOn) {
+    const siblings = await tx
+      .select()
+      .from(timeSlots)
+      .where(eq(timeSlots.programId, programId));
+    if (
+      siblings.some(
+        (slot) =>
+          slot.cohort !== "season" &&
+          slot.cohort !== input.cohort &&
+          slot.startsOn &&
+          slot.endsOn &&
+          slot.startsOn <= input.endsOn! &&
+          slot.endsOn >= input.startsOn!,
+      )
+    )
+      throw new ApplicationError(
+        "VALIDATION",
+        "Session 1 and Session 2 must use separate date ranges.",
+      );
+    if (
+      siblings.some(
+        (slot) =>
+          slot.id !== input.timeSlotId &&
+          slot.cohort === input.cohort &&
+          slot.startsOn &&
+          slot.endsOn &&
+          (slot.startsOn !== input.startsOn || slot.endsOn !== input.endsOn),
+      )
+    )
+      throw new ApplicationError(
+        "VALIDATION",
+        "Lesson times in the same seasonal cohort must use the same first and last dates.",
+      );
+  }
+}
 
 async function assertProgramInOrganization(actor: Actor, programId: string) {
   const [program] = await db
@@ -122,6 +212,10 @@ export async function getProgramConfiguration(actor: Actor, programId: string) {
           label: timeSlots.label,
           startsAt: timeSlots.startsAt,
           endsAt: timeSlots.endsAt,
+          startsOn: timeSlots.startsOn,
+          endsOn: timeSlots.endsOn,
+          excludedDates: timeSlots.excludedDates,
+          cohort: timeSlots.cohort,
           displayOrder: timeSlots.displayOrder,
           active: timeSlots.active,
         })
@@ -527,6 +621,7 @@ export const createTimeSlotSchema = z
     label: z.string().trim().min(1).max(100),
     startsAt: localTimeSchema,
     endsAt: localTimeSchema,
+    ...calendarFields,
     displayOrder: z.number().int().min(0).default(0),
   })
   .refine((input) => input.endsAt > input.startsAt, {
@@ -540,6 +635,7 @@ export const updateTimeSlotSchema = z
     label: z.string().trim().min(1).max(100),
     startsAt: localTimeSchema,
     endsAt: localTimeSchema,
+    ...calendarFields,
     displayOrder: z.number().int().min(0),
     active: z.boolean(),
   })
@@ -554,43 +650,60 @@ export async function createTimeSlot(
 ) {
   requirePermission(actor, "program:manage");
   const parsed = createTimeSlotSchema.parse(input);
-  await assertProgramInOrganization(actor, parsed.programId);
 
   try {
-    const [slot] = await db
-      .insert(timeSlots)
-      .values({
-        programId: parsed.programId,
-        key: parsed.key,
-        label: parsed.label,
-        startsAt: parsed.startsAt,
-        endsAt: parsed.endsAt,
-        displayOrder: parsed.displayOrder,
-      })
-      .returning();
+    return await db.transaction(async (tx) => {
+      await tx
+        .select({ id: organizations.id })
+        .from(organizations)
+        .where(eq(organizations.id, actor.organizationId))
+        .for("update");
+      await validateSessionCalendar(actor, parsed.programId, parsed, tx);
+      const [slot] = await tx
+        .insert(timeSlots)
+        .values({
+          programId: parsed.programId,
+          key: parsed.key,
+          label: parsed.label,
+          startsAt: parsed.startsAt,
+          endsAt: parsed.endsAt,
+          startsOn: parsed.startsOn,
+          endsOn: parsed.endsOn,
+          excludedDates: [...new Set(parsed.excludedDates)].sort(),
+          cohort: parsed.cohort,
+          displayOrder: parsed.displayOrder,
+        })
+        .returning();
 
-    if (!slot) {
-      throw new ApplicationError(
-        "INVALID_STATE",
-        "The time slot could not be created.",
-      );
-    }
+      if (!slot) {
+        throw new ApplicationError(
+          "INVALID_STATE",
+          "The time slot could not be created.",
+        );
+      }
 
-    await recordConfigurationAudit(
-      actor,
-      parsed.programId,
-      "program.time_slot_created",
-      {
-        key: slot.key,
-        label: slot.label,
-      },
-    );
+      await tx.insert(auditEvents).values({
+        organizationId: actor.organizationId,
+        actorId: actor.userId,
+        entityType: "program",
+        entityId: parsed.programId,
+        action: "program.time_slot_created",
+        metadata: {
+          key: slot.key,
+          label: slot.label,
+          cohort: slot.cohort,
+          startsOn: slot.startsOn,
+          endsOn: slot.endsOn,
+          excludedDates: slot.excludedDates,
+        },
+      });
 
-    return {
-      ...slot,
-      startsAt: slot.startsAt.slice(0, 5),
-      endsAt: slot.endsAt.slice(0, 5),
-    };
+      return {
+        ...slot,
+        startsAt: slot.startsAt.slice(0, 5),
+        endsAt: slot.endsAt.slice(0, 5),
+      };
+    });
   } catch (error) {
     if (error instanceof ApplicationError) throw error;
     throw new ApplicationError(
@@ -606,57 +719,105 @@ export async function updateTimeSlot(
 ) {
   requirePermission(actor, "program:manage");
   const parsed = updateTimeSlotSchema.parse(input);
+  return db.transaction(async (tx) => {
+    await tx
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(eq(organizations.id, actor.organizationId))
+      .for("update");
+    const [existing] = await tx
+      .select({
+        id: timeSlots.id,
+        programId: timeSlots.programId,
+      })
+      .from(timeSlots)
+      .innerJoin(programs, eq(timeSlots.programId, programs.id))
+      .innerJoin(seasons, eq(programs.seasonId, seasons.id))
+      .where(
+        and(
+          eq(timeSlots.id, parsed.timeSlotId),
+          eq(seasons.organizationId, actor.organizationId),
+          isNull(seasons.archivedAt),
+        ),
+      )
+      .for("update", { of: timeSlots });
 
-  const [existing] = await db
-    .select({
-      id: timeSlots.id,
-      programId: timeSlots.programId,
-    })
-    .from(timeSlots)
-    .innerJoin(programs, eq(timeSlots.programId, programs.id))
-    .innerJoin(seasons, eq(programs.seasonId, seasons.id))
-    .where(
-      and(
-        eq(timeSlots.id, parsed.timeSlotId),
-        eq(seasons.organizationId, actor.organizationId),
-        isNull(seasons.archivedAt),
-      ),
-    );
+    if (!existing) {
+      throw new ApplicationError("NOT_FOUND", "Time slot not found.");
+    }
 
-  if (!existing) {
-    throw new ApplicationError("NOT_FOUND", "Time slot not found.");
-  }
+    await validateSessionCalendar(actor, existing.programId, parsed, tx);
+    const [publishedUse] = await tx
+      .select({ id: groupRecurrences.id })
+      .from(groupRecurrences)
+      .where(eq(groupRecurrences.timeSlotId, existing.id))
+      .limit(1);
+    if (publishedUse)
+      throw new ApplicationError(
+        "INVALID_STATE",
+        "This session already has published lessons. Create a new session for a changed calendar or time.",
+      );
 
-  const [slot] = await db
-    .update(timeSlots)
-    .set({
-      label: parsed.label,
-      startsAt: parsed.startsAt,
-      endsAt: parsed.endsAt,
-      displayOrder: parsed.displayOrder,
-      active: parsed.active,
-      updatedAt: new Date(),
-    })
-    .where(eq(timeSlots.id, parsed.timeSlotId))
-    .returning();
+    const [slot] = await tx
+      .update(timeSlots)
+      .set({
+        label: parsed.label,
+        startsAt: parsed.startsAt,
+        endsAt: parsed.endsAt,
+        startsOn: parsed.startsOn,
+        endsOn: parsed.endsOn,
+        excludedDates: [...new Set(parsed.excludedDates)].sort(),
+        cohort: parsed.cohort,
+        displayOrder: parsed.displayOrder,
+        active: parsed.active,
+        updatedAt: new Date(),
+      })
+      .where(eq(timeSlots.id, parsed.timeSlotId))
+      .returning();
 
-  if (!slot) {
-    throw new ApplicationError(
-      "INVALID_STATE",
-      "The time slot could not be updated.",
-    );
-  }
+    if (!slot) {
+      throw new ApplicationError(
+        "INVALID_STATE",
+        "The time slot could not be updated.",
+      );
+    }
 
-  await recordConfigurationAudit(
-    actor,
-    existing.programId,
-    "program.time_slot_updated",
-    { key: slot.key, active: slot.active },
-  );
+    await tx
+      .update(groupingDrafts)
+      .set({
+        status: "editing",
+        version: sql`${groupingDrafts.version} + 1`,
+        submittedAt: null,
+        approvedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(groupingDrafts.programId, existing.programId),
+          inArray(groupingDrafts.status, ["submitted", "approved"]),
+        ),
+      );
 
-  return {
-    ...slot,
-    startsAt: slot.startsAt.slice(0, 5),
-    endsAt: slot.endsAt.slice(0, 5),
-  };
+    await tx.insert(auditEvents).values({
+      organizationId: actor.organizationId,
+      actorId: actor.userId,
+      entityType: "program",
+      entityId: existing.programId,
+      action: "program.time_slot_updated",
+      metadata: {
+        key: slot.key,
+        active: slot.active,
+        cohort: slot.cohort,
+        startsOn: slot.startsOn,
+        endsOn: slot.endsOn,
+        excludedDates: slot.excludedDates,
+      },
+    });
+
+    return {
+      ...slot,
+      startsAt: slot.startsAt.slice(0, 5),
+      endsAt: slot.endsAt.slice(0, 5),
+    };
+  });
 }

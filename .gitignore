@@ -31,6 +31,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # caches
 .eslintcache
 .cache
+.tmp
+.local-imports
+.workflow-data
 .tanstack
 *.tsbuildinfo
 
@@ -41,4 +44,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .DS_Store
 
 .vercel
+# Provider CLI-installed local agent helpers are not application source.
+/.agents/
+/skills-lock.json
 .env*
+/.swc

@@ -59,6 +59,7 @@ export function SignInForm({ redirectTo }: { redirectTo?: string }) {
           <FieldLabel htmlFor="email">Email</FieldLabel>
           <Input
             id="email"
+            disabled={!isHydrated || isSubmitting}
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -71,6 +72,7 @@ export function SignInForm({ redirectTo }: { redirectTo?: string }) {
           <FieldLabel htmlFor="password">Password</FieldLabel>
           <Input
             id="password"
+            disabled={!isHydrated || isSubmitting}
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}

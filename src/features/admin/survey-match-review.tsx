@@ -1,0 +1,164 @@
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { normalizeName } from "@/domain/surveys/student-matching";
+
+type Student = {
+  studentId: string;
+  firstName: string;
+  lastName: string;
+  dateOfBirth: string | null;
+};
+
+export function SurveyMatchReview({
+  students,
+  programs,
+  response,
+  busy,
+  onConfirm,
+}: {
+  students: Array<Student>;
+  programs: Array<{ id: string; name: string; seasonName: string }>;
+  response: {
+    childFirstName: string;
+    childLastName: string;
+    childDateOfBirth: string;
+    confirmedStudentId: string | null;
+    suggestedStudentId: string | null;
+  };
+  busy: boolean;
+  onConfirm: (
+    studentId: string,
+    fillMissingBirthDate: boolean,
+    programId?: string,
+  ) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState(
+    response.confirmedStudentId ?? response.suggestedStudentId ?? "",
+  );
+  const [fillMissing, setFillMissing] = useState(false);
+  const [programId, setProgramId] = useState(programs[0]?.id ?? "");
+  const selected = students.find((student) => student.studentId === selectedId);
+  const sorted = [...students].sort((left, right) => {
+    const score = (student: Student) =>
+      Number(
+        normalizeName(student.lastName) ===
+          normalizeName(response.childLastName),
+      ) *
+        2 +
+      Number(
+        normalizeName(student.firstName) ===
+          normalizeName(response.childFirstName),
+      );
+    return (
+      score(right) - score(left) || left.lastName.localeCompare(right.lastName)
+    );
+  });
+  const choices = sorted.filter((student) =>
+    normalizeName(`${student.firstName} ${student.lastName}`).includes(
+      normalizeName(query),
+    ),
+  );
+  return (
+    <div className="bg-pm-mist/40 mt-4 grid gap-3 rounded-xl border p-4">
+      <h3 className="font-semibold">
+        {response.confirmedStudentId
+          ? "Linked student"
+          : "Match this response to a student"}
+      </h3>
+      <p className="text-muted-foreground text-sm">
+        Compare the child’s name and birthdate. A name alone is never enough for
+        an automatic link.
+      </p>
+      <Input
+        aria-label={`Search students for ${response.childFirstName} ${response.childLastName}`}
+        placeholder="Search roster by student name…"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+      />
+      <label className="grid gap-1 text-sm font-medium">
+        Student
+        <select
+          className="rounded-md border bg-white p-2"
+          aria-label={`Student for ${response.childFirstName} ${response.childLastName}`}
+          value={selectedId}
+          disabled={busy}
+          onChange={(event) => {
+            setSelectedId(event.target.value);
+            setFillMissing(false);
+          }}
+        >
+          <option value="">Choose a student</option>
+          {selected &&
+            !choices.some((student) => student.studentId === selectedId) && (
+              <option value={selectedId}>
+                {selected.firstName} {selected.lastName} ·{" "}
+                {selected.dateOfBirth ?? "Birthdate missing"}
+              </option>
+            )}
+          {choices.map((student) => (
+            <option key={student.studentId} value={student.studentId}>
+              {student.firstName} {student.lastName} ·{" "}
+              {student.dateOfBirth ?? "Birthdate missing"}
+            </option>
+          ))}
+        </select>
+      </label>
+      {selected?.dateOfBirth &&
+        selected.dateOfBirth !== response.childDateOfBirth && (
+          <p className="text-sm font-medium text-amber-800">
+            Birthdates differ: roster {selected.dateOfBirth}, survey{" "}
+            {response.childDateOfBirth}. Verify this is the same child before
+            linking. The roster birthdate will be preserved.
+          </p>
+        )}
+      {selected && (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={fillMissing}
+            onChange={(event) => setFillMissing(event.target.checked)}
+          />
+          Fill missing birthdate, discipline and ability from this survey.
+          Existing values are preserved.
+        </label>
+      )}
+      {fillMissing && (
+        <label className="grid gap-1 text-sm">
+          Apply missing registration details in
+          <select
+            aria-label="Program for survey details"
+            className="rounded-md border bg-white p-2"
+            value={programId}
+            onChange={(event) => setProgramId(event.target.value)}
+          >
+            <option value="">Birthdate only</option>
+            {programs.map((program) => (
+              <option key={program.id} value={program.id}>
+                {program.seasonName} · {program.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <Button
+        className="w-fit"
+        disabled={
+          busy ||
+          !selectedId ||
+          (selectedId === response.confirmedStudentId && !fillMissing)
+        }
+        onClick={() =>
+          onConfirm(
+            selectedId,
+            fillMissing,
+            fillMissing && programId ? programId : undefined,
+          )
+        }
+      >
+        Confirm student match
+      </Button>
+    </div>
+  );
+}

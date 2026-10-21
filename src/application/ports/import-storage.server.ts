@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { del, get, put } from "@vercel/blob";
+import "@/server/runtime-target.server";
 
 export type StoredImportObject = {
   key: string;
@@ -9,7 +10,9 @@ export type StoredImportObject = {
 };
 
 const localRoot = resolve(process.cwd(), ".local-imports");
-const isVercel = Boolean(process.env.VERCEL || process.env.BLOB_READ_WRITE_TOKEN);
+const isVercel = Boolean(
+  process.env.VERCEL || process.env.BLOB_READ_WRITE_TOKEN,
+);
 
 function safeKey(key: string) {
   return key.replace(/[^a-zA-Z0-9._/-]/g, "_").replace(/\.\./g, "_");
@@ -31,15 +34,24 @@ export async function putImportObject(key: string, content: string) {
   return safe;
 }
 
-export async function getImportObject(key: string): Promise<StoredImportObject> {
+export async function getImportObject(
+  key: string,
+): Promise<StoredImportObject> {
+  return {
+    key: safeKey(key),
+    content: (await getImportObjectBytes(key)).toString("utf8"),
+  };
+}
+
+export async function getImportObjectBytes(key: string): Promise<Buffer> {
   const safe = safeKey(key);
   if (isVercel) {
     const result = await get(safe, { access: "private" });
     if (!result || result.statusCode !== 200)
       throw new Error("Uploaded import file is unavailable.");
-    return { key: safe, content: await new Response(result.stream).text() };
+    return Buffer.from(await new Response(result.stream).arrayBuffer());
   }
-  return { key: safe, content: await readFile(join(localRoot, safe), "utf8") };
+  return readFile(join(localRoot, safe));
 }
 
 export async function deleteImportObject(key: string) {

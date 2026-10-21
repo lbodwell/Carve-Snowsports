@@ -7,6 +7,8 @@ export default [
       ".nitro/**",
       "coverage/**",
       "node_modules/**",
+      ".tmp/**",
+      ".local-imports/**",
       "eslint.config.js",
       "prettier.config.js",
     ],

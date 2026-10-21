@@ -1,0 +1,85 @@
+name: Production release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: carve-production-release
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: quality
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: Production
+    env:
+      VERCEL_ORG_ID: team_tzJQbGMsC7hkQtAo9nqHjlNQ
+      VERCEL_PROJECT_ID: prj_TAZY19fj8otsYtcLDu3usLdPuuoJ
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: 1.3.9
+      - run: bun install --frozen-lockfile
+      - name: Install reviewed Vercel CLI
+        run: npm install --global vercel@60.1.3
+      - name: Verify release configuration and target
+        run: bun run scripts/verify-release.ts project
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      - name: Check database target and migration history
+        run: bun run db:migrate:release --check
+        env:
+          RELEASE_ENVIRONMENT: production
+          DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
+          RELEASE_DATABASE_HOST: ${{ vars.RELEASE_DATABASE_HOST }}
+          RELEASE_DATABASE_NAME: ${{ vars.RELEASE_DATABASE_NAME }}
+      - name: Stage production from the tested checkout
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          deployment_url="$(vercel deploy --prod --skip-domain --yes --non-interactive --meta "githubCommitSha=$GITHUB_SHA")"
+          export DEPLOYMENT_URL="$deployment_url"
+          bun run scripts/verify-release.ts deployment
+          printf 'url=%s\n' "$deployment_url" >> "$GITHUB_OUTPUT"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      - name: Apply reviewed migrations under a database lock
+        run: bun run db:migrate:release
+        env:
+          RELEASE_ENVIRONMENT: production
+          DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
+          RELEASE_DATABASE_HOST: ${{ vars.RELEASE_DATABASE_HOST }}
+          RELEASE_DATABASE_NAME: ${{ vars.RELEASE_DATABASE_NAME }}
+      - name: Verify and smoke-test the staged deployment
+        run: bun run scripts/verify-release.ts smoke
+        env:
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      - name: Promote the verified deployment
+        run: bun run scripts/verify-release.ts promote
+        env:
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      - name: Record release
+        shell: bash
+        run: |
+          printf 'Released commit `%s` from staged deployment %s.\n' "$GITHUB_SHA" "$DEPLOYMENT_URL" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}

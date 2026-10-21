@@ -39,7 +39,7 @@ export type UnplacedRegistration = {
 export type GroupingResult = {
   groups: Array<ProposedGroup>;
   unplaced: Array<UnplacedRegistration>;
-  engineVersion: "v1";
+  engineVersion: "v2";
 };
 
 function groupKey(registration: GroupingRegistration) {
@@ -89,7 +89,7 @@ export function generateGroupingDraft(
   }
   if (rules.minimumInstructorsPerGroup !== 1) {
     throw new Error(
-      "Grouping engine v1 supports exactly one instructor per group.",
+      "Grouping engine v2 supports exactly one instructor per group.",
     );
   }
 
@@ -109,6 +109,8 @@ export function generateGroupingDraft(
       right.mustSeparateFrom.size + Number(!right.available);
     return (
       rightConstraintCount - leftConstraintCount ||
+      groupKey(left).localeCompare(groupKey(right)) ||
+      left.abilityRank - right.abilityRank ||
       left.id.localeCompare(right.id)
     );
   });
@@ -139,8 +141,22 @@ export function generateGroupingDraft(
           left.group.id.localeCompare(right.group.id),
       );
     const candidate = compatibleGroups[0]?.group;
+    const instructor = eligibleInstructors.find(
+      (item) =>
+        item.disciplines.has(registration.discipline) &&
+        (instructorGroupCounts.get(item.id) ?? 0) < item.capacity,
+    );
+    const existingRanks =
+      candidate?.registrationIds.map((id) => byId.get(id)!.abilityRank) ?? [];
+    const preferNewGroup =
+      instructor &&
+      candidate &&
+      (candidate.registrationIds.length >= rules.targetStudentsPerGroup ||
+        existingRanks.every(
+          (rank) => Math.abs(rank - registration.abilityRank) >= 2,
+        ));
 
-    if (candidate) {
+    if (candidate && !preferNewGroup) {
       candidate.registrationIds.push(registration.id);
       candidate.score += compatibleGroups[0]?.score ?? 0;
       candidate.explanations.push(
@@ -149,11 +165,6 @@ export function generateGroupingDraft(
       continue;
     }
 
-    const instructor = eligibleInstructors.find(
-      (item) =>
-        item.disciplines.has(registration.discipline) &&
-        (instructorGroupCounts.get(item.id) ?? 0) < item.capacity,
-    );
     if (!instructor) {
       unplaced.push({
         registrationId: registration.id,
@@ -191,6 +202,6 @@ export function generateGroupingDraft(
       ],
     })),
     unplaced,
-    engineVersion: "v1",
+    engineVersion: "v2",
   };
 }

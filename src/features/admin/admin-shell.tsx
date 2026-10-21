@@ -47,12 +47,14 @@ const navigationIcons = {
 } as const;
 
 export function AdminShell({ children }: { children: ReactNode }) {
+  const [isHydrated, setIsHydrated] = useState(false);
   const [session, setSession] = useState<Awaited<
     ReturnType<typeof getStaffSession>
   > | null>(null);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
 
   useEffect(() => {
+    setIsHydrated(true);
     void getStaffSession().then(setSession);
   }, []);
 
@@ -183,7 +185,11 @@ export function AdminShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        <main className="min-w-0 flex-1">{children}</main>
+        <main className="min-w-0 flex-1">
+          <fieldset className="contents" disabled={!isHydrated}>
+            {children}
+          </fieldset>
+        </main>
       </div>
     </div>
   );

@@ -1,9 +1,5 @@
-import {
-  AlertCircle,
-  CheckCircle2,
-  Inbox,
-  type LucideIcon,
-} from "lucide-react";
+import { AlertCircle, CheckCircle2, Inbox } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";

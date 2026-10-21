@@ -21,6 +21,9 @@ Production deploy: see `docs/operations/vercel-deployment.md`. Use
 `bun run db:bootstrap` for an empty organization and admin, never `db:seed`,
 when the database will hold real staff or student data.
 
+Controlled releases and provisioned resources:
+[Production release setup](docs/operations/production-release.md).
+
 ## Quality gates
 
 ```bash
@@ -50,5 +53,9 @@ or production database.
 
 See `docs/` for product rules, the data model, security boundaries, imports,
 testing, and operations.
+
+Administrator workflow: [Registrations to lesson groups](docs/product/administrator-grouping.md).
+Current review and remaining launch work:
+[Administrator readiness review](docs/operations/administrator-readiness-review.md).
 
 This project was created using `bun init` in bun v1.3.9. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.

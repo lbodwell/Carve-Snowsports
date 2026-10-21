@@ -5,8 +5,27 @@ import { describe, expect, it } from "vitest";
 import { requirePermission } from "@/application/policies/authorization";
 import { archiveStudent } from "@/application/services/student-roster-service.server";
 import { saveInstructor } from "@/application/services/instructor-service.server";
-import { createGroupingDraft } from "@/application/services/grouping-draft-service.server";
+import {
+  createGroupingDraft,
+  returnGroupingDraft,
+  setRegistrationSchedule,
+  suggestRemainingPlacements,
+} from "@/application/services/grouping-draft-service.server";
 import { createSeason } from "@/application/services/season-service.server";
+import {
+  confirmSurveyMatch,
+  refreshSurveyMatches,
+} from "@/application/services/survey-matching-service.server";
+import {
+  applyRegistrationImport,
+  recordImportDispatchFailure,
+  requestRegistrationImportApply,
+  saveImportIdentityDecision,
+} from "@/application/services/registration-import-service.server";
+import {
+  prepareImportUpload,
+  queueStoredImport,
+} from "@/application/services/import-upload-service.server";
 import {
   adminActor,
   coordinatorActor,
@@ -14,6 +33,51 @@ import {
 } from "@/test/factories/actors";
 
 describe("authorized write boundaries", () => {
+  it("protects matching, imports, upload tokens, and grouping review before any database work", async () => {
+    const id = randomUUID();
+    const actions = [
+      () =>
+        confirmSurveyMatch(instructorActor, {
+          responseId: id,
+          studentId: id,
+          fillMissingBirthDate: false,
+        }),
+      () => refreshSurveyMatches(instructorActor),
+      () => applyRegistrationImport(instructorActor, { batchId: id }),
+      () => requestRegistrationImportApply(instructorActor, { batchId: id }),
+      () => recordImportDispatchFailure(instructorActor, id, "apply"),
+      () =>
+        saveImportIdentityDecision(instructorActor, {
+          batchId: id,
+          participantKey: "synthetic",
+          studentId: "new",
+        }),
+      () =>
+        prepareImportUpload(instructorActor, {
+          programId: id,
+          name: "listing.csv",
+          size: 100,
+        }),
+      () => queueStoredImport(instructorActor, { programId: id, files: [] }),
+      () =>
+        setRegistrationSchedule(instructorActor, {
+          registrationId: id,
+          weekday: 6,
+          timeSlotId: id,
+        }),
+      () =>
+        suggestRemainingPlacements(instructorActor, {
+          draftId: id,
+          baseVersion: 1,
+          weekday: 6,
+          timeSlotId: id,
+        }),
+      () =>
+        returnGroupingDraft(coordinatorActor, { draftId: id, baseVersion: 1 }),
+    ];
+    for (const action of actions)
+      await expect(action()).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
   it("rejects instructors from student roster writes", async () => {
     await expect(
       archiveStudent(instructorActor, { studentId: randomUUID() }),

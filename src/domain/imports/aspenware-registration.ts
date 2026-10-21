@@ -203,7 +203,9 @@ function requireHeaders(
   const available = new Set(Object.keys(records[0] ?? {}));
   const missing = headers.filter((header) => !available.has(header));
   if (missing.length > 0)
-    throw new Error(`${source}: missing required columns: ${missing.join(", ")}.`);
+    throw new Error(
+      `${source}: missing required columns: ${missing.join(", ")}.`,
+    );
 }
 
 export function parseProductDimensions(product: string): ProductDimensions {
@@ -549,41 +551,46 @@ export function previewAspenwareRegistrationBatch(
     const prompt = promptByKey.get(key);
     if (byOrder) byOrderMatched += 1;
     if (prompt) promptMatched += 1;
-    const isReturned =
-      listing.quantity < 0 || returnedSaleIndexes.has(index);
-    return [{
-      sourceKey: [
-        listing.participantKey,
-        normalized(listing.product),
-        listing.productDate,
-        cell(sourceRow, "DetailRowC1"),
-        listing.priceCents,
-      ].join("|"),
-      rowNumber: listing.rowNumber,
-      participantKey: listing.participantKey,
-      studentName: cell(sourceRow, "CustomerName"),
-      product: listing.product,
-      productDate: listing.productDate,
-      saleDate: cell(sourceRow, "DetailRowC1"),
-      priceCents: listing.priceCents,
-      quantity: listing.quantity,
-      status: isReturned ? "returned" : "active",
-      dimensions: listing.dimensions,
-      sourceAge: parseOptionalAge(cell(sourceRow, "textbox10")),
-      abilityLevel: prompt?.abilityLevel ?? null,
-      purchaser: byOrder
-        ? {
-            externalId: cell(byOrder, "DetailRowC0"),
-            name: cell(byOrder, "CustomerName"),
-            email: cell(byOrder, "textbox7") || null,
-            phone: cell(byOrder, "PhoneNumber") || null,
-          }
-        : null,
-      issues: [
-        ...(isReturned ? [] : prompt ? [] : ["Ability level unavailable."]),
-        ...(isReturned ? [] : byOrder ? [] : ["Purchaser context unavailable."]),
-      ],
-    } satisfies AspenwareImportFact];
+    const isReturned = listing.quantity < 0 || returnedSaleIndexes.has(index);
+    return [
+      {
+        sourceKey: [
+          listing.participantKey,
+          normalized(listing.product),
+          listing.productDate,
+          cell(sourceRow, "DetailRowC1"),
+          listing.priceCents,
+        ].join("|"),
+        rowNumber: listing.rowNumber,
+        participantKey: listing.participantKey,
+        studentName: cell(sourceRow, "CustomerName"),
+        product: listing.product,
+        productDate: listing.productDate,
+        saleDate: cell(sourceRow, "DetailRowC1"),
+        priceCents: listing.priceCents,
+        quantity: listing.quantity,
+        status: isReturned ? "returned" : "active",
+        dimensions: listing.dimensions,
+        sourceAge: parseOptionalAge(cell(sourceRow, "textbox10")),
+        abilityLevel: prompt?.abilityLevel ?? null,
+        purchaser: byOrder
+          ? {
+              externalId: cell(byOrder, "DetailRowC0"),
+              name: cell(byOrder, "CustomerName"),
+              email: cell(byOrder, "textbox7") || null,
+              phone: cell(byOrder, "PhoneNumber") || null,
+            }
+          : null,
+        issues: [
+          ...(isReturned ? [] : prompt ? [] : ["Ability level unavailable."]),
+          ...(isReturned
+            ? []
+            : byOrder
+              ? []
+              : ["Purchaser context unavailable."]),
+        ],
+      } satisfies AspenwareImportFact,
+    ];
   });
   const grossSales = analysis.listingRegistrations
     .filter((listing) => listing.quantity > 0)

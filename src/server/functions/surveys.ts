@@ -14,6 +14,18 @@ import {
   updateSurveyAccessSchema,
 } from "@/application/services/survey-service.server";
 import { resolveActor } from "@/server/auth/resolve-actor.server";
+import {
+  confirmSurveyMatch,
+  confirmSurveyMatchSchema,
+  refreshSurveyMatches,
+} from "@/application/services/survey-matching-service.server";
+
+export const reconcileParentSurveyMatches = createServerFn({
+  method: "POST",
+}).handler(async () => refreshSurveyMatches(await resolveActor()));
+export const confirmParentSurveyMatch = createServerFn({ method: "POST" })
+  .validator(confirmSurveyMatchSchema)
+  .handler(async ({ data }) => confirmSurveyMatch(await resolveActor(), data));
 
 export const getPublicSurveyPage = createServerFn({ method: "GET" })
   .validator(publicSurveyRequestSchema)

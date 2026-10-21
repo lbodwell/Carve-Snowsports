@@ -9,6 +9,17 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import type { Actor } from "@/application/policies/authorization";
 import {
+  confirmSurveyMatch,
+  refreshSurveyMatches,
+} from "@/application/services/survey-matching-service.server";
+import {
+  applyRegistrationImport,
+  previewRegistrationImport,
+  recordImportDispatchFailure,
+  retryRegistrationImport,
+  saveImportIdentityDecision,
+} from "@/application/services/registration-import-service.server";
+import {
   addSurveyInvitation,
   generateSurveyInvitations,
   getPublicSurvey,
@@ -18,6 +29,7 @@ import {
 } from "@/application/services/survey-service.server";
 import {
   contactMethods,
+  importBatches,
   organizations,
   people,
   programs,
@@ -281,5 +293,197 @@ describe("public parent surveys", () => {
     await expect(getSurveyWorkspace(instructorActor)).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
+  });
+
+  test("rechecks earlier responses when a student arrives and preserves confirmed links", async () => {
+    await updateSurveyAccess(actor, {
+      surveyId,
+      status: "open",
+      allowAnonymous: true,
+    });
+    await submitPublicSurvey({
+      slug: "pre-lesson-test",
+      website: "",
+      answers: {
+        ...answers,
+        childFirstName: "Ellis",
+        childLastName: "Rivera",
+        childDateOfBirth: "2018-02-03",
+      },
+    });
+    const [person] = await database
+      .insert(people)
+      .values({
+        organizationId: actor.organizationId,
+        firstName: "Ellis",
+        lastName: "Rivera",
+        dateOfBirth: "2018-02-03",
+      })
+      .returning({ id: people.id });
+    await database.insert(students).values({ personId: person!.id });
+    await refreshSurveyMatches(actor);
+    const [response] = await database
+      .select()
+      .from(surveyResponses)
+      .where(eq(surveyResponses.childFirstName, "Ellis"));
+    expect(response?.confirmedStudentId).toBe(person!.id);
+    const [duplicate] = await database
+      .insert(people)
+      .values({
+        organizationId: actor.organizationId,
+        firstName: "Ellis",
+        lastName: "Rivera",
+        dateOfBirth: "2018-02-03",
+      })
+      .returning({ id: people.id });
+    await database.insert(students).values({ personId: duplicate!.id });
+    await refreshSurveyMatches(actor);
+    const [preserved] = await database
+      .select()
+      .from(surveyResponses)
+      .where(eq(surveyResponses.id, response!.id));
+    expect(preserved?.confirmedStudentId).toBe(person!.id);
+  });
+
+  test("requires review when an imported student lacks a birthdate and fills it only on confirmation", async () => {
+    await submitPublicSurvey({
+      slug: "pre-lesson-test",
+      website: "",
+      answers: {
+        ...answers,
+        childFirstName: "Skyler",
+        childLastName: "Brooks",
+        childDateOfBirth: "2018-04-05",
+      },
+    });
+    const [person] = await database
+      .insert(people)
+      .values({
+        organizationId: actor.organizationId,
+        firstName: "Skyler",
+        lastName: "Brooks",
+      })
+      .returning({ id: people.id });
+    await database.insert(students).values({ personId: person!.id });
+    await refreshSurveyMatches(actor);
+    const [response] = await database
+      .select()
+      .from(surveyResponses)
+      .where(eq(surveyResponses.childFirstName, "Skyler"));
+    expect(response?.confirmedStudentId).toBeNull();
+    await confirmSurveyMatch(actor, {
+      responseId: response!.id,
+      studentId: person!.id,
+      fillMissingBirthDate: true,
+    });
+    const [updated] = await database
+      .select()
+      .from(people)
+      .where(eq(people.id, person!.id));
+    expect(updated?.dateOfBirth).toBe("2018-04-05");
+    await expect(
+      confirmSurveyMatch(instructorActor, {
+        responseId: response!.id,
+        studentId: person!.id,
+        fillMissingBirthDate: false,
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const [foreignOrganization] = await database
+      .insert(organizations)
+      .values({ name: "Other School", timezone: "America/New_York" })
+      .returning({ id: organizations.id });
+    await expect(
+      confirmSurveyMatch(
+        { ...actor, organizationId: foreignOrganization!.id },
+        {
+          responseId: response!.id,
+          studentId: person!.id,
+          fillMissingBirthDate: false,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  test("failed dispatch can be retried without clobbering an active or completed worker", async () => {
+    const [batch] = await database
+      .insert(importBatches)
+      .values({
+        organizationId: actor.organizationId,
+        programId,
+        sourceAdapter: "aspenware-registration",
+        adapterVersion: "1",
+        status: "queued",
+        uploadedBy: actor.userId,
+        fileHash: randomUUID(),
+      })
+      .returning();
+    await recordImportDispatchFailure(actor, batch!.id, "reconcile");
+    let [stored] = await database
+      .select()
+      .from(importBatches)
+      .where(eq(importBatches.id, batch!.id));
+    expect(stored?.status).toBe("failed");
+    await retryRegistrationImport(actor, { batchId: batch!.id });
+    await database
+      .update(importBatches)
+      .set({ status: "processing" })
+      .where(eq(importBatches.id, batch!.id));
+    await recordImportDispatchFailure(actor, batch!.id, "reconcile");
+    [stored] = await database
+      .select()
+      .from(importBatches)
+      .where(eq(importBatches.id, batch!.id));
+    expect(stored?.status).toBe("processing");
+    await database
+      .update(importBatches)
+      .set({ status: "applying" })
+      .where(eq(importBatches.id, batch!.id));
+    await recordImportDispatchFailure(actor, batch!.id, "apply");
+    [stored] = await database
+      .select()
+      .from(importBatches)
+      .where(eq(importBatches.id, batch!.id));
+    expect(stored?.status).toBe("ready_for_review");
+    await database
+      .update(importBatches)
+      .set({ status: "applied" })
+      .where(eq(importBatches.id, batch!.id));
+    await recordImportDispatchFailure(actor, batch!.id, "apply");
+    [stored] = await database
+      .select()
+      .from(importBatches)
+      .where(eq(importBatches.id, batch!.id));
+    expect(stored?.status).toBe("applied");
+  });
+
+  test("imports reviewed Aspenware identities without duplicating people and safely reruns the batch", async () => {
+    const listingCsv = [
+      "DetailRowC0,CustomerName,textbox10,DetailRowC1,DetailRowC2,DetailRowC3,DetailRowC4,DetailRowC5,DetailRowC6",
+      'synthetic-aspenware-avery,"Chen, Avery",9,1/1/2027,1/9/2027,1,"PM | Ski | Children\'s Seasonal Program | 26/27 | Saturday | 7-12yrs | 10am",$719.00,Type:Sale; Status:Open',
+    ].join("\n");
+    const input = { programId, listingCsv, listingName: "listing.csv" };
+    const preview = await previewRegistrationImport(actor, input);
+    expect(preview.status).toBe("ready");
+    const decision = preview.identityReview[0]!;
+    expect(decision.studentName).toBe("Chen, Avery");
+    await expect(
+      applyRegistrationImport(actor, { batchId: preview.batchId }),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+    await saveImportIdentityDecision(actor, {
+      batchId: preview.batchId,
+      participantKey: decision.participantKey,
+      studentId: decision.candidates[0]!.id,
+    });
+    const before = await database.select().from(students);
+    await expect(
+      applyRegistrationImport(actor, { batchId: preview.batchId }),
+    ).resolves.toMatchObject({ applied: true, created: 0 });
+    expect(await database.select().from(students)).toHaveLength(before.length);
+    await expect(
+      applyRegistrationImport(actor, { batchId: preview.batchId }),
+    ).resolves.toMatchObject({ applied: false });
+    expect((await previewRegistrationImport(actor, input)).batchId).toBe(
+      preview.batchId,
+    );
   });
 });

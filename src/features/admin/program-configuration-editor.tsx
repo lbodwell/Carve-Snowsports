@@ -80,6 +80,10 @@ type ProgramConfigurationEditorProps = {
       key: string;
       startsAt: string;
       endsAt: string;
+      startsOn: string | null;
+      endsOn: string | null;
+      excludedDates: Array<string>;
+      cohort: string;
       displayOrder: number;
     }
   >;
@@ -117,12 +121,14 @@ export function ProgramConfigurationEditor({
     try {
       await action();
       await router.invalidate();
+      return true;
     } catch (caught) {
       setError(
         caught instanceof Error
           ? caught.message
           : "The configuration could not be saved.",
       );
+      return false;
     } finally {
       setSaving(false);
     }
@@ -222,13 +228,13 @@ function DisciplineSection({
     key: string;
     label: string;
     displayOrder: number;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
   onUpdate: (data: {
     disciplineId: string;
     label: string;
     displayOrder: number;
     active: boolean;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -298,14 +304,18 @@ function DisciplineSection({
                 label,
                 displayOrder: order,
                 active,
-              }).then(resetForm);
+              }).then((saved) => {
+                if (saved) resetForm();
+              });
               return;
             }
             void onCreate({
               key: key || slugifyKey(label),
               label,
               displayOrder: order,
-            }).then(resetForm);
+            }).then((saved) => {
+              if (saved) resetForm();
+            });
           }}
         >
           <Field>
@@ -317,7 +327,7 @@ function DisciplineSection({
               value={label}
               onChange={(event) => {
                 setLabel(event.target.value);
-                if (!editingId && !key) setKey(slugifyKey(event.target.value));
+                if (!editingId) setKey(slugifyKey(event.target.value));
               }}
               required
             />
@@ -378,14 +388,14 @@ function AbilityLevelSection({
     label: string;
     numericRank: number;
     displayOrder: number;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
   onUpdate: (data: {
     abilityLevelId: string;
     label: string;
     numericRank: number;
     displayOrder: number;
     active: boolean;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -461,7 +471,9 @@ function AbilityLevelSection({
                 numericRank: rank,
                 displayOrder: order,
                 active,
-              }).then(resetForm);
+              }).then((saved) => {
+                if (saved) resetForm();
+              });
               return;
             }
             void onCreate({
@@ -469,7 +481,9 @@ function AbilityLevelSection({
               label,
               numericRank: rank,
               displayOrder: order,
-            }).then(resetForm);
+            }).then((saved) => {
+              if (saved) resetForm();
+            });
           }}
         >
           <Field>
@@ -553,7 +567,7 @@ function AgeBandSection({
     minimumAge: number;
     maximumAge: number;
     displayOrder: number;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
   onUpdate: (data: {
     ageBandId: string;
     label: string;
@@ -561,7 +575,7 @@ function AgeBandSection({
     maximumAge: number;
     displayOrder: number;
     active: boolean;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState(null as string | null);
@@ -635,11 +649,15 @@ function AgeBandSection({
             };
             if (editingId) {
               void onUpdate({ ageBandId: editingId, ...payload, active }).then(
-                resetForm,
+                (saved) => {
+                  if (saved) resetForm();
+                },
               );
               return;
             }
-            void onCreate(payload).then(resetForm);
+            void onCreate(payload).then((saved) => {
+              if (saved) resetForm();
+            });
           }}
         >
           <Field>
@@ -725,16 +743,24 @@ function TimeSlotSection({
     label: string;
     startsAt: string;
     endsAt: string;
+    startsOn: string | null;
+    endsOn: string | null;
+    excludedDates: Array<string>;
+    cohort: "season" | "session-1" | "session-2";
     displayOrder: number;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
   onUpdate: (data: {
     timeSlotId: string;
     label: string;
     startsAt: string;
     endsAt: string;
+    startsOn: string | null;
+    endsOn: string | null;
+    excludedDates: Array<string>;
+    cohort: "season" | "session-1" | "session-2";
     displayOrder: number;
     active: boolean;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -742,6 +768,12 @@ function TimeSlotSection({
   const [key, setKey] = useState("");
   const [startsAt, setStartsAt] = useState("09:00");
   const [endsAt, setEndsAt] = useState("12:00");
+  const [startsOn, setStartsOn] = useState("");
+  const [endsOn, setEndsOn] = useState("");
+  const [excludedDates, setExcludedDates] = useState("");
+  const [cohort, setCohort] = useState<"season" | "session-1" | "session-2">(
+    "season",
+  );
   const [displayOrder, setDisplayOrder] = useState("0");
   const [active, setActive] = useState(true);
 
@@ -752,6 +784,10 @@ function TimeSlotSection({
     setKey("");
     setStartsAt("09:00");
     setEndsAt("12:00");
+    setStartsOn("");
+    setEndsOn("");
+    setExcludedDates("");
+    setCohort("season");
     setDisplayOrder("0");
     setActive(true);
   }
@@ -762,6 +798,10 @@ function TimeSlotSection({
     setKey(item.key);
     setStartsAt(item.startsAt);
     setEndsAt(item.endsAt);
+    setStartsOn(item.startsOn ?? "");
+    setEndsOn(item.endsOn ?? "");
+    setExcludedDates(item.excludedDates.join(", "));
+    setCohort(item.cohort as typeof cohort);
     setDisplayOrder(String(item.displayOrder));
     setActive(item.active);
     setShowCreate(true);
@@ -770,19 +810,27 @@ function TimeSlotSection({
   return (
     <ConfigurationSection
       title="Time slots"
-      description="Time slots define the local lesson windows used for grouping and scheduling."
+      description="Keep seasonal cohorts separate. Weekend AM is 10–12, PM is 1–3, and Full Day is 10–3. Dates can be added later for numbered sessions."
       onAdd={() => {
         resetForm();
         setShowCreate(true);
       }}
     >
       <ConfigurationTable
-        headers={["Label", "Key", "Hours", "Order", "Status", ""]}
+        headers={["Label", "Cohort", "Hours", "Dates", "Status", ""]}
         rows={timeSlots.map((item) => [
           item.label,
-          item.key,
+          item.cohort === "session-1"
+            ? "Session 1"
+            : item.cohort === "session-2"
+              ? "Session 2"
+              : "Regular season",
           `${item.startsAt}–${item.endsAt}`,
-          String(item.displayOrder),
+          item.startsOn && item.endsOn
+            ? `${item.startsOn}–${item.endsOn}`
+            : item.cohort === "season"
+              ? "Whole season"
+              : "Dates pending",
           item.active ? "Active" : "Inactive",
           <Button
             key={item.id}
@@ -811,9 +859,15 @@ function TimeSlotSection({
                 label,
                 startsAt,
                 endsAt,
+                startsOn: startsOn || null,
+                endsOn: endsOn || null,
+                excludedDates: excludedDates.split(/[\s,]+/).filter(Boolean),
+                cohort,
                 displayOrder: order,
                 active,
-              }).then(resetForm);
+              }).then((saved) => {
+                if (saved) resetForm();
+              });
               return;
             }
             void onCreate({
@@ -821,8 +875,14 @@ function TimeSlotSection({
               label,
               startsAt,
               endsAt,
+              startsOn: startsOn || null,
+              endsOn: endsOn || null,
+              excludedDates: excludedDates.split(/[\s,]+/).filter(Boolean),
+              cohort,
               displayOrder: order,
-            }).then(resetForm);
+            }).then((saved) => {
+              if (saved) resetForm();
+            });
           }}
         >
           <Field>
@@ -832,20 +892,104 @@ function TimeSlotSection({
               value={label}
               onChange={(event) => {
                 setLabel(event.target.value);
-                if (!editingId && !key) setKey(slugifyKey(event.target.value));
+                if (!editingId) setKey(slugifyKey(event.target.value));
               }}
               required
             />
           </Field>
+          <div
+            className="flex flex-wrap gap-2"
+            aria-label="Standard weekend hours"
+          >
+            {(
+              [
+                ["AM", "10:00", "12:00"],
+                ["PM", "13:00", "15:00"],
+                ["Full Day", "10:00", "15:00"],
+              ] as const
+            ).map(([name, start, end]) => (
+              <Button
+                key={name}
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setStartsAt(start);
+                  setEndsAt(end);
+                  if (!label) {
+                    const nextLabel = `${cohort === "session-1" ? "Session 1 " : cohort === "session-2" ? "Session 2 " : ""}${name}`;
+                    setLabel(nextLabel);
+                    setKey(slugifyKey(nextLabel));
+                  }
+                }}
+              >
+                {name} · {start}–{end}
+              </Button>
+            ))}
+          </div>
           <Field>
-            <FieldLabel htmlFor={`slot-key-${programId}`}>Key</FieldLabel>
+            <FieldLabel htmlFor={`slot-cohort-${programId}`}>
+              Seasonal cohort
+            </FieldLabel>
+            <select
+              id={`slot-cohort-${programId}`}
+              className="bg-background rounded-md border p-2 text-sm"
+              value={cohort}
+              onChange={(event) =>
+                setCohort(event.target.value as typeof cohort)
+              }
+            >
+              <option value="season">Regular season</option>
+              <option value="session-1">Session 1</option>
+              <option value="session-2">Session 2</option>
+            </select>
+            <p className="text-muted-foreground text-xs">
+              Session 1 and Session 2 are different seasonal date ranges, never
+              interchangeable placement choices.
+            </p>
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field>
+              <FieldLabel htmlFor={`slot-first-${programId}`}>
+                First possible lesson date
+              </FieldLabel>
+              <Input
+                id={`slot-first-${programId}`}
+                type="date"
+                value={startsOn}
+                onChange={(event) => setStartsOn(event.target.value)}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`slot-last-${programId}`}>
+                Last possible lesson date
+              </FieldLabel>
+              <Input
+                id={`slot-last-${programId}`}
+                type="date"
+                value={endsOn}
+                onChange={(event) => setEndsOn(event.target.value)}
+              />
+            </Field>
+          </div>
+          <p className="text-muted-foreground text-xs">
+            Leave both blank to build groups with dates pending. Regular
+            sessions use the whole season; numbered sessions need dates before
+            publication.
+          </p>
+          <Field>
+            <FieldLabel htmlFor={`slot-holidays-${programId}`}>
+              No-lesson dates
+            </FieldLabel>
             <Input
-              id={`slot-key-${programId}`}
-              value={key}
-              onChange={(event) => setKey(event.target.value)}
-              disabled={Boolean(editingId)}
-              required
+              id={`slot-holidays-${programId}`}
+              value={excludedDates}
+              placeholder="2027-01-16, 2027-02-13"
+              onChange={(event) => setExcludedDates(event.target.value)}
             />
+            <p className="text-muted-foreground text-xs">
+              Enter dates as YYYY-MM-DD, separated by commas.
+            </p>
           </Field>
           <div className="grid gap-4 sm:grid-cols-3">
             <Field>
@@ -942,7 +1086,9 @@ function ConfigurationSection({
     <Card>
       <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-2">
-          <CardTitle>{title}</CardTitle>
+          <CardTitle role="heading" aria-level={2}>
+            {title}
+          </CardTitle>
           <CardDescription>{description}</CardDescription>
         </div>
         <Button type="button" variant="outline" onClick={onAdd}>

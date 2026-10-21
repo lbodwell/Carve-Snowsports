@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 
 import type { Role } from "@/application/policies/authorization";
 import {
@@ -9,6 +9,7 @@ import { AdminShell } from "@/features/admin/admin-shell";
 import { PersistedGroupingBoard } from "@/features/grouping/persisted-grouping-board";
 import { getGroupingWorkspace } from "@/server/functions/grouping-draft";
 import { getStaffSession } from "@/server/functions/session";
+import { getRegistrationImportWorkspace } from "@/server/functions/registration-import";
 
 export const Route = createFileRoute("/grouping")({
   beforeLoad: async () => {
@@ -20,7 +21,18 @@ export const Route = createFileRoute("/grouping")({
       throw redirect({ to: getStaffHomePath(session.role as Role) });
     }
   },
-  loader: () => getGroupingWorkspace(),
+  validateSearch: (search: Record<string, unknown>) => ({
+    programId:
+      typeof search.programId === "string" &&
+      /^[0-9a-f-]{36}$/i.test(search.programId)
+        ? search.programId
+        : undefined,
+  }),
+  loaderDeps: ({ search }) => ({ programId: search.programId }),
+  loader: async ({ deps }) =>
+    (await getRegistrationImportWorkspace()).length
+      ? getGroupingWorkspace({ data: deps })
+      : null,
   component: GroupingPage,
   head: () => ({ meta: [{ title: "Build lesson groups · Carve" }] }),
 });
@@ -29,7 +41,26 @@ function GroupingPage() {
   const workspace = Route.useLoaderData();
   return (
     <AdminShell>
-      <PersistedGroupingBoard workspace={workspace} />
+      {workspace ? (
+        <PersistedGroupingBoard
+          key={workspace.program.id}
+          workspace={workspace}
+        />
+      ) : (
+        <section className="rounded-xl border bg-white p-8">
+          <h1 className="text-2xl font-semibold">Set up your lesson program</h1>
+          <p className="text-muted-foreground mt-2 text-sm">
+            Create a season and program, then import students and add
+            instructors to begin building groups.
+          </p>
+          <Link
+            className="text-pm-green mt-4 inline-block font-medium underline"
+            to="/admin/seasons"
+          >
+            Create a season and program
+          </Link>
+        </section>
+      )}
     </AdminShell>
   );
 }

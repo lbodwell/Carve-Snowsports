@@ -1,8 +1,20 @@
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
+import {
+  MIGRATION_LOCK,
+  runReleaseMigrations,
+} from "../../scripts/migrate-release";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -28,6 +40,12 @@ adminUrl.pathname = "/postgres";
 
 const adminSql = postgres(adminUrl.toString(), { max: 1 });
 const testSql = postgres(testUrl.toString(), { max: 1 });
+const releaseEnv = {
+  RELEASE_ENVIRONMENT: "test",
+  DATABASE_URL_UNPOOLED: testUrl.toString(),
+  RELEASE_DATABASE_HOST: testUrl.hostname,
+  RELEASE_DATABASE_NAME: "carve_test",
+};
 
 describe("database migrations", () => {
   beforeAll(async () => {
@@ -80,6 +98,88 @@ describe("database migrations", () => {
       SELECT count(*) FROM drizzle.__drizzle_migrations
     `;
 
-    expect(migrationCount?.count).toBe("15");
+    expect(migrationCount?.count).toBe("16");
+  });
+
+  test("release checks verify existing history and reapplying is a no-op", async () => {
+    await expect(
+      runReleaseMigrations({ env: releaseEnv, checkOnly: true }),
+    ).resolves.toMatchObject({ pending: 0, total: 16, checkedOnly: true });
+    await expect(
+      runReleaseMigrations({ env: releaseEnv }),
+    ).resolves.toMatchObject({ pending: 0, total: 16 });
+  });
+
+  test("overlapping migration runners cannot enter the database together", async () => {
+    await testSql`select pg_advisory_lock(${MIGRATION_LOCK[0]}, ${MIGRATION_LOCK[1]})`;
+    try {
+      await expect(runReleaseMigrations({ env: releaseEnv })).rejects.toThrow(
+        "Another release migration",
+      );
+    } finally {
+      await testSql`select pg_advisory_unlock(${MIGRATION_LOCK[0]}, ${MIGRATION_LOCK[1]})`;
+    }
+    await expect(
+      runReleaseMigrations({ env: releaseEnv, checkOnly: true }),
+    ).resolves.toMatchObject({ pending: 0 });
+  });
+
+  test("edited migration history blocks a release", async () => {
+    const [first] =
+      await testSql`select id, hash from drizzle.__drizzle_migrations order by id limit 1`;
+    await testSql`update drizzle.__drizzle_migrations set hash = 'invalid-history-fixture' where id = ${first!.id}`;
+    try {
+      await expect(runReleaseMigrations({ env: releaseEnv })).rejects.toThrow(
+        "migration history differs",
+      );
+    } finally {
+      await testSql`update drizzle.__drizzle_migrations set hash = ${first!.hash} where id = ${first!.id}`;
+    }
+  });
+
+  test("a failed pending migration rolls back its DDL and journal entry", async () => {
+    const fixtureRoot = resolve(process.cwd(), ".tmp");
+    await mkdir(fixtureRoot, { recursive: true });
+    const fixture = await mkdtemp(resolve(fixtureRoot, "migration-failure-"));
+    if (!resolve(fixture).startsWith(fixtureRoot + sep))
+      throw new Error("Unexpected fixture cleanup path.");
+    try {
+      await mkdir(resolve(fixture, "meta"));
+      const source = resolve(process.cwd(), "src/db/migrations");
+      const journal = JSON.parse(
+        await readFile(resolve(source, "meta/_journal.json"), "utf8"),
+      );
+      for (const entry of journal.entries)
+        await copyFile(
+          resolve(source, `${entry.tag}.sql`),
+          resolve(fixture, `${entry.tag}.sql`),
+        );
+      const last = journal.entries.at(-1);
+      journal.entries.push({
+        ...last,
+        idx: last.idx + 1,
+        when: last.when + 1000,
+        tag: "9999_failed_release_fixture",
+      });
+      await writeFile(
+        resolve(fixture, "meta/_journal.json"),
+        JSON.stringify(journal),
+      );
+      await writeFile(
+        resolve(fixture, "9999_failed_release_fixture.sql"),
+        "CREATE TABLE failed_release_fixture (id integer);--> statement-breakpoint\nSELECT 1 / 0;",
+      );
+      await expect(
+        runReleaseMigrations({ env: releaseEnv, migrationsFolder: fixture }),
+      ).rejects.toThrow();
+      const [table] =
+        await testSql`select to_regclass('public.failed_release_fixture') as name`;
+      expect(table?.name).toBeNull();
+      const [count] =
+        await testSql`select count(*)::int as count from drizzle.__drizzle_migrations`;
+      expect(count?.count).toBe(16);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
   });
 });

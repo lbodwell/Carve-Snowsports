@@ -21,10 +21,11 @@ return changes an imported registration to `returned`; a row missing from a
 later file does not change enrollment. The workflow passes batch identifiers
 only—never CSV content or PII—to durable execution.
 
-The current Apply control is an authorized idempotent database operation after
-the reconciliation is ready. Before production use, move it behind the
-workflow’s durable approval step and replace the current server-function
-transfer path with authenticated direct browser-to-private-Blob uploads.
+The Apply control authorizes durable background application after reconciliation
+and identity review. Deployed files transfer directly from the browser to private
+Blob with scoped tokens, then receive server-side header and byte validation.
+Local development can use the private filesystem transport. Workflow integration
+and the actual private Blob configuration still require a hosting rehearsal.
 
 The supplied Aspenware/SSRS reports are an analysis source, not an import
 contract. Run `bun run analyze:imports` to generate privacy-safe aggregate
@@ -114,11 +115,14 @@ provenance rather than an authoritative `people.dateOfBirth` value.
 - Confirm whether report age is calculated at product date while the listing
   age is calculated at export date; the two exports differ by one year for a
   substantial subset.
-- Define the operational schedule represented by `Session 1`, `Session 2`,
-  and `Full Day` before mapping them to configured `time_slots`.
+- `Session 1` and `Session 2` are separate seasonal date ranges. The UI now
+  preserves them as distinct cohorts even before dates are supplied. Saturday/
+  Sunday AM is 10–12, PM is 1–3, and Full Day is 10–3. Configure each cohort's
+  actual dates before publishing; exact dates remain an administrator input.
 - Confirm that `SB` is the intended Snowboard mapping.
-- Define a human-review path for existing people without an Aspenware identity;
-  name-only matching must remain non-automatic.
+- Validate the implemented human-review path for existing people without an
+  Aspenware identity against representative redacted exports; name-only matching
+  remains non-automatic.
 - Define whether a newly supplied prompt export can be trusted to cover all
   active sales. The current prompt cohort is smaller than the active listing
   cohort.
@@ -128,6 +132,7 @@ provenance rather than an authoritative `people.dateOfBirth` value.
 This analysis intentionally does not replace the exact-header
 2025–26 adapter in `src/domain/imports/seasonal-registration-2025-26.ts`.
 The versioned 2026–27 adapter now has upload staging, source-header validation,
-private storage, and workflow-triggered reconciliation. It still needs durable
-approval/cancellation, manual ambiguity review, direct Blob uploads, retention
-cleanup, and live integration/E2E validation before real-data production use.
+private storage, workflow-triggered reconciliation/application, human ambiguity
+review, and private client uploads. Cancellation, retention cleanup, operational
+date windows/exclusions, and real hosting verification remain. See the
+[administrator readiness review](../operations/administrator-readiness-review.md).

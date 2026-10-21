@@ -4,12 +4,14 @@ import viteTsConfigPaths from "vite-tsconfig-paths";
 import tailwindcss from "@tailwindcss/vite";
 import { nitro } from "nitro/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import { workflow } from "workflow/vite";
 
 const vercelBuild =
   Boolean(process.env.VERCEL) || process.env.NITRO_PRESET === "vercel";
 
 export default defineConfig({
   plugins: [
+    workflow(),
     nitro(
       vercelBuild ? { preset: "vercel", vercel: { entryFormat: "node" } } : {},
     ),

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { Actor } from "@/application/policies/authorization";
@@ -11,14 +11,23 @@ import {
 import { projectGroupingRosterStudent } from "@/application/policies/sensitive-field-projection";
 import {
   DEFAULT_DRAFT_WEEKDAY,
+  DEFAULT_GROUPING_RULES,
   GROUPING_RULE_SET_VERSION,
   buildEngineInput,
   resolveAgeBandForBirthDate,
 } from "@/application/services/grouping-snapshot.server";
 import { publishGroupingDraft as publishGroupingDraftInService } from "@/application/services/grouping-publication-service.server";
 import { db } from "@/db/client.server";
-import { rangesOverlap } from "@/domain/calendar/time-ranges";
+import {
+  importedCohort,
+  sessionsOverlap,
+} from "@/domain/calendar/session-calendar";
 import { generateGroupingDraft } from "@/domain/grouping/engine";
+import {
+  overlappingStudentRegistrations,
+  resolveRegistrationSchedule,
+} from "@/domain/grouping/registration-schedule";
+import { validateGroupingDraft } from "@/application/services/grouping-validation.server";
 import {
   abilityLevels,
   ageBands,
@@ -31,15 +40,38 @@ import {
   groupingDrafts,
   instructorQualifications,
   instructors,
+  organizations,
   people,
   programs,
   registrations,
   seasons,
   students,
+  surveyResponses,
+  surveys,
   timeSlots,
 } from "@/db/schema";
 
-export const createGroupingDraftSchema = z.object({ programId: z.uuid() });
+export const createGroupingDraftSchema = z.object({
+  programId: z.uuid(),
+  mode: z.enum(["suggested", "manual"]).optional(),
+  weekday: z.number().int().min(0).max(6).optional(),
+  timeSlotId: z.uuid().optional(),
+});
+export const groupingWorkspaceSchema = z.object({
+  programId: z.uuid().optional(),
+});
+export const registrationScheduleSchema = z.object({
+  registrationId: z.uuid(),
+  weekday: z.number().int().min(0).max(6),
+  timeSlotId: z.uuid(),
+  applyToMatching: z.boolean().optional(),
+});
+export const suggestRemainingSchema = z.object({
+  draftId: z.uuid(),
+  baseVersion: z.number().int().positive(),
+  weekday: z.number().int().min(0).max(6),
+  timeSlotId: z.uuid(),
+});
 export const createDraftGroupSchema = z.object({
   draftId: z.uuid(),
   baseVersion: z.number().int().positive(),
@@ -120,6 +152,7 @@ async function getProgram(actor: Actor, programId?: string) {
       name: programs.name,
       seasonId: seasons.id,
       seasonName: seasons.name,
+      seasonStartsOn: seasons.startsOn,
     })
     .from(programs)
     .innerJoin(seasons, eq(programs.seasonId, seasons.id))
@@ -130,7 +163,7 @@ async function getProgram(actor: Actor, programId?: string) {
         ...(programId ? [eq(programs.id, programId)] : []),
       ),
     )
-    .orderBy(asc(seasons.startsOn), asc(programs.name));
+    .orderBy(desc(seasons.startsOn), asc(programs.name));
   if (!program) {
     throw new ApplicationError(
       "NOT_FOUND",
@@ -140,19 +173,41 @@ async function getProgram(actor: Actor, programId?: string) {
   return program;
 }
 
-export async function getGroupingWorkspace(actor: Actor) {
+export async function getGroupingWorkspace(
+  actor: Actor,
+  input?: { programId?: string },
+) {
   requirePermission(actor, "grouping:edit");
-  const program = await getProgram(actor);
+  const program = await getProgram(actor, input?.programId);
+  const availablePrograms = await db
+    .select({ id: programs.id, name: programs.name, seasonName: seasons.name })
+    .from(programs)
+    .innerJoin(seasons, eq(seasons.id, programs.seasonId))
+    .where(
+      and(
+        eq(seasons.organizationId, actor.organizationId),
+        isNull(seasons.archivedAt),
+      ),
+    )
+    .orderBy(desc(seasons.startsOn), asc(programs.name));
   const [draft] = await db
     .select()
     .from(groupingDrafts)
     .where(
       and(
         eq(groupingDrafts.programId, program.id),
-        inArray(groupingDrafts.status, ["editing", "submitted", "approved"]),
+        inArray(groupingDrafts.status, [
+          "editing",
+          "submitted",
+          "approved",
+          "published",
+        ]),
       ),
     )
-    .orderBy(asc(groupingDrafts.createdAt));
+    .orderBy(
+      sql`case when ${groupingDrafts.status} = 'published' then 1 else 0 end`,
+      desc(groupingDrafts.createdAt),
+    );
 
   const [configuration, roster, instructorRows] = await Promise.all([
     Promise.all([
@@ -186,6 +241,9 @@ export async function getGroupingWorkspace(actor: Actor) {
         dateOfBirth: people.dateOfBirth,
         disciplineId: registrations.disciplineId,
         abilityLevelId: registrations.abilityLevelId,
+        sourceSnapshot: registrations.sourceSnapshot,
+        registrationStatus: registrations.status,
+        isArchived: sql<boolean>`${registrations.archivedAt} is not null or ${people.archivedAt} is not null`,
       })
       .from(registrations)
       .innerJoin(students, eq(registrations.studentId, students.personId))
@@ -193,9 +251,22 @@ export async function getGroupingWorkspace(actor: Actor) {
       .where(
         and(
           eq(registrations.programId, program.id),
-          eq(registrations.status, "active"),
-          isNull(registrations.archivedAt),
-          isNull(people.archivedAt),
+          or(
+            and(
+              eq(registrations.status, "active"),
+              isNull(registrations.archivedAt),
+              isNull(people.archivedAt),
+            ),
+            draft
+              ? inArray(
+                  registrations.id,
+                  db
+                    .select({ id: groupingDraftAssignments.registrationId })
+                    .from(groupingDraftAssignments)
+                    .where(eq(groupingDraftAssignments.draftId, draft.id)),
+                )
+              : undefined,
+          ),
         ),
       )
       .orderBy(asc(people.lastName), asc(people.firstName)),
@@ -217,12 +288,47 @@ export async function getGroupingWorkspace(actor: Actor) {
   ]);
 
   const [disciplineRows, levelRows, ageBandRows, timeSlotRows] = configuration;
-  const projectedRoster = roster.map((student) =>
-    projectGroupingRosterStudent(actor, student),
-  );
+  const matchedSurveys = await db
+    .select({
+      studentId: surveyResponses.confirmedStudentId,
+      answers: surveyResponses.answers,
+    })
+    .from(surveyResponses)
+    .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
+    .where(eq(surveys.organizationId, actor.organizationId))
+    .orderBy(desc(surveyResponses.submittedAt));
+  const projectedRoster = roster.map(({ sourceSnapshot, ...student }) => ({
+    ...projectGroupingRosterStudent(actor, student),
+    registrationStatus: student.isArchived
+      ? "archived"
+      : student.registrationStatus,
+    schedule: resolveRegistrationSchedule(sourceSnapshot, timeSlotRows),
+    sourceScheduleLabel: sourceSnapshot?.sourceKey
+      ? [sourceSnapshot.weekday, sourceSnapshot.session]
+          .filter(Boolean)
+          .join(" · ")
+      : null,
+    needsSchedule:
+      Boolean(sourceSnapshot?.sourceKey) &&
+      !resolveRegistrationSchedule(sourceSnapshot, timeSlotRows),
+    survey: (() => {
+      const response = matchedSurveys.find(
+        (row) => row.studentId === student.studentId,
+      );
+      return response
+        ? {
+            level: String(response.answers.level ?? ""),
+            session: String(response.answers.session ?? ""),
+            hasSupportReview: Boolean(response.answers.medicalConcerns),
+          }
+        : null;
+    })(),
+  }));
   if (!draft) {
     return {
       program,
+      availablePrograms,
+      maximumStudentsPerGroup: DEFAULT_GROUPING_RULES.maximumStudentsPerGroup,
       draft: null,
       groups: [],
       assignments: [],
@@ -250,66 +356,75 @@ export async function getGroupingWorkspace(actor: Actor) {
     .where(eq(groupingDraftGroups.draftId, draft.id))
     .orderBy(asc(groupingDraftGroups.createdAt));
   const groupIds = groups.map((group) => group.id);
-  const [assignments, assignedInstructors, qualifications, lastOperation, creationEvent] =
-    await Promise.all([
-      groupIds.length
-        ? db
-            .select()
-            .from(groupingDraftAssignments)
-            .where(inArray(groupingDraftAssignments.draftGroupId, groupIds))
-        : [],
-      groupIds.length
-        ? db
-            .select()
-            .from(groupingDraftInstructors)
-            .where(inArray(groupingDraftInstructors.draftGroupId, groupIds))
-        : [],
-      instructorRows.length
-        ? db
-            .select({
-              instructorId: instructorQualifications.instructorId,
-              disciplineId: instructorQualifications.disciplineId,
-            })
-            .from(instructorQualifications)
-            .where(
-              inArray(
-                instructorQualifications.instructorId,
-                instructorRows.map((row) => row.id),
-              ),
-            )
-        : [],
-      draft.status === "editing"
-        ? db
-            .select({
-              id: draftOperations.id,
-              operationType: draftOperations.operationType,
-            })
-            .from(draftOperations)
-            .where(eq(draftOperations.draftId, draft.id))
-            .orderBy(desc(draftOperations.resultingVersion))
-            .limit(1)
-        : Promise.resolve([]),
-      db
-        .select({ metadata: auditEvents.metadata })
-        .from(auditEvents)
-        .where(
-          and(
-            eq(auditEvents.entityType, "grouping_draft"),
-            eq(auditEvents.entityId, draft.id),
-            eq(auditEvents.action, "grouping.draft_created"),
-          ),
-        )
-        .orderBy(asc(auditEvents.createdAt))
-        .limit(1),
-    ]);
+  const [
+    assignments,
+    assignedInstructors,
+    qualifications,
+    lastOperation,
+    creationEvent,
+  ] = await Promise.all([
+    groupIds.length
+      ? db
+          .select()
+          .from(groupingDraftAssignments)
+          .where(inArray(groupingDraftAssignments.draftGroupId, groupIds))
+      : [],
+    groupIds.length
+      ? db
+          .select()
+          .from(groupingDraftInstructors)
+          .where(inArray(groupingDraftInstructors.draftGroupId, groupIds))
+      : [],
+    instructorRows.length
+      ? db
+          .select({
+            instructorId: instructorQualifications.instructorId,
+            disciplineId: instructorQualifications.disciplineId,
+          })
+          .from(instructorQualifications)
+          .where(
+            inArray(
+              instructorQualifications.instructorId,
+              instructorRows.map((row) => row.id),
+            ),
+          )
+      : [],
+    draft.status === "editing"
+      ? db
+          .select({
+            id: draftOperations.id,
+            operationType: draftOperations.operationType,
+          })
+          .from(draftOperations)
+          .where(eq(draftOperations.draftId, draft.id))
+          .orderBy(desc(draftOperations.resultingVersion))
+          .limit(1)
+      : Promise.resolve([]),
+    db
+      .select({ metadata: auditEvents.metadata })
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.entityType, "grouping_draft"),
+          eq(auditEvents.entityId, draft.id),
+          inArray(auditEvents.action, [
+            "grouping.draft_created",
+            "grouping.remaining_suggested",
+          ]),
+        ),
+      )
+      .orderBy(desc(auditEvents.createdAt))
+      .limit(1),
+  ]);
 
   const unplacedReasons =
     (creationEvent[0]?.metadata.unplacedReasons as
-      | Record<string, string>
-      | undefined) ?? {};
+      Record<string, string> | undefined) ?? {};
 
   return {
     program,
+    availablePrograms,
+    maximumStudentsPerGroup: DEFAULT_GROUPING_RULES.maximumStudentsPerGroup,
     draft,
     groups: groups.map((group) => ({
       ...group,
@@ -375,7 +490,10 @@ async function loadProgramSnapshot(
         .where(eq(disciplines.programId, programId))
         .orderBy(asc(disciplines.displayOrder)),
       db
-        .select({ id: abilityLevels.id, numericRank: abilityLevels.numericRank })
+        .select({
+          id: abilityLevels.id,
+          numericRank: abilityLevels.numericRank,
+        })
         .from(abilityLevels)
         .where(eq(abilityLevels.programId, programId))
         .orderBy(asc(abilityLevels.displayOrder)),
@@ -389,16 +507,27 @@ async function loadProgramSnapshot(
         .where(eq(ageBands.programId, programId))
         .orderBy(asc(ageBands.displayOrder)),
       db
-        .select({ id: timeSlots.id })
+        .select({
+          id: timeSlots.id,
+          label: timeSlots.label,
+          startsAt: timeSlots.startsAt,
+          endsAt: timeSlots.endsAt,
+          startsOn: timeSlots.startsOn,
+          endsOn: timeSlots.endsOn,
+          excludedDates: timeSlots.excludedDates,
+          cohort: timeSlots.cohort,
+        })
         .from(timeSlots)
         .where(eq(timeSlots.programId, programId))
         .orderBy(asc(timeSlots.displayOrder)),
       db
         .select({
           id: registrations.id,
+          studentId: registrations.studentId,
           disciplineId: registrations.disciplineId,
           abilityLevelId: registrations.abilityLevelId,
           dateOfBirth: people.dateOfBirth,
+          sourceSnapshot: registrations.sourceSnapshot,
         })
         .from(registrations)
         .innerJoin(students, eq(registrations.studentId, students.personId))
@@ -442,9 +571,7 @@ async function loadProgramSnapshot(
             disciplines,
             eq(instructorQualifications.disciplineId, disciplines.id),
           )
-          .where(
-            inArray(instructorQualifications.instructorId, instructorIds),
-          )
+          .where(inArray(instructorQualifications.instructorId, instructorIds))
       : [];
 
   const defaultTimeSlotId = timeSlotRows[0]?.id;
@@ -458,6 +585,7 @@ async function loadProgramSnapshot(
   return {
     seasonStartsOn: program.seasonStartsOn,
     defaultTimeSlotId,
+    timeSlots: timeSlotRows,
     disciplines: disciplineRows,
     ageBands: ageBandRows,
     abilityLevels: levelRows,
@@ -469,6 +597,7 @@ async function loadProgramSnapshot(
       );
       return {
         id: registration.id,
+        studentId: registration.studentId,
         disciplineId: registration.disciplineId,
         disciplineKey: registration.disciplineId
           ? (disciplineById.get(registration.disciplineId) ?? null)
@@ -478,6 +607,16 @@ async function loadProgramSnapshot(
           ? (abilityRankById.get(registration.abilityLevelId) ?? 1)
           : 1,
         dateOfBirth: registration.dateOfBirth,
+        schedule: resolveRegistrationSchedule(
+          registration.sourceSnapshot,
+          timeSlotRows,
+        ),
+        needsSchedule:
+          Boolean(registration.sourceSnapshot?.sourceKey) &&
+          !resolveRegistrationSchedule(
+            registration.sourceSnapshot,
+            timeSlotRows,
+          ),
         ageBandId: ageBand?.id ?? null,
         ageBandEngineKey: ageBand?.engineKey ?? null,
       };
@@ -493,16 +632,385 @@ async function loadProgramSnapshot(
   };
 }
 
+export async function setRegistrationSchedule(
+  actor: Actor,
+  input: z.infer<typeof registrationScheduleSchema>,
+) {
+  requirePermission(actor, "grouping:edit");
+  const parsed = registrationScheduleSchema.parse(input);
+  await db.transaction(async (tx) => {
+    await tx
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(eq(organizations.id, actor.organizationId))
+      .for("update");
+    const [registration] = await tx
+      .select({
+        id: registrations.id,
+        programId: registrations.programId,
+        sourceSnapshot: registrations.sourceSnapshot,
+      })
+      .from(registrations)
+      .innerJoin(programs, eq(programs.id, registrations.programId))
+      .innerJoin(seasons, eq(seasons.id, programs.seasonId))
+      .where(
+        and(
+          eq(registrations.id, parsed.registrationId),
+          eq(seasons.organizationId, actor.organizationId),
+        ),
+      )
+      .for("update", { of: registrations });
+    if (!registration)
+      throw new ApplicationError("NOT_FOUND", "Registration not found.");
+    const [slot] = await tx
+      .select({ id: timeSlots.id, cohort: timeSlots.cohort })
+      .from(timeSlots)
+      .where(
+        and(
+          eq(timeSlots.id, parsed.timeSlotId),
+          eq(timeSlots.programId, registration.programId),
+          eq(timeSlots.active, true),
+        ),
+      );
+    if (!slot)
+      throw new ApplicationError(
+        "VALIDATION",
+        "Choose an active time in this program.",
+      );
+    if (
+      registration.sourceSnapshot?.sourceKey &&
+      slot.cohort !== importedCohort(registration.sourceSnapshot)
+    )
+      throw new ApplicationError(
+        "VALIDATION",
+        "Choose a lesson session in the same seasonal cohort as this registration. Session 1 and Session 2 must stay separate.",
+      );
+    const assigned = await tx
+      .select({ id: groupingDraftAssignments.registrationId })
+      .from(groupingDraftAssignments)
+      .innerJoin(
+        groupingDrafts,
+        eq(groupingDrafts.id, groupingDraftAssignments.draftId),
+      )
+      .where(
+        and(
+          eq(groupingDraftAssignments.registrationId, registration.id),
+          inArray(groupingDrafts.status, ["editing", "submitted", "approved"]),
+        ),
+      );
+    if (assigned.length)
+      throw new ApplicationError(
+        "VALIDATION",
+        "Remove this student from their draft groups before changing their session.",
+      );
+    await tx
+      .update(registrations)
+      .set({
+        sourceSnapshot: {
+          ...registration.sourceSnapshot,
+          groupingSchedule: {
+            weekday: parsed.weekday,
+            timeSlotId: parsed.timeSlotId,
+          },
+        },
+        updatedAt: new Date(),
+      })
+      .where(eq(registrations.id, registration.id));
+    let count = 1;
+    if (
+      parsed.applyToMatching &&
+      registration.sourceSnapshot?.sourceKey &&
+      registration.sourceSnapshot.weekday &&
+      registration.sourceSnapshot.session
+    ) {
+      const candidates = await tx
+        .select({
+          id: registrations.id,
+          sourceSnapshot: registrations.sourceSnapshot,
+        })
+        .from(registrations)
+        .where(
+          and(
+            eq(registrations.programId, registration.programId),
+            eq(registrations.status, "active"),
+            isNull(registrations.archivedAt),
+          ),
+        )
+        .for("update");
+      const slots = await tx
+        .select()
+        .from(timeSlots)
+        .where(
+          and(
+            eq(timeSlots.programId, registration.programId),
+            eq(timeSlots.active, true),
+          ),
+        );
+      for (const candidate of candidates) {
+        if (
+          candidate.id === registration.id ||
+          candidate.sourceSnapshot?.weekday !==
+            registration.sourceSnapshot.weekday ||
+          candidate.sourceSnapshot.session !==
+            registration.sourceSnapshot.session ||
+          resolveRegistrationSchedule(candidate.sourceSnapshot, slots)
+        )
+          continue;
+        const existingPlacements = await tx
+          .select({ registrationId: groupingDraftAssignments.registrationId })
+          .from(groupingDraftAssignments)
+          .where(eq(groupingDraftAssignments.registrationId, candidate.id));
+        if (existingPlacements.length) continue;
+        await tx
+          .update(registrations)
+          .set({
+            sourceSnapshot: {
+              ...candidate.sourceSnapshot,
+              groupingSchedule: {
+                weekday: parsed.weekday,
+                timeSlotId: parsed.timeSlotId,
+              },
+            },
+            updatedAt: new Date(),
+          })
+          .where(eq(registrations.id, candidate.id));
+        count++;
+      }
+    }
+    await tx.insert(auditEvents).values({
+      organizationId: actor.organizationId,
+      actorId: actor.userId,
+      entityType: "registration",
+      entityId: registration.id,
+      action: "grouping.session_confirmed",
+      metadata: {
+        weekday: parsed.weekday,
+        timeSlotId: parsed.timeSlotId,
+        registrationCount: count,
+      },
+    });
+  });
+}
+
+export async function suggestRemainingPlacements(
+  actor: Actor,
+  input: z.infer<typeof suggestRemainingSchema>,
+) {
+  requirePermission(actor, "grouping:edit");
+  const parsed = suggestRemainingSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const version = await incrementDraftVersion(
+      tx,
+      actor,
+      parsed.draftId,
+      parsed.baseVersion,
+    );
+    const [draft] = await tx
+      .select({ programId: groupingDrafts.programId })
+      .from(groupingDrafts)
+      .where(eq(groupingDrafts.id, parsed.draftId));
+    const snapshot = await loadProgramSnapshot(actor, draft!.programId);
+    if (!snapshot.timeSlots?.some((slot) => slot.id === parsed.timeSlotId))
+      throw new ApplicationError(
+        "VALIDATION",
+        "Choose a time in this program.",
+      );
+    snapshot.defaultTimeSlotId = parsed.timeSlotId;
+    const groups = await tx
+      .select()
+      .from(groupingDraftGroups)
+      .where(eq(groupingDraftGroups.draftId, parsed.draftId));
+    const assignments = await tx
+      .select()
+      .from(groupingDraftAssignments)
+      .where(eq(groupingDraftAssignments.draftId, parsed.draftId));
+    const placed = new Set(assignments.map((row) => row.registrationId));
+    const sizes = new Map(
+      groups.map((group) => [
+        group.id,
+        assignments.filter((row) => row.draftGroupId === group.id).length,
+      ]),
+    );
+    const duplicateIds = overlappingStudentRegistrations(
+      snapshot.registrations,
+      snapshot.timeSlots ?? [],
+      { weekday: parsed.weekday, timeSlotId: parsed.timeSlotId },
+    );
+    let added = 0;
+    for (const registration of snapshot.registrations.filter(
+      (row) => !placed.has(row.id),
+    )) {
+      if (
+        duplicateIds.has(registration.id) ||
+        registration.needsSchedule ||
+        !registration.disciplineId ||
+        !registration.ageBandId
+      )
+        continue;
+      const schedule = registration.schedule ?? {
+        weekday: parsed.weekday,
+        timeSlotId: parsed.timeSlotId,
+      };
+      const target = groups.find(
+        (group) =>
+          group.weekday === schedule.weekday &&
+          group.timeSlotId === schedule.timeSlotId &&
+          group.disciplineId === registration.disciplineId &&
+          (!group.ageBandId || group.ageBandId === registration.ageBandId) &&
+          (!group.abilityLevelId ||
+            !registration.abilityLevelId ||
+            group.abilityLevelId === registration.abilityLevelId) &&
+          (sizes.get(group.id) ?? 0) <
+            DEFAULT_GROUPING_RULES.maximumStudentsPerGroup,
+      );
+      if (!target) continue;
+      await tx.insert(groupingDraftAssignments).values({
+        draftId: parsed.draftId,
+        draftGroupId: target.id,
+        registrationId: registration.id,
+      });
+      placed.add(registration.id);
+      sizes.set(target.id, (sizes.get(target.id) ?? 0) + 1);
+      added++;
+    }
+    const generation = await persistGeneratedDraft(
+      tx,
+      parsed.draftId,
+      {
+        ...snapshot,
+        registrations: snapshot.registrations.filter(
+          (row) => !placed.has(row.id) && !duplicateIds.has(row.id),
+        ),
+      },
+      parsed.weekday,
+    );
+    await validateGroupingDraft(tx, parsed.draftId);
+    await tx.insert(draftOperations).values({
+      draftId: parsed.draftId,
+      commandId: crypto.randomUUID(),
+      actorId: actor.userId,
+      baseVersion: parsed.baseVersion,
+      resultingVersion: version,
+      operationType: "suggest_remaining",
+      payload: { addedToExisting: added, newGroups: generation.groupCount },
+    });
+    await tx.insert(auditEvents).values({
+      organizationId: actor.organizationId,
+      actorId: actor.userId,
+      entityType: "grouping_draft",
+      entityId: parsed.draftId,
+      action: "grouping.remaining_suggested",
+      metadata: { version, addedToExisting: added, ...generation },
+    });
+    return { version };
+  });
+}
+
 async function persistGeneratedDraft(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   draftId: string,
   snapshot: GroupingProgramSnapshot,
+  defaultWeekday = DEFAULT_DRAFT_WEEKDAY,
 ) {
-  const engineInput = buildEngineInput(snapshot);
-  const result = generateGroupingDraft(
-    engineInput.registrations,
-    engineInput.instructors,
-    engineInput.rules,
+  const existingStaff = await tx
+    .select({
+      weekday: groupingDraftGroups.weekday,
+      timeSlotId: groupingDraftGroups.timeSlotId,
+      instructorId: groupingDraftInstructors.instructorId,
+    })
+    .from(groupingDraftInstructors)
+    .innerJoin(
+      groupingDraftGroups,
+      eq(groupingDraftGroups.id, groupingDraftInstructors.draftGroupId),
+    )
+    .where(eq(groupingDraftGroups.draftId, draftId));
+  const duplicateIds = overlappingStudentRegistrations(
+    snapshot.registrations,
+    snapshot.timeSlots ?? [],
+    { weekday: defaultWeekday, timeSlotId: snapshot.defaultTimeSlotId },
+  );
+  const buckets = new Map<
+    string,
+    {
+      weekday: number;
+      timeSlotId: string;
+      registrations: Array<(typeof snapshot.registrations)[number]>;
+    }
+  >();
+  for (const registration of snapshot.registrations) {
+    if (registration.needsSchedule || duplicateIds.has(registration.id))
+      continue;
+    const schedule = registration.schedule ?? {
+      weekday: defaultWeekday,
+      timeSlotId: snapshot.defaultTimeSlotId,
+    };
+    const key = `${schedule.weekday}:${schedule.timeSlotId}`;
+    const bucket = buckets.get(key) ?? { ...schedule, registrations: [] };
+    bucket.registrations.push(registration);
+    buckets.set(key, bucket);
+  }
+  const result = {
+    engineVersion: "v2",
+    groups: [] as Array<
+      ReturnType<typeof generateGroupingDraft>["groups"][number] & {
+        weekday: number;
+        timeSlotId: string;
+      }
+    >,
+    unplaced: snapshot.registrations
+      .filter((row) => row.needsSchedule)
+      .map((row) => ({
+        registrationId: row.id,
+        reason:
+          "Confirm the imported lesson day and time before placing this student.",
+      })),
+  };
+  for (const bucket of buckets.values()) {
+    const engineInput = buildEngineInput({
+      ...snapshot,
+      registrations: bucket.registrations,
+    });
+    const slot = snapshot.timeSlots?.find(
+      (item) => item.id === bucket.timeSlotId,
+    );
+    const occupied = new Set(
+      [...existingStaff, ...result.groups]
+        .filter(
+          (group) =>
+            group.weekday === bucket.weekday &&
+            (() => {
+              const other = snapshot.timeSlots?.find(
+                (item) => item.id === group.timeSlotId,
+              );
+              return slot && other
+                ? sessionsOverlap(slot, other, bucket.weekday)
+                : group.timeSlotId === bucket.timeSlotId;
+            })(),
+        )
+        .map((group) => group.instructorId),
+    );
+    const generated = generateGroupingDraft(
+      engineInput.registrations,
+      engineInput.instructors.filter(
+        (instructor) => !occupied.has(instructor.id),
+      ),
+      engineInput.rules,
+    );
+    result.groups.push(
+      ...generated.groups.map((group) => ({
+        ...group,
+        weekday: bucket.weekday,
+        timeSlotId: bucket.timeSlotId,
+      })),
+    );
+    result.unplaced.push(...generated.unplaced);
+  }
+  result.unplaced.push(
+    ...[...duplicateIds].map((registrationId) => ({
+      registrationId,
+      reason:
+        "This child has overlapping active registrations. Review the registrations before placing them.",
+    })),
   );
 
   const disciplineByKey = new Map(
@@ -528,14 +1036,14 @@ async function persistGeneratedDraft(
       proposed.registrationIds
         .map((id) => registrationById.get(id)?.abilityLevelId)
         .find((value) => value !== null && value !== undefined) ?? null;
-    const notes = proposed.explanations.join(" ");
+    const notes = null;
 
     const [group] = await tx
       .insert(groupingDraftGroups)
       .values({
         draftId,
-        weekday: DEFAULT_DRAFT_WEEKDAY,
-        timeSlotId: snapshot.defaultTimeSlotId,
+        weekday: proposed.weekday,
+        timeSlotId: proposed.timeSlotId,
         disciplineId,
         ageBandId,
         abilityLevelId,
@@ -578,6 +1086,14 @@ export async function createGroupingDraft(
   requirePermission(actor, "grouping:edit");
   const parsed = createGroupingDraftSchema.parse(input);
   const snapshot = await loadProgramSnapshot(actor, parsed.programId);
+  if (parsed.timeSlotId) {
+    if (!snapshot.timeSlots?.some((slot) => slot.id === parsed.timeSlotId))
+      throw new ApplicationError(
+        "VALIDATION",
+        "Choose a time in this program.",
+      );
+    snapshot.defaultTimeSlotId = parsed.timeSlotId;
+  }
 
   const [existing] = await db
     .select({ id: groupingDrafts.id })
@@ -591,6 +1107,21 @@ export async function createGroupingDraft(
   if (existing) return existing;
 
   return db.transaction(async (tx) => {
+    await tx
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(eq(organizations.id, actor.organizationId))
+      .for("update");
+    const [current] = await tx
+      .select({ id: groupingDrafts.id })
+      .from(groupingDrafts)
+      .where(
+        and(
+          eq(groupingDrafts.programId, parsed.programId),
+          inArray(groupingDrafts.status, ["editing", "submitted", "approved"]),
+        ),
+      );
+    if (current) return current;
     const [draft] = await tx
       .insert(groupingDrafts)
       .values({
@@ -600,10 +1131,18 @@ export async function createGroupingDraft(
       })
       .returning({ id: groupingDrafts.id });
     if (!draft) {
-      throw new ApplicationError("INVALID_STATE", "Draft could not be created.");
+      throw new ApplicationError(
+        "INVALID_STATE",
+        "Draft could not be created.",
+      );
     }
 
-    const generation = await persistGeneratedDraft(tx, draft.id, snapshot);
+    const generation = await persistGeneratedDraft(
+      tx,
+      draft.id,
+      parsed.mode === "manual" ? { ...snapshot, registrations: [] } : snapshot,
+      parsed.weekday ?? DEFAULT_DRAFT_WEEKDAY,
+    );
 
     await tx.insert(auditEvents).values({
       organizationId: actor.organizationId,
@@ -796,6 +1335,10 @@ export async function moveRegistration(
           weekday: groupingDraftGroups.weekday,
           startsAt: timeSlots.startsAt,
           endsAt: timeSlots.endsAt,
+          startsOn: timeSlots.startsOn,
+          endsOn: timeSlots.endsOn,
+          excludedDates: timeSlots.excludedDates,
+          cohort: timeSlots.cohort,
         })
         .from(groupingDraftGroups)
         .innerJoin(timeSlots, eq(groupingDraftGroups.timeSlotId, timeSlots.id))
@@ -862,6 +1405,10 @@ export async function moveRegistration(
           weekday: groupingDraftGroups.weekday,
           startsAt: timeSlots.startsAt,
           endsAt: timeSlots.endsAt,
+          startsOn: timeSlots.startsOn,
+          endsOn: timeSlots.endsOn,
+          excludedDates: timeSlots.excludedDates,
+          cohort: timeSlots.cohort,
         })
         .from(groupingDraftAssignments)
         .innerJoin(
@@ -881,7 +1428,7 @@ export async function moveRegistration(
             candidate.groupId !== targetGroup.id &&
             candidate.groupId !== parsed.fromGroupId &&
             candidate.weekday === targetGroup.weekday &&
-            rangesOverlap(candidate, targetGroup),
+            sessionsOverlap(candidate, targetGroup, targetGroup.weekday),
         )
       ) {
         throw new ApplicationError(
@@ -922,6 +1469,8 @@ export async function moveRegistration(
         overrideReason: parsed.overrideReason,
       },
     });
+    if (parsed.groupId)
+      await validateGroupingDraft(tx, parsed.draftId, parsed.groupId);
     return { version };
   });
 }
@@ -946,6 +1495,10 @@ export async function assignDraftInstructor(
         weekday: groupingDraftGroups.weekday,
         startsAt: timeSlots.startsAt,
         endsAt: timeSlots.endsAt,
+        startsOn: timeSlots.startsOn,
+        endsOn: timeSlots.endsOn,
+        excludedDates: timeSlots.excludedDates,
+        cohort: timeSlots.cohort,
       })
       .from(groupingDraftGroups)
       .innerJoin(timeSlots, eq(groupingDraftGroups.timeSlotId, timeSlots.id))
@@ -1004,6 +1557,10 @@ export async function assignDraftInstructor(
           weekday: groupingDraftGroups.weekday,
           startsAt: timeSlots.startsAt,
           endsAt: timeSlots.endsAt,
+          startsOn: timeSlots.startsOn,
+          endsOn: timeSlots.endsOn,
+          excludedDates: timeSlots.excludedDates,
+          cohort: timeSlots.cohort,
         })
         .from(groupingDraftInstructors)
         .innerJoin(
@@ -1025,7 +1582,7 @@ export async function assignDraftInstructor(
           (assignment) =>
             assignment.groupId !== group.id &&
             assignment.weekday === group.weekday &&
-            rangesOverlap(assignment, group),
+            sessionsOverlap(assignment, group, group.weekday),
         )
       ) {
         throw new ApplicationError(
@@ -1086,6 +1643,10 @@ export async function updateDraftGroup(
       .select({
         startsAt: timeSlots.startsAt,
         endsAt: timeSlots.endsAt,
+        startsOn: timeSlots.startsOn,
+        endsOn: timeSlots.endsOn,
+        excludedDates: timeSlots.excludedDates,
+        cohort: timeSlots.cohort,
       })
       .from(groupingDrafts)
       .innerJoin(
@@ -1166,6 +1727,10 @@ export async function updateDraftGroup(
               weekday: groupingDraftGroups.weekday,
               startsAt: timeSlots.startsAt,
               endsAt: timeSlots.endsAt,
+              startsOn: timeSlots.startsOn,
+              endsOn: timeSlots.endsOn,
+              excludedDates: timeSlots.excludedDates,
+              cohort: timeSlots.cohort,
             })
             .from(groupingDraftAssignments)
             .innerJoin(
@@ -1188,13 +1753,17 @@ export async function updateDraftGroup(
     const proposedRange = {
       startsAt: configuration.startsAt,
       endsAt: configuration.endsAt,
+      startsOn: configuration.startsOn,
+      endsOn: configuration.endsOn,
+      excludedDates: configuration.excludedDates,
+      cohort: configuration.cohort,
     };
     if (
       studentConflicts.some(
         (item) =>
           item.groupId !== parsed.groupId &&
           item.weekday === parsed.weekday &&
-          rangesOverlap(item, proposedRange),
+          sessionsOverlap(item, proposedRange, parsed.weekday),
       )
     ) {
       throw new ApplicationError(
@@ -1212,6 +1781,10 @@ export async function updateDraftGroup(
               weekday: groupingDraftGroups.weekday,
               startsAt: timeSlots.startsAt,
               endsAt: timeSlots.endsAt,
+              startsOn: timeSlots.startsOn,
+              endsOn: timeSlots.endsOn,
+              excludedDates: timeSlots.excludedDates,
+              cohort: timeSlots.cohort,
             })
             .from(groupingDraftInstructors)
             .innerJoin(
@@ -1236,7 +1809,7 @@ export async function updateDraftGroup(
         (item) =>
           item.groupId !== parsed.groupId &&
           item.weekday === parsed.weekday &&
-          rangesOverlap(item, proposedRange),
+          sessionsOverlap(item, proposedRange, parsed.weekday),
       )
     ) {
       throw new ApplicationError(
@@ -1281,6 +1854,7 @@ export async function updateDraftGroup(
         ageBandId: parsed.ageBandId,
       },
     });
+    await validateGroupingDraft(tx, parsed.draftId, parsed.groupId);
     return { version };
   });
 }
@@ -1330,7 +1904,7 @@ async function transitionDraftStatus(
     draftId: string;
     baseVersion: number;
     fromStatus: "editing" | "submitted" | "approved";
-    toStatus: "submitted" | "approved" | "published";
+    toStatus: "editing" | "submitted" | "approved" | "published";
     submittedAt?: Date;
     approvedAt?: Date;
   },
@@ -1369,7 +1943,10 @@ async function transitionDraftStatus(
     .returning({ version: groupingDrafts.version });
   if (!updated) {
     const [current] = await tx
-      .select({ version: groupingDrafts.version, status: groupingDrafts.status })
+      .select({
+        version: groupingDrafts.version,
+        status: groupingDrafts.status,
+      })
       .from(groupingDrafts)
       .where(eq(groupingDrafts.id, input.draftId));
     throw new ApplicationError(
@@ -1431,10 +2008,7 @@ export async function undoDraftOperation(
         .delete(groupingDraftAssignments)
         .where(
           and(
-            eq(
-              groupingDraftAssignments.registrationId,
-              payload.registrationId,
-            ),
+            eq(groupingDraftAssignments.registrationId, payload.registrationId),
             eq(groupingDraftAssignments.draftId, parsed.draftId),
           ),
         );
@@ -1449,10 +2023,7 @@ export async function undoDraftOperation(
         .delete(groupingDraftAssignments)
         .where(
           and(
-            eq(
-              groupingDraftAssignments.registrationId,
-              payload.registrationId,
-            ),
+            eq(groupingDraftAssignments.registrationId, payload.registrationId),
             eq(groupingDraftAssignments.draftId, parsed.draftId),
           ),
         );
@@ -1491,6 +2062,7 @@ export async function submitGroupingDraft(
       toStatus: "submitted",
       submittedAt: new Date(),
     });
+    await validateGroupingDraft(tx, parsed.draftId);
 
     await tx.insert(auditEvents).values({
       organizationId: actor.organizationId,
@@ -1520,6 +2092,7 @@ export async function approveGroupingDraft(
       toStatus: "approved",
       approvedAt: new Date(),
     });
+    await validateGroupingDraft(tx, parsed.draftId);
 
     await tx.insert(auditEvents).values({
       organizationId: actor.organizationId,
@@ -1539,4 +2112,49 @@ export async function publishGroupingDraft(
   input: z.infer<typeof publishGroupingDraftSchema>,
 ) {
   return publishGroupingDraftInService(actor, input);
+}
+
+export async function returnGroupingDraft(
+  actor: Actor,
+  input: z.infer<typeof submitGroupingDraftSchema>,
+) {
+  requirePermission(actor, "grouping:approve");
+  const parsed = submitGroupingDraftSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const [draft] = await tx
+      .select({ status: groupingDrafts.status })
+      .from(groupingDrafts)
+      .innerJoin(programs, eq(programs.id, groupingDrafts.programId))
+      .innerJoin(seasons, eq(seasons.id, programs.seasonId))
+      .where(
+        and(
+          eq(groupingDrafts.id, parsed.draftId),
+          eq(seasons.organizationId, actor.organizationId),
+        ),
+      );
+    if (!draft || !["submitted", "approved"].includes(draft.status))
+      throw new ApplicationError(
+        "INVALID_STATE",
+        "Only submitted or approved drafts can be returned for changes.",
+      );
+    const version = await transitionDraftStatus(tx, actor, {
+      draftId: parsed.draftId,
+      baseVersion: parsed.baseVersion,
+      fromStatus: draft.status as "submitted" | "approved",
+      toStatus: "editing",
+    });
+    await tx
+      .update(groupingDrafts)
+      .set({ submittedAt: null, approvedAt: null })
+      .where(eq(groupingDrafts.id, parsed.draftId));
+    await tx.insert(auditEvents).values({
+      organizationId: actor.organizationId,
+      actorId: actor.userId,
+      entityType: "grouping_draft",
+      entityId: parsed.draftId,
+      action: "grouping.draft_returned",
+      metadata: { version },
+    });
+    return { version };
+  });
 }

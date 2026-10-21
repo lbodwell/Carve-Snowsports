@@ -7,8 +7,10 @@ import {
 } from "@/application/services/lesson-service.server";
 import { resolveActor } from "@/server/auth/resolve-actor.server";
 
-export const getInstructorLessonSchedule = createServerFn({ method: "GET" }).handler(
-  async () => getInstructorLessonScheduleInService(await resolveActor()),
+export const getInstructorLessonSchedule = createServerFn({
+  method: "GET",
+}).handler(async () =>
+  getInstructorLessonScheduleInService(await resolveActor()),
 );
 
 export const getLessonInstanceRoster = createServerFn({ method: "GET" })

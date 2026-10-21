@@ -1,0 +1,35 @@
+# Local credentials and provider state must never be deployment inputs.
+.env
+.env.*
+!.env.example
+.vercel
+.git
+.agents
+.codex
+.cursor
+skills-lock.json
+
+# Local uploads, Workflow histories, and diagnostic/test artifacts.
+.local-imports
+.workflow-data
+.tmp
+playwright-report
+test-results
+coverage
+logs
+*.log
+/imports
+/docs
+/tests
+/.github
+
+# Dependencies and generated local build output are rebuilt remotely.
+node_modules
+.output
+.nitro
+.tanstack
+.cache
+.swc
+dist
+out
+*.tsbuildinfo

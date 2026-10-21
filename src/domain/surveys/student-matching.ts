@@ -3,7 +3,7 @@ import type {
   StudentMatchResult,
 } from "@/domain/surveys/survey-definition";
 
-function normalizeName(value: string) {
+export function normalizeName(value: string) {
   return value
     .normalize("NFKD")
     .replace(/\p{Diacritic}/gu, "")

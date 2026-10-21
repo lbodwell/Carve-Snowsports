@@ -2,6 +2,9 @@
 
 ## Before deploying
 
+Use [Controlled production releases](production-release.md) for the concrete
+GitHub Actions pipeline, environment credentials, and first activation steps.
+
 1. Confirm preview CI passes: format, lint, typecheck, unit tests, integration
    tests, and build.
 2. Confirm production secrets and Neon branch/database are configured.

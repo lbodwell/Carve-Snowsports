@@ -12,12 +12,18 @@ import {
   deleteDraftGroup as deleteDraftGroupInService,
   deleteDraftGroupSchema,
   getGroupingWorkspace as getGroupingWorkspaceInService,
+  groupingWorkspaceSchema,
   moveRegistration as moveRegistrationInService,
   moveRegistrationSchema,
   publishGroupingDraft as publishGroupingDraftInService,
   publishGroupingDraftSchema,
+  registrationScheduleSchema,
+  returnGroupingDraft as returnGroupingDraftInService,
+  setRegistrationSchedule,
   submitGroupingDraft as submitGroupingDraftInService,
   submitGroupingDraftSchema,
+  suggestRemainingPlacements,
+  suggestRemainingSchema,
   undoDraftOperation as undoDraftOperationInService,
   undoDraftOperationSchema,
   updateDraftGroup as updateDraftGroupInService,
@@ -25,9 +31,30 @@ import {
 } from "@/application/services/grouping-draft-service.server";
 import { resolveActor } from "@/server/auth/resolve-actor.server";
 
-export const getGroupingWorkspace = createServerFn({ method: "GET" }).handler(
-  async () => getGroupingWorkspaceInService(await resolveActor()),
-);
+export const suggestRemainingDraftPlacements = createServerFn({
+  method: "POST",
+})
+  .validator(suggestRemainingSchema)
+  .handler(async ({ data }) =>
+    suggestRemainingPlacements(await resolveActor(), data),
+  );
+
+export const getGroupingWorkspace = createServerFn({ method: "GET" })
+  .validator(groupingWorkspaceSchema)
+  .handler(async ({ data }) =>
+    getGroupingWorkspaceInService(await resolveActor(), data),
+  );
+
+export const saveRegistrationSchedule = createServerFn({ method: "POST" })
+  .validator(registrationScheduleSchema)
+  .handler(async ({ data }) =>
+    setRegistrationSchedule(await resolveActor(), data),
+  );
+export const returnGroupingDraft = createServerFn({ method: "POST" })
+  .validator(submitGroupingDraftSchema)
+  .handler(async ({ data }) =>
+    returnGroupingDraftInService(await resolveActor(), data),
+  );
 
 export const createGroupingDraft = createServerFn({ method: "POST" })
   .validator(createGroupingDraftSchema)

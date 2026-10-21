@@ -1,4 +1,9 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import {
+  Outlet,
+  createFileRoute,
+  redirect,
+  useMatchRoute,
+} from "@tanstack/react-router";
 
 import { AdminShell } from "@/features/admin/admin-shell";
 import { InstructorLessonSchedule } from "@/features/lessons/instructor-lessons";
@@ -21,7 +26,9 @@ export const Route = createFileRoute("/lessons")({
 });
 
 function LessonsPage() {
+  const matchRoute = useMatchRoute();
   const { lessons } = Route.useLoaderData();
+  if (!matchRoute({ to: "/lessons", fuzzy: false })) return <Outlet />;
   return (
     <AdminShell>
       <InstructorLessonSchedule lessons={lessons} />

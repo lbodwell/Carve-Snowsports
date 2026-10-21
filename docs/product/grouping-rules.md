@@ -4,6 +4,24 @@ This document is the versioned source of truth for the first production
 grouping engine. Rules are evaluated against a season/program snapshot and the
 rule-set version is stored on every generated draft.
 
+## Implemented rule set 2
+
+The current engine orders registrations by hard dimensions and ability, favors
+the target size of four, and limits groups to six. A substantial ability
+difference can start another group when an additional qualified instructor is
+available. One instructor can lead one group at an overlapping time. These
+parameters are currently application defaults; rule administration is not yet a UI.
+
+Suggestions partition by confirmed imported day/time. Unmapped imports and
+overlapping enrollments for the same child stay unplaced for review. Native
+registrations use the session explicitly selected when suggesting placements.
+Incremental suggestions preserve existing placements.
+
+Working-hour availability, structured relationship requests, per-session date
+windows, and holiday configuration are not fully wired to the application.
+The rule catalogue below remains the target contract; see the
+[readiness review](../operations/administrator-readiness-review.md) for launch gaps.
+
 ## Terms
 
 - **Registration**: a student's enrollment in a specific season/program.

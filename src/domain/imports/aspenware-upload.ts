@@ -75,7 +75,8 @@ export function validateAspenwareCsv(
     throw new Error(`${name}: expected a CSV file.`);
   if (new TextEncoder().encode(content).byteLength > MAX_IMPORT_FILE_BYTES)
     throw new Error(`${name}: file exceeds the 10 MB import limit.`);
-  if (content.includes("\0")) throw new Error(`${name}: file is not valid UTF-8 text.`);
+  if (content.includes("\0"))
+    throw new Error(`${name}: file is not valid UTF-8 text.`);
   const headers = parseHeader(content);
   const sourceKind = sourceForHeaders(headers);
   if (!sourceKind)
@@ -94,10 +95,13 @@ export function validateAspenwareCsv(
 export function validateAspenwareImportFiles(
   files: Array<{ name: string; content: string }>,
 ) {
-  if (files.length === 0) throw new Error("Select at least the listing export.");
+  if (files.length === 0)
+    throw new Error("Select at least the listing export.");
   if (files.length > MAX_IMPORT_FILE_COUNT)
     throw new Error("At most three Aspenware CSV exports may be imported.");
-  const validated = files.map((file) => validateAspenwareCsv(file.name, file.content));
+  const validated = files.map((file) =>
+    validateAspenwareCsv(file.name, file.content),
+  );
   const sources = new Set(validated.map((file) => file.sourceKind));
   if (sources.size !== validated.length)
     throw new Error("Only one file may be uploaded for each Aspenware source.");

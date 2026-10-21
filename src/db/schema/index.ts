@@ -307,6 +307,13 @@ export const timeSlots = pgTable(
     label: varchar("label", { length: 100 }).notNull(),
     startsAt: time("starts_at").notNull(),
     endsAt: time("ends_at").notNull(),
+    startsOn: date("starts_on"),
+    endsOn: date("ends_on"),
+    excludedDates: jsonb("excluded_dates")
+      .$type<Array<string>>()
+      .default([])
+      .notNull(),
+    cohort: varchar("cohort", { length: 20 }).default("season").notNull(),
     displayOrder: integer("display_order").default(0).notNull(),
     active: boolean("active").default(true).notNull(),
     createdAt,
@@ -315,6 +322,14 @@ export const timeSlots = pgTable(
   (table) => [
     uniqueIndex("time_slots_program_key_unique").on(table.programId, table.key),
     check("time_slots_range_check", sql`${table.endsAt} > ${table.startsAt}`),
+    check(
+      "time_slots_cohort_check",
+      sql`${table.cohort} in ('season', 'session-1', 'session-2')`,
+    ),
+    check(
+      "time_slots_dates_check",
+      sql`(${table.startsOn} is null and ${table.endsOn} is null) or (${table.startsOn} is not null and ${table.endsOn} is not null and ${table.endsOn} >= ${table.startsOn})`,
+    ),
   ],
 );
 

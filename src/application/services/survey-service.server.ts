@@ -27,6 +27,7 @@ import {
 } from "@/domain/surveys/pre-lesson-intake";
 import { matchSurveyStudent } from "@/domain/surveys/student-matching";
 import { env } from "@/server/env.server";
+import { surveyMatchCandidates } from "@/application/services/survey-matching-service.server";
 
 export const publicSurveyRequestSchema = z.object({
   slug: z.string().trim().min(1).max(100),
@@ -235,6 +236,8 @@ export async function submitPublicSurvey(
         childDateOfBirth: answers.childDateOfBirth,
         matchStatus: match.status,
         suggestedStudentId: match.suggestedStudentId,
+        confirmedStudentId:
+          match.status === "unique" ? match.suggestedStudentId : null,
       })
       .returning({ id: surveyResponses.id });
     if (!response) {
@@ -284,7 +287,13 @@ export async function getSurveyWorkspace(actor: Actor) {
     .where(eq(surveys.organizationId, actor.organizationId))
     .orderBy(asc(surveys.createdAt));
   if (!survey) {
-    return { survey: null, invitations: [], responses: [] };
+    return {
+      survey: null,
+      invitations: [],
+      responses: [],
+      students: [],
+      programs: [],
+    };
   }
 
   const [invitations, responses] = await Promise.all([
@@ -309,6 +318,7 @@ export async function getSurveyWorkspace(actor: Actor) {
         childDateOfBirth: surveyResponses.childDateOfBirth,
         matchStatus: surveyResponses.matchStatus,
         suggestedStudentId: surveyResponses.suggestedStudentId,
+        confirmedStudentId: surveyResponses.confirmedStudentId,
         suggestedFirstName: people.firstName,
         suggestedLastName: people.lastName,
         submittedAt: surveyResponses.submittedAt,
@@ -329,6 +339,24 @@ export async function getSurveyWorkspace(actor: Actor) {
   }
 
   return {
+    students: (await surveyMatchCandidates(db, actor.organizationId)).map(
+      ({ guardianEmails: _emails, ...student }) => student,
+    ),
+    programs: await db
+      .select({
+        id: programs.id,
+        name: programs.name,
+        seasonName: seasons.name,
+      })
+      .from(programs)
+      .innerJoin(seasons, eq(seasons.id, programs.seasonId))
+      .where(
+        and(
+          eq(seasons.organizationId, actor.organizationId),
+          isNull(seasons.archivedAt),
+        ),
+      )
+      .orderBy(desc(seasons.startsOn)),
     survey: {
       id: survey.id,
       slug: survey.slug,
