@@ -54,9 +54,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          deployment_url="$(vercel deploy --prod --skip-domain --yes --non-interactive --meta "githubCommitSha=$GITHUB_SHA")"
-          export DEPLOYMENT_URL="$deployment_url"
-          bun run scripts/verify-release.ts deployment
+          export DEPLOYMENT_OUTPUT_PATH="$RUNNER_TEMP/carve-staged-deployment.json"
+          vercel deploy --prod --skip-domain --yes --non-interactive --json --meta "githubCommitSha=$GITHUB_SHA" > "$DEPLOYMENT_OUTPUT_PATH"
+          deployment_url="$(bun run scripts/verify-release.ts staged-output)"
           printf 'url=%s\n' "$deployment_url" >> "$GITHUB_OUTPUT"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}

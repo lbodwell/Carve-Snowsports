@@ -105,6 +105,9 @@ uses the same Vercel endpoint as `vercel promote` and waits for successful alias
 assignment and the expected Production target. Remote builds retain Vercel's
 Workflow system configuration. Rolling releases require a separate design and are
 rejected by this pipeline's preflight.
+The stage command uses explicit JSON output; the returned deployment ID and
+canonical URL are independently checked against the API. Human console summaries
+and mutable aliases are not accepted as the deployment handoff.
 No production domain moves when an earlier step fails.
 
 ## Migration behavior and recovery

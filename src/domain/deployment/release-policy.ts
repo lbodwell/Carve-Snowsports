@@ -63,6 +63,29 @@ export function verifiedDeploymentOrigin(value: string) {
   return url.origin;
 }
 
+export function readStagedDeployment(value: unknown) {
+  if (!value || typeof value !== "object")
+    throw new Error("Expected structured Vercel deployment output.");
+  const output = value as {
+    status?: unknown;
+    deployment?: { id?: unknown; url?: unknown };
+  };
+  const deployment = output.deployment;
+  if (
+    output.status !== "ok" ||
+    typeof deployment?.id !== "string" ||
+    !/^dpl_[a-zA-Z0-9]+$/.test(deployment.id) ||
+    typeof deployment.url !== "string"
+  )
+    throw new Error(
+      "Vercel did not return a successful structured deployment.",
+    );
+  return {
+    id: deployment.id,
+    url: verifiedDeploymentOrigin(deployment.url),
+  };
+}
+
 export function isReleasePromoted(
   project: {
     id?: string;

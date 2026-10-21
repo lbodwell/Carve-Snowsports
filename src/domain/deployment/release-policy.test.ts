@@ -4,6 +4,7 @@ import {
   assertReleaseDeployment,
   assertReleaseFiles,
   isReleasePromoted,
+  readStagedDeployment,
   verifiedDeploymentOrigin,
   verifiedMigrationTarget,
 } from "./release-policy";
@@ -29,6 +30,24 @@ const deployment = {
 };
 
 describe("production release boundaries", () => {
+  it("reads the explicit noninteractive JSON envelope rather than human CLI output", () => {
+    const output = {
+      status: "ok",
+      deployment: { id: "dpl_test", url: origin },
+    };
+    expect(readStagedDeployment(output)).toEqual({
+      id: "dpl_test",
+      url: origin,
+    });
+    for (const value of [
+      `Production: ${origin}\nAliased: https://carve.vercel.app`,
+      { ...output, status: "error" },
+      { status: "ok", deployment: { id: "dpl_test", url: `${origin}\n` } },
+      { status: "ok", deployment: { id: "invalid", url: origin } },
+      { status: "ok", deployment: { id: "dpl_test", url: `${origin}/health` } },
+    ])
+      expect(() => readStagedDeployment(value)).toThrow();
+  });
   it("waits for successful aliases and this deployment to become the production target", () => {
     const project = {
       id: target.projectId,

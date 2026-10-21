@@ -4,6 +4,7 @@ import {
   assertReleaseDeployment,
   assertReleaseFiles,
   isReleasePromoted,
+  readStagedDeployment,
   verifiedDeploymentOrigin,
 } from "../src/domain/deployment/release-policy";
 import type { ReleaseTarget } from "../src/domain/deployment/release-policy";
@@ -116,12 +117,25 @@ try {
     console.log(
       "Verified Carve production project and build-only release configuration.",
     );
-  } else if (["deployment", "smoke", "promote"].includes(mode ?? "")) {
-    const origin = verifiedDeploymentOrigin(process.env.DEPLOYMENT_URL ?? "");
+  } else if (
+    ["deployment", "staged-output", "smoke", "promote"].includes(mode ?? "")
+  ) {
+    const staged =
+      mode === "staged-output"
+        ? readStagedDeployment(
+            JSON.parse(
+              readFileSync(process.env.DEPLOYMENT_OUTPUT_PATH ?? "", "utf8"),
+            ),
+          )
+        : undefined;
+    const origin =
+      staged?.url ?? verifiedDeploymentOrigin(process.env.DEPLOYMENT_URL ?? "");
     const deployment = await vercelApi<
       Parameters<typeof assertReleaseDeployment>[0] & { id?: string }
-    >(`/v13/deployments/${new URL(origin).hostname}`);
+    >(`/v13/deployments/${staged?.id ?? new URL(origin).hostname}`);
     assertReleaseDeployment(deployment, target, sha, origin);
+    if (staged && deployment.id !== staged.id)
+      throw new Error("The staged deployment ID did not match its API record.");
     if (mode === "smoke") {
       for (const [path, expected] of [
         ["/health", "Service available"],
@@ -166,15 +180,17 @@ try {
         throw new Error("Production alias promotion did not finish in time.");
     }
     console.log(
-      mode === "promote"
-        ? "Verified production alias promotion to the tested deployment."
-        : mode === "smoke"
-          ? "Verified deployment identity, database health, and sign-in rendering."
-          : "Verified staged production deployment belongs to the tested commit.",
+      mode === "staged-output"
+        ? origin
+        : mode === "promote"
+          ? "Verified production alias promotion to the tested deployment."
+          : mode === "smoke"
+            ? "Verified deployment identity, database health, and sign-in rendering."
+            : "Verified staged production deployment belongs to the tested commit.",
     );
   } else
     throw new Error(
-      "Choose project, deployment, smoke, or promote verification.",
+      "Choose project, staged-output, deployment, smoke, or promote verification.",
     );
 } catch {
   // Never dump API responses, protected pages, or subprocess output to CI logs.
