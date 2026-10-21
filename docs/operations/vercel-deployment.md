@@ -9,10 +9,10 @@ Postgres. Resend sends staff invitation and password-reset email. Vercel Blob
 and Vercel Workflows are required only for `/admin/imports`.
 
 For this existing project, use [Controlled production releases](production-release.md)
-for the provisioned resource inventory, GitHub credentials, and coordinated pipeline
-activation. The sections below also describe initial setup for a new installation.
-The live dashboard's legacy build override must still be replaced during cutover;
-repository changes alone do not prove the new pipeline is active.
+for the provisioned resource inventory, GitHub credentials, and verified release.
+The pipeline is active, the live dashboard build command is `bun run build`, and
+Production release #3 completed successfully on 2026-10-21. The sections below
+also describe initial setup for a new installation.
 
 Two tracks exist. Do not mix them.
 
@@ -192,9 +192,8 @@ Keep Vercel hosting/builds and automatic isolated Preview deployments. Use
 GitHub Actions to orchestrate production releases from an exact checked-out
 commit. The existing `.github/workflows/ci.yml` is verification only; a
 production release job is implemented in `.github/workflows/production-release.yml`.
-It remains inactive until committed/pushed, its GitHub environment credentials are
-configured, and the legacy build setting is removed. Follow
-[the activation guide](production-release.md#activate-once-credentials-are-ready).
+It is active, with environment credentials configured and the legacy build setting
+removed. See [the verified release](production-release.md#verified-release--2026-10-21).
 
 1. Complete quality checks and a staging import rehearsal against a separate
    database and private Blob store.
@@ -208,7 +207,8 @@ configured, and the legacy build setting is removed. Follow
    Postgres advisory lock to protect against an overlapping manual migration.
 5. Check health and read-only application smoke tests on the staged deployment.
    Run write-heavy import tests in staging, not against live roster data.
-6. Promote that exact deployment with `vercel promote <deployment-url>`.
+6. Promote that exact deployment through the release workflow's verified promotion
+   step, which checks the resulting Production target and completed alias assignment.
 
 Disable the existing independent production hook/automatic production path
 when this pipeline takes ownership, otherwise it can race the migration job.

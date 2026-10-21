@@ -2,6 +2,10 @@
 
 Updated 2026-10-19 with the administrator's session definitions and cohort-calendar verification.
 
+Deployment update 2026-10-21: the controlled Production release and isolated Preview
+migrations passed. See [Controlled production releases](production-release.md).
+Hosted import rehearsal and the operational readiness items below remain open.
+
 ## Assessment
 
 The project has useful domain and authorization foundations, but the previous

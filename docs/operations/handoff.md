@@ -3,9 +3,9 @@
 Pipeline hardening update: [Controlled production releases](production-release.md)
 documents the implemented GitHub workflows, migration safeguards, isolated Preview
 Neon database, separate private Blob stores, and saved GitHub environment
-protections. Credentials and coordinated activation remain required; the workflows
-are not active until committed and pushed. No hosted migration or release was run
-during this setup.
+protections. Activation is complete as of 2026-10-21: Preview migrations and
+Production release #3 passed, and the primary hostname serves commit `7888ef2`.
+Hosted import and survey-matching rehearsal remains outstanding.
 
 Current administrator workflow update: 2026-10-19.
 

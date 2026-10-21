@@ -1,9 +1,26 @@
 # Controlled production releases
 
-The production release workflow is implemented locally in
-`.github/workflows/production-release.yml`. It must be committed and pushed before
-GitHub can run it. Resource provisioning and GitHub environment protections alone
-do not activate the pipeline or release the application.
+The production release workflow is active in
+`.github/workflows/production-release.yml`. Releases are manually dispatched from
+`main` and require approval through GitHub's Production environment. Vercel builds
+only the application; the release job controls migrations and promotion.
+
+## Verified release — 2026-10-21
+
+[Production release #3](https://github.com/lbodwell/Carve-Snowsports/actions/runs/39546883891)
+completed successfully for commit `7888ef25a8875e915d3818cd4c53967a4ce91f34`.
+Quality checks passed, including 90 unit tests, 31 integration tests, and four
+production-build browser tests. Staging, database checks and migrations, protected
+smoke checks, promotion, and release recording all succeeded.
+
+The primary hostname [Carve](https://carve-snowsports.vercel.app) was independently
+verified to point to deployment `dpl_5VEFAZLLgZihciGPWobR9D9QHQ8L` for that exact
+commit. Public health and sign-in checks returned HTTP 200 with the expected content.
+[Preview database migrations](https://github.com/lbodwell/Carve-Snowsports/actions/runs/39545199749)
+also completed successfully against the isolated Preview database.
+
+A hosted Aspenware import and survey-matching rehearsal remains required before
+operational use. A successful release does not verify that complete user journey.
 
 `.vercelignore` explicitly excludes local credentials, raw import exports, staged
 uploads, Workflow histories, diagnostics, tests, and local build output. Git ignore
@@ -21,8 +38,10 @@ team `lbodwells-projects` (`team_tzJQbGMsC7hkQtAo9nqHjlNQ`).
 | Production  | Existing `carve-snowsports-postgres` (`store_NxbZFwkDnecyzvXQ`) | `carve-imports-production` (`store_HeXhBOBIwhzMdwYy`) |
 | Preview     | New `carve-preview-postgres` (`store_owcDfzA84Z8q9SLz`)         | `carve-imports-preview` (`store_DucwJ6ENNPg60ed2`)    |
 
-The Preview database was provisioned empty. No hosted migrations, seed, or
-bootstrap have been run as part of provisioning. Database variables, Blob tokens,
+Both hosted databases have been migrated through
+`0015_lesson-session-calendars.sql` (16 journal entries). Preview was provisioned
+empty and has not been seeded or bootstrapped with an organization/admin.
+Database variables, Blob tokens,
 and Better Auth secrets have separate Production/Preview scopes; credentials are
 Vercel sensitive Secrets. Existing Production credential values were preserved.
 Development configuration was not replaced with Preview credentials.
@@ -69,6 +88,9 @@ Production URL in Preview. No Blob token or application auth secret belongs in
 GitHub: Vercel supplies those to the deployed application.
 
 ## Activate once credentials are ready
+
+The current project's cutover and first successful release are complete. These
+steps describe activation for a new installation; subsequent releases use step 5.
 
 1. Review and commit the application, migrations, release scripts, workflows,
    `config/release-target.json`, and `vercel.json` together. Confirm local checks
