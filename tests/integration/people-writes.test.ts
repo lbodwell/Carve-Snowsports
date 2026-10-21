@@ -227,6 +227,39 @@ describe("people write transactions", () => {
     });
   });
 
+  test("can save an imported profile while its birthdate remains unknown", async () => {
+    const created = await createStudentRegistration(adminActor, {
+      firstName: "Imported",
+      lastName: "Profile",
+      dateOfBirth: "2015-01-01",
+      guardianName: "",
+      guardianPhone: "",
+      guardianEmail: "",
+      medicalInfo: "",
+      notes: "",
+    });
+    await db
+      .update(people)
+      .set({ dateOfBirth: null })
+      .where(eq(people.id, created.studentId));
+    await updateStudent(adminActor, {
+      studentId: created.studentId,
+      firstName: "Imported",
+      lastName: "Profile",
+      dateOfBirth: "",
+      notes: "Schedule checked",
+      guardianName: "",
+      guardianPhone: "",
+      guardianEmail: "",
+      medicalInfo: "",
+    });
+    const [saved] = await db
+      .select({ dateOfBirth: people.dateOfBirth })
+      .from(people)
+      .where(eq(people.id, created.studentId));
+    expect(saved?.dateOfBirth).toBeNull();
+  });
+
   test("archives a student and records audit history", async () => {
     const created = await createStudentRegistration(adminActor, {
       firstName: "Jordan",

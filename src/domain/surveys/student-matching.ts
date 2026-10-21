@@ -25,19 +25,32 @@ export function matchSurveyStudent(
   },
   candidates: Array<StudentMatchCandidate>,
 ): StudentMatchResult {
-  if (!input.dateOfBirth) {
+  if (!normalizeName(input.firstName) || !normalizeName(input.lastName)) {
     return { status: "unmatched", suggestedStudentId: null };
   }
 
   const exactMatches = candidates.filter(
     (candidate) =>
-      candidate.dateOfBirth === input.dateOfBirth &&
       normalizeName(candidate.firstName) === normalizeName(input.firstName) &&
       normalizeName(candidate.lastName) === normalizeName(input.lastName),
   );
 
   if (exactMatches.length === 0) {
     return { status: "unmatched", suggestedStudentId: null };
+  }
+
+  // Missing roster birthdates are expected for Aspenware imports. A conflicting
+  // known birthdate still requires review, and duplicate names are never picked
+  // merely because only one record has a birthdate.
+  if (exactMatches.length === 1) {
+    const candidate = exactMatches[0]!;
+    if (
+      candidate.dateOfBirth &&
+      input.dateOfBirth &&
+      candidate.dateOfBirth !== input.dateOfBirth
+    )
+      return { status: "ambiguous", suggestedStudentId: null };
+    return { status: "unique", suggestedStudentId: candidate.studentId };
   }
 
   if (input.invitationEmail) {
@@ -48,7 +61,12 @@ export function matchSurveyStudent(
       ),
     );
 
-    if (invitationMatches.length === 1) {
+    if (
+      invitationMatches.length === 1 &&
+      (!invitationMatches[0]!.dateOfBirth ||
+        !input.dateOfBirth ||
+        invitationMatches[0]!.dateOfBirth === input.dateOfBirth)
+    ) {
       return {
         status: "unique",
         suggestedStudentId: invitationMatches[0]!.studentId,
@@ -58,13 +76,6 @@ export function matchSurveyStudent(
     if (invitationMatches.length > 1) {
       return { status: "ambiguous", suggestedStudentId: null };
     }
-  }
-
-  if (exactMatches.length === 1) {
-    return {
-      status: "unique",
-      suggestedStudentId: exactMatches[0]!.studentId,
-    };
   }
 
   return { status: "ambiguous", suggestedStudentId: null };

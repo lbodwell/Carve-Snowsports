@@ -2,6 +2,8 @@ import { Link } from "@tanstack/react-router";
 import { Archive, ArrowLeft, Save } from "lucide-react";
 import { useState } from "react";
 import type { FormEvent } from "react";
+import type { RegistrationScheduleSummary } from "@/domain/imports/registration-schedule-summary";
+import { RegistrationScheduleDetails } from "@/features/admin/registration-schedule-details";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -52,6 +54,15 @@ type StudentDetail = {
   guardianEmail: string;
   medicalInfo: string;
   notes: string;
+  signups?: Array<{
+    id: string;
+    status: string;
+    programName: string;
+    seasonName: string;
+    disciplineLabel: string | null;
+    abilityLevelLabel: string | null;
+    schedule: RegistrationScheduleSummary;
+  }>;
 };
 
 type StudentDetailEditorProps = {
@@ -164,6 +175,33 @@ export function StudentDetailEditor({
         </p>
       </header>
 
+      <section className="grid gap-4" aria-label="Student registrations">
+        <h2 className="text-xl font-semibold">
+          Registrations and lesson schedule
+        </h2>
+        {student.signups?.length ? (
+          student.signups.map((signup) => (
+            <article
+              key={signup.id}
+              className="grid gap-3 rounded-xl border p-4"
+            >
+              <h3 className="font-semibold">
+                {signup.programName} · {signup.seasonName}
+              </h3>
+              <p className="text-sm">
+                {statusLabel(signup.status)} ·{" "}
+                {signup.disciplineLabel ?? "Discipline not set"} ·{" "}
+                {signup.abilityLevelLabel ?? "Ability not set"}
+              </p>
+              <RegistrationScheduleDetails schedule={signup.schedule} />
+            </article>
+          ))
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            No registrations recorded.
+          </p>
+        )}
+      </section>
       <form onSubmit={handleSubmit} noValidate>
         <FieldGroup>
           <Field>
@@ -205,11 +243,10 @@ export function StudentDetailEditor({
               startMonth={new Date(new Date().getFullYear() - 100, 0, 1)}
               endMonth={new Date()}
               disabledDates={{ after: new Date() }}
-              required
             />
             <FieldDescription>
-              Dates are stored directly so age can be calculated for each
-              season.
+              Optional for imported students. Record a confirmed birthdate when
+              available.
             </FieldDescription>
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">

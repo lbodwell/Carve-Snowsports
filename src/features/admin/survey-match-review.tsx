@@ -68,8 +68,8 @@ export function SurveyMatchReview({
           : "Match this response to a student"}
       </h3>
       <p className="text-muted-foreground text-sm">
-        Compare the child’s name and birthdate. A name alone is never enough for
-        an automatic link.
+        A unique first and last name can link automatically when a birthdate is
+        missing. Duplicate names or conflicting birthdates need review.
       </p>
       <Input
         aria-label={`Search students for ${response.childFirstName} ${response.childLastName}`}

@@ -34,7 +34,12 @@ test("serves health and the authenticated staff workspace", async ({
   await expect(page.getByRole("heading", { name: "Students" })).toBeVisible();
   const firstStudent = page.locator("tbody tr").first();
   await expect(firstStudent).toBeVisible();
-  await firstStudent.getByRole("link").click();
+  await firstStudent.getByRole("button", { name: /View registration/ }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(
+    page.getByText("Aspenware product date", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Edit student profile" }).click();
   await expect(
     page.getByRole("button", { name: "Save changes" }),
   ).toBeVisible();
@@ -149,8 +154,39 @@ test("imports a new student, reviews their survey, and publishes adjusted groups
   await expect(page.getByText("Roster updated", { exact: true })).toBeVisible({
     timeout: 60_000,
   });
-  await page.getByRole("link", { name: "Review survey matches" }).click();
+  await page.goto("/admin/students");
+  await page
+    .getByLabel("Search students", { exact: true })
+    .fill("Ellis Reviewfixture");
+  const importedRow = page.locator("tbody tr");
+  await expect(importedRow).toHaveCount(1);
+  await expect(importedRow).toContainText("Saturday");
+  await expect(importedRow).toContainText("10:00–12:00");
+  await expect(importedRow).toContainText("1/10/2026");
+  if (process.env.CARVE_UI_PROOF === "1")
+    await page.screenshot({
+      path: ".tmp/registration-table.png",
+      fullPage: true,
+    });
+  await importedRow.getByRole("button", { name: /View registration/ }).click();
+  await expect(page.getByRole("dialog")).toContainText("1/1/2026");
+  if (process.env.CARVE_UI_PROOF === "1")
+    await page.screenshot({
+      path: ".tmp/registration-details.png",
+      fullPage: true,
+    });
+  await page.getByRole("button", { name: "Close details" }).click();
+  await page.goto("/admin/surveys");
+  await expect(
+    page.getByText(
+      "All responses are linked. Clear the filter to review them.",
+    ),
+  ).toBeVisible();
+  await page.getByRole("checkbox", { name: /Needs review only/ }).uncheck();
   await page.getByRole("button", { name: /Ellis Reviewfixture/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Linked student" }),
+  ).toBeVisible();
   await page
     .getByRole("combobox", { name: "Student for Ellis Reviewfixture" })
     .selectOption({ label: "Ellis Reviewfixture · Birthdate missing" });

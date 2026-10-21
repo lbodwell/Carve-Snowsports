@@ -545,7 +545,7 @@ export function RegistrationImportWorkspace({
               <StaffNotice
                 variant="success"
                 title="Roster updated"
-                description="Existing confirmed survey links were preserved. Exact name and birthdate matches were linked automatically; uncertain responses still need review."
+                description="Existing confirmed survey links were preserved. Unique name matches were linked automatically, including students without a birthdate; duplicate names and conflicting birthdates still need review."
               />
             )}
             {preview.status === "applied" && (

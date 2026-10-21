@@ -20,209 +20,249 @@ import {
   studentGuardians,
   students,
   supportRecords,
+  timeSlots,
 } from "@/db/schema";
+import { registrationScheduleSummary } from "@/domain/imports/registration-schedule-summary";
 import { resolveActor } from "@/server/auth/resolve-actor.server";
 
-export const getAdminWorkspace = createServerFn({ method: "GET" }).handler(
-  async () => {
-    const actor = await resolveActor();
-    requirePermission(actor, "people:manage");
-    const [organization] = await db
-      .select({
-        id: organizations.id,
-        name: organizations.name,
-        timezone: organizations.timezone,
-      })
-      .from(organizations)
-      .where(eq(organizations.id, actor.organizationId));
+async function loadAdminWorkspace(allPrograms: boolean) {
+  const actor = await resolveActor();
+  requirePermission(actor, "people:manage");
+  const [organization] = await db
+    .select({
+      id: organizations.id,
+      name: organizations.name,
+      timezone: organizations.timezone,
+    })
+    .from(organizations)
+    .where(eq(organizations.id, actor.organizationId));
 
-    if (!organization) {
-      return {
-        organization: null,
-        season: null,
-        program: null,
-        students: [],
-        disciplines: [],
-        abilityLevels: [],
-      };
-    }
+  if (!organization) {
+    return {
+      organization: null,
+      season: null,
+      program: null,
+      students: [],
+      disciplines: [],
+      abilityLevels: [],
+    };
+  }
 
-    const [season] = await db
-      .select({
-        id: seasons.id,
-        name: seasons.name,
-        startsOn: seasons.startsOn,
-        endsOn: seasons.endsOn,
-        status: seasons.status,
-      })
-      .from(seasons)
-      .where(
-        and(
-          eq(seasons.organizationId, organization.id),
-          isNull(seasons.archivedAt),
-        ),
-      )
-      .orderBy(asc(seasons.startsOn));
+  const [season] = await db
+    .select({
+      id: seasons.id,
+      name: seasons.name,
+      startsOn: seasons.startsOn,
+      endsOn: seasons.endsOn,
+      status: seasons.status,
+    })
+    .from(seasons)
+    .where(
+      and(
+        eq(seasons.organizationId, organization.id),
+        isNull(seasons.archivedAt),
+      ),
+    )
+    .orderBy(asc(seasons.startsOn));
 
-    const [program] = season
-      ? await db
+  const [program] = season
+    ? await db
+        .select({
+          id: programs.id,
+          name: programs.name,
+          status: programs.status,
+        })
+        .from(programs)
+        .where(eq(programs.seasonId, season.id))
+        .orderBy(asc(programs.name))
+    : [];
+
+  const organizationPrograms = db
+    .select({ id: programs.id })
+    .from(programs)
+    .innerJoin(seasons, eq(programs.seasonId, seasons.id))
+    .where(
+      and(
+        eq(seasons.organizationId, organization.id),
+        isNull(seasons.archivedAt),
+      ),
+    );
+  const scheduleSlots = await db
+    .select()
+    .from(timeSlots)
+    .where(
+      and(
+        inArray(timeSlots.programId, organizationPrograms),
+        eq(timeSlots.active, true),
+      ),
+    );
+  const roster = await db
+    .select({
+      id: people.id,
+      firstName: people.firstName,
+      lastName: people.lastName,
+      dateOfBirth: people.dateOfBirth,
+      registrationId: registrations.id,
+      registrationStatus: registrations.status,
+      disciplineId: registrations.disciplineId,
+      abilityLevelId: registrations.abilityLevelId,
+      disciplineLabel: disciplines.label,
+      abilityLevelLabel: abilityLevels.label,
+      programId: registrations.programId,
+      programName: programs.name,
+      seasonName: seasons.name,
+      seasonStartsOn: seasons.startsOn,
+      seasonEndsOn: seasons.endsOn,
+      sourceSnapshot: registrations.sourceSnapshot,
+      notes: students.notes,
+    })
+    .from(students)
+    .innerJoin(people, eq(students.personId, people.id))
+    .leftJoin(
+      registrations,
+      and(
+        eq(registrations.studentId, students.personId),
+        allPrograms
+          ? inArray(registrations.programId, organizationPrograms)
+          : program
+            ? eq(registrations.programId, program.id)
+            : inArray(registrations.programId, organizationPrograms),
+        isNull(registrations.archivedAt),
+      ),
+    )
+    .leftJoin(programs, eq(programs.id, registrations.programId))
+    .leftJoin(seasons, eq(seasons.id, programs.seasonId))
+    .leftJoin(disciplines, eq(registrations.disciplineId, disciplines.id))
+    .leftJoin(abilityLevels, eq(registrations.abilityLevelId, abilityLevels.id))
+    .where(
+      and(
+        eq(people.organizationId, organization.id),
+        isNull(people.archivedAt),
+      ),
+    )
+    .orderBy(asc(people.lastName), asc(people.firstName));
+
+  const [configuredDisciplines, configuredLevels] = program
+    ? await Promise.all([
+        db
+          .select({ id: disciplines.id, label: disciplines.label })
+          .from(disciplines)
+          .where(eq(disciplines.programId, program.id))
+          .orderBy(asc(disciplines.displayOrder)),
+        db
           .select({
-            id: programs.id,
-            name: programs.name,
-            status: programs.status,
+            id: abilityLevels.id,
+            label: abilityLevels.label,
+            numericRank: abilityLevels.numericRank,
           })
-          .from(programs)
-          .where(eq(programs.seasonId, season.id))
-          .orderBy(asc(programs.name))
-      : [];
-
-    const roster = await db
-      .select({
-        id: people.id,
-        firstName: people.firstName,
-        lastName: people.lastName,
-        dateOfBirth: people.dateOfBirth,
-        registrationId: registrations.id,
-        registrationStatus: registrations.status,
-        disciplineId: registrations.disciplineId,
-        abilityLevelId: registrations.abilityLevelId,
-        disciplineLabel: disciplines.label,
-        abilityLevelLabel: abilityLevels.label,
-        notes: students.notes,
-      })
-      .from(students)
-      .innerJoin(people, eq(students.personId, people.id))
-      .leftJoin(
-        registrations,
-        program
-          ? and(
-              eq(registrations.studentId, students.personId),
-              eq(registrations.programId, program.id),
-              isNull(registrations.archivedAt),
-            )
-          : eq(registrations.studentId, students.personId),
-      )
-      .leftJoin(disciplines, eq(registrations.disciplineId, disciplines.id))
-      .leftJoin(
-        abilityLevels,
-        eq(registrations.abilityLevelId, abilityLevels.id),
-      )
-      .where(
-        and(
-          eq(people.organizationId, organization.id),
-          isNull(people.archivedAt),
-        ),
-      )
-      .orderBy(asc(people.lastName), asc(people.firstName));
-
-    const [configuredDisciplines, configuredLevels] = program
-      ? await Promise.all([
-          db
-            .select({ id: disciplines.id, label: disciplines.label })
-            .from(disciplines)
-            .where(eq(disciplines.programId, program.id))
-            .orderBy(asc(disciplines.displayOrder)),
+          .from(abilityLevels)
+          .where(eq(abilityLevels.programId, program.id))
+          .orderBy(asc(abilityLevels.displayOrder)),
+      ])
+    : [[], []];
+  const rosterIds = roster.map((student) => student.id);
+  const [supportRows, guardianLinks] =
+    rosterIds.length === 0
+      ? [[], []]
+      : await Promise.all([
           db
             .select({
-              id: abilityLevels.id,
-              label: abilityLevels.label,
-              numericRank: abilityLevels.numericRank,
+              studentId: supportRecords.studentId,
+              note: supportRecords.restrictedNote,
             })
-            .from(abilityLevels)
-            .where(eq(abilityLevels.programId, program.id))
-            .orderBy(asc(abilityLevels.displayOrder)),
-        ])
-      : [[], []];
-    const rosterIds = roster.map((student) => student.id);
-    const [supportRows, guardianLinks] =
-      rosterIds.length === 0
-        ? [[], []]
-        : await Promise.all([
-            db
-              .select({
-                studentId: supportRecords.studentId,
-                note: supportRecords.restrictedNote,
-              })
-              .from(supportRecords)
-              .where(
-                and(
-                  inArray(supportRecords.studentId, rosterIds),
-                  eq(supportRecords.active, true),
-                ),
+            .from(supportRecords)
+            .where(
+              and(
+                inArray(supportRecords.studentId, rosterIds),
+                eq(supportRecords.active, true),
               ),
-            db
-              .select({
-                studentId: studentGuardians.studentId,
-                guardianId: studentGuardians.guardianId,
-              })
-              .from(studentGuardians)
-              .where(inArray(studentGuardians.studentId, rosterIds)),
-          ]);
-    const guardianIds = guardianLinks.map((link) => link.guardianId);
-    const [guardianPeople, guardianContacts] =
-      guardianIds.length === 0
-        ? [[], []]
-        : await Promise.all([
-            db
-              .select({
-                id: people.id,
-                firstName: people.firstName,
-                lastName: people.lastName,
-              })
-              .from(people)
-              .where(inArray(people.id, guardianIds)),
-            db
-              .select({
-                personId: contactMethods.personId,
-                kind: contactMethods.kind,
-                value: contactMethods.value,
-              })
-              .from(contactMethods)
-              .where(inArray(contactMethods.personId, guardianIds)),
-          ]);
-    const enrichedRoster = roster.map((student) => {
-      const guardianLink = guardianLinks.find(
-        (link) => link.studentId === student.id,
-      );
-      const guardian = guardianPeople.find(
-        (person) => person.id === guardianLink?.guardianId,
-      );
-      return {
-        ...student,
-        notes: student.notes ?? "",
-        medicalInfo:
-          supportRows.find((support) => support.studentId === student.id)
-            ?.note ?? "",
-        guardianName: guardian
-          ? `${guardian.firstName} ${guardian.lastName}`.trim()
-          : "",
-        guardianPhone:
-          guardianContacts.find(
-            (contact) =>
-              contact.personId === guardianLink?.guardianId &&
-              contact.kind === "phone",
-          )?.value ?? "",
-        guardianEmail:
-          guardianContacts.find(
-            (contact) =>
-              contact.personId === guardianLink?.guardianId &&
-              contact.kind === "email",
-          )?.value ?? "",
-      };
-    });
-
+            ),
+          db
+            .select({
+              studentId: studentGuardians.studentId,
+              guardianId: studentGuardians.guardianId,
+            })
+            .from(studentGuardians)
+            .where(inArray(studentGuardians.studentId, rosterIds)),
+        ]);
+  const guardianIds = guardianLinks.map((link) => link.guardianId);
+  const [guardianPeople, guardianContacts] =
+    guardianIds.length === 0
+      ? [[], []]
+      : await Promise.all([
+          db
+            .select({
+              id: people.id,
+              firstName: people.firstName,
+              lastName: people.lastName,
+            })
+            .from(people)
+            .where(inArray(people.id, guardianIds)),
+          db
+            .select({
+              personId: contactMethods.personId,
+              kind: contactMethods.kind,
+              value: contactMethods.value,
+            })
+            .from(contactMethods)
+            .where(inArray(contactMethods.personId, guardianIds)),
+        ]);
+  const enrichedRoster = roster.map(({ sourceSnapshot, ...student }) => {
+    const guardianLink = guardianLinks.find(
+      (link) => link.studentId === student.id,
+    );
+    const guardian = guardianPeople.find(
+      (person) => person.id === guardianLink?.guardianId,
+    );
     return {
-      organization,
-      season: season ?? null,
-      program: program ?? null,
-      students: enrichedRoster.map((student) =>
-        projectStudentRosterItem(actor, student),
+      ...student,
+      schedule: registrationScheduleSummary(
+        sourceSnapshot,
+        scheduleSlots.filter((slot) => slot.programId === student.programId),
+        student.seasonStartsOn && student.seasonEndsOn
+          ? { startsOn: student.seasonStartsOn, endsOn: student.seasonEndsOn }
+          : undefined,
       ),
-      disciplines: configuredDisciplines,
-      abilityLevels: configuredLevels,
+      notes: student.notes ?? "",
+      medicalInfo:
+        supportRows.find((support) => support.studentId === student.id)?.note ??
+        "",
+      guardianName: guardian
+        ? `${guardian.firstName} ${guardian.lastName}`.trim()
+        : "",
+      guardianPhone:
+        guardianContacts.find(
+          (contact) =>
+            contact.personId === guardianLink?.guardianId &&
+            contact.kind === "phone",
+        )?.value ?? "",
+      guardianEmail:
+        guardianContacts.find(
+          (contact) =>
+            contact.personId === guardianLink?.guardianId &&
+            contact.kind === "email",
+        )?.value ?? "",
     };
-  },
+  });
+
+  return {
+    organization,
+    season: season ?? null,
+    program: program ?? null,
+    students: enrichedRoster.map((student) =>
+      projectStudentRosterItem(actor, student),
+    ),
+    disciplines: configuredDisciplines,
+    abilityLevels: configuredLevels,
+  };
+}
+
+export const getAdminWorkspace = createServerFn({ method: "GET" }).handler(() =>
+  loadAdminWorkspace(false),
 );
+export const getRegistrationWorkspace = createServerFn({
+  method: "GET",
+}).handler(() => loadAdminWorkspace(true));
 
 export const getStudent = createServerFn({ method: "GET" })
   .validator(z.object({ studentId: z.uuid() }))
@@ -350,12 +390,68 @@ export const getStudent = createServerFn({ method: "GET" })
         ])
       : [[], []];
 
+    const signupRows = await db
+      .select({
+        id: registrations.id,
+        status: registrations.status,
+        programName: programs.name,
+        seasonName: seasons.name,
+        seasonStartsOn: seasons.startsOn,
+        seasonEndsOn: seasons.endsOn,
+        programId: programs.id,
+        disciplineLabel: disciplines.label,
+        abilityLevelLabel: abilityLevels.label,
+        sourceSnapshot: registrations.sourceSnapshot,
+      })
+      .from(registrations)
+      .innerJoin(programs, eq(programs.id, registrations.programId))
+      .innerJoin(seasons, eq(seasons.id, programs.seasonId))
+      .leftJoin(disciplines, eq(disciplines.id, registrations.disciplineId))
+      .leftJoin(
+        abilityLevels,
+        eq(abilityLevels.id, registrations.abilityLevelId),
+      )
+      .where(
+        and(
+          eq(registrations.studentId, student.id),
+          eq(seasons.organizationId, organization.id),
+          isNull(seasons.archivedAt),
+          isNull(registrations.archivedAt),
+        ),
+      )
+      .orderBy(
+        asc(seasons.startsOn),
+        asc(programs.name),
+        asc(registrations.id),
+      );
+    const slots = signupRows.length
+      ? await db
+          .select()
+          .from(timeSlots)
+          .where(
+            and(
+              inArray(
+                timeSlots.programId,
+                signupRows.map((row) => row.programId),
+              ),
+              eq(timeSlots.active, true),
+            ),
+          )
+      : [];
     return {
       programName: program?.name ?? null,
       disciplines: configuredDisciplines,
       abilityLevels: configuredLevels,
       student: projectStudentDetail(actor, {
         ...student,
+        signups: signupRows.map(({ sourceSnapshot, programId, ...signup }) => ({
+          ...signup,
+          schedule: registrationScheduleSummary(
+            sourceSnapshot,
+            slots.filter((slot) => slot.programId === programId),
+            { startsOn: signup.seasonStartsOn, endsOn: signup.seasonEndsOn },
+          ),
+        })),
         notes: student.notes ?? "",
         guardianName: guardian
           ? `${guardian.firstName} ${guardian.lastName}`.trim()

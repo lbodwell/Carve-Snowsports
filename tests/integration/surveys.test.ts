@@ -345,7 +345,7 @@ describe("public parent surveys", () => {
     expect(preserved?.confirmedStudentId).toBe(person!.id);
   });
 
-  test("requires review when an imported student lacks a birthdate and fills it only on confirmation", async () => {
+  test("links a unique name without a roster birthdate and fills it only on explicit confirmation", async () => {
     await submitPublicSurvey({
       slug: "pre-lesson-test",
       website: "",
@@ -370,7 +370,12 @@ describe("public parent surveys", () => {
       .select()
       .from(surveyResponses)
       .where(eq(surveyResponses.childFirstName, "Skyler"));
-    expect(response?.confirmedStudentId).toBeNull();
+    expect(response?.confirmedStudentId).toBe(person!.id);
+    const [beforeConfirmation] = await database
+      .select()
+      .from(people)
+      .where(eq(people.id, person!.id));
+    expect(beforeConfirmation?.dateOfBirth).toBeNull();
     await confirmSurveyMatch(actor, {
       responseId: response!.id,
       studentId: person!.id,

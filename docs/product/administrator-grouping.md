@@ -40,21 +40,43 @@ an old batch shows its stored reconciliation results.
 
 ## Connect parent surveys
 
-Open **Review surveys**. A unique normalized child name and identical birthdate
-can link automatically. Duplicate exact matches require additional matching
-evidence or human review. Checks run when a response arrives and after import
-application. **Check matches again** handles later roster corrections.
+Open **Review surveys**. A unique normalized first and last name can link
+automatically even when the imported student has no birthdate. Duplicate names
+require a unique matching guardian email or human review. Conflicting known
+birthdates require review. Checks run when a response arrives and after import
+application. Use **Check matches again** to process existing unmatched responses
+after this matching update or later roster corrections. Confirmed links stay intact.
 
-Aspenware does not supply a birthdate in the supported exports. A newly imported
-student with no birthdate therefore needs human review even when the name is
-identical. Open the response, compare the child and family information, choose
-the student, and select **Confirm student match**.
+Aspenware does not supply a birthdate in the supported exports. Automatic name
+matching links the response without copying a birthdate or overwriting roster
+information. For an uncertain response, compare the child and family information,
+choose the student, and select **Confirm student match**.
 
 Optionally select **Fill missing birthdate, discipline and ability**, choosing
 the program whose registrations should be completed. This preserves populated
 values. A differing registered discipline prevents a survey from filling an
 unrelated discipline's ability level. Medical answers stay in the restricted
 survey inbox; they are not optimizer input.
+
+## See who is signed up and when
+
+Open **Students** to see one row per registration across programs and unarchived
+seasons. Students with several signups appear once for each signup. The table
+shows the program, season, lesson day/session, hours, calendar range, imported
+product date, registration status, discipline, and ability.
+
+Use the main program/day/session/status filters or expand **More filters** for
+season, cohort, discipline, ability, age, missing information, and sorting.
+Filters apply to all rows before pagination; choose 25, 50, or 100 rows per page.
+Click a student name or **View details** for that registration's lesson and purchase
+dates, purchased age band, raw product description, and schedule review status.
+**Edit student profile** opens the profile with all that student's signups.
+
+Aspenware's product date is distinct from the full recurring lesson calendar.
+Unconfigured calendar ranges show **Dates pending configuration**. Session 1/2
+remain separate cohorts, and their dates and hours are not invented. Imported
+weekend AM/PM/Full Day hours remain visible even before a matching session is
+configured; those registrations are marked as needing session review.
 
 ## Build groups
 

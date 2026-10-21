@@ -57,7 +57,10 @@ export const updateStudentSchema = z.object({
   studentId: z.uuid("Invalid student."),
   firstName: z.string().trim().min(1, "First name is required.").max(100),
   lastName: z.string().trim().min(1, "Last name is required.").max(100),
-  dateOfBirth: z.iso.date("Enter a valid date of birth."),
+  dateOfBirth: z.union([
+    z.iso.date("Enter a valid date of birth."),
+    z.literal(""),
+  ]),
   ...studentProfileFields,
 });
 
@@ -405,7 +408,7 @@ export async function updateStudent(actor: Actor, input: UpdateStudentInput) {
       .set({
         firstName: parsed.firstName,
         lastName: parsed.lastName,
-        dateOfBirth: parsed.dateOfBirth,
+        dateOfBirth: parsed.dateOfBirth || null,
         updatedAt: new Date(),
       })
       .where(eq(people.id, student.id))

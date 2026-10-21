@@ -438,9 +438,11 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
         <CardHeader>
           <CardTitle className="text-lg">Responses</CardTitle>
           <CardDescription>
-            Exact child name and birthdate matches link automatically. Uncertain
-            responses stay here for review. Linking preserves existing roster
-            details and keeps medical answers out of grouping rules.
+            Unique first and last name matches link automatically, including
+            students without a birthdate. Duplicate names and conflicting
+            birthdates need review. Uncertain responses stay here for review.
+            Linking preserves existing roster details and keeps medical answers
+            out of grouping rules.
           </CardDescription>
         </CardHeader>
         <CardContent>

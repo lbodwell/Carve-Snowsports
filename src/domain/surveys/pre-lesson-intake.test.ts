@@ -105,7 +105,7 @@ describe("survey student matching", () => {
     ).toEqual({ status: "unique", suggestedStudentId: "student-1" });
   });
 
-  test("does not use a name-only match", () => {
+  test("requires review when a known birthdate conflicts", () => {
     expect(
       matchSurveyStudent(
         {
@@ -115,7 +115,43 @@ describe("survey student matching", () => {
         },
         candidates,
       ),
-    ).toEqual({ status: "unmatched", suggestedStudentId: null });
+    ).toEqual({ status: "ambiguous", suggestedStudentId: null });
+  });
+
+  test("matches a unique normalized first and last name without a roster birthdate", () => {
+    expect(
+      matchSurveyStudent(
+        { firstName: "  ÁVERY ", lastName: "CHEN", dateOfBirth: "2017-01-08" },
+        [{ ...candidates[0]!, dateOfBirth: null }],
+      ),
+    ).toEqual({ status: "unique", suggestedStudentId: "student-1" });
+  });
+
+  test("does not pick one duplicate name because the other birthdate is missing", () => {
+    expect(
+      matchSurveyStudent(
+        { firstName: "Avery", lastName: "Chen", dateOfBirth: "2017-01-08" },
+        [
+          ...candidates,
+          {
+            ...candidates[0]!,
+            studentId: "student-2",
+            dateOfBirth: null,
+            guardianEmails: [],
+          },
+        ],
+      ),
+    ).toEqual({ status: "ambiguous", suggestedStudentId: null });
+  });
+
+  test("does not match a partial or empty name", () => {
+    for (const firstName of ["", "Aver", "Avery Jane"])
+      expect(
+        matchSurveyStudent(
+          { firstName, lastName: "Chen", dateOfBirth: "2017-01-08" },
+          candidates,
+        ),
+      ).toEqual({ status: "unmatched", suggestedStudentId: null });
   });
 
   test("uses the invitation email to disambiguate", () => {
