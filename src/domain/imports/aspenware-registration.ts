@@ -1,6 +1,6 @@
 export type CsvRecord = Record<string, string>;
 
-export const ASPENWARE_ADAPTER_VERSION = "2026-27@1";
+export const ASPENWARE_ADAPTER_VERSION = "2026-27@2";
 
 export const aspenwareListingHeaders = [
   "DetailRowC0",
@@ -189,10 +189,6 @@ function parseOptionalAge(rawValue: string) {
 
 function normalized(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-function normalizedPrice(value: string) {
-  return value.replace(/[$,()\s]/g, "");
 }
 
 function requireHeaders(
@@ -465,13 +461,13 @@ function listingMatchKey(
   participantKey: string,
   product: string,
   productDate: string,
-  price: string,
+  priceCents: number,
 ) {
   return [
     normalized(participantKey),
     normalized(product),
     productDate,
-    normalizedPrice(price),
+    priceCents,
   ].join("|");
 }
 
@@ -493,18 +489,50 @@ export function previewAspenwareRegistrationBatch(
     analysis.returnPairs.map((pair) => pair.saleRowNumber - 2),
   );
   const issues = [...analysis.warnings];
-  const byOrderByKey = new Map<string, CsvRecord>();
+  // The purchaser report identifies the child by name, not by customer IP.
+  // Include the sale date so repeat purchases cannot borrow purchaser context.
+  const purchaserMatchKey = (
+    name: string,
+    listing: ListingRegistration,
+    saleDate: string,
+  ) =>
+    `${listingMatchKey(name, listing.product, listing.productDate, listing.priceCents)}|${saleDate}`;
+  const listingParticipants = new Map<string, Set<string>>();
+  for (const [index, listing] of analysis.listingRegistrations.entries()) {
+    if (listing.quantity <= 0) continue;
+    const row = input.listingRecords[index] ?? {};
+    const key = purchaserMatchKey(
+      cell(row, "CustomerName"),
+      listing,
+      cell(row, "DetailRowC1"),
+    );
+    const participants = listingParticipants.get(key) ?? new Set<string>();
+    participants.add(listing.participantKey);
+    listingParticipants.set(key, participants);
+  }
+  const byOrderByKey = new Map<
+    string,
+    Array<{ row: CsvRecord; rowNumber: number }>
+  >();
   if (input.byOrderRecords) {
-    for (const row of input.byOrderRecords) {
-      const key = listingMatchKey(
+    for (const [index, row] of input.byOrderRecords.entries()) {
+      const rowNumber = index + 2;
+      // Refunds are separate transaction facts, not duplicate purchasers.
+      if (
+        parseQuantity(cell(row, "DetailRowC3"), rowNumber) <= 0 ||
+        cell(row, "DetailRowC6").includes("Return")
+      )
+        continue;
+      const key = `${listingMatchKey(
         cell(row, "LineCustomerName"),
         cell(row, "DetailRowC4"),
         cell(row, "DetailRowC2"),
-        cell(row, "DetailRowC5"),
-      );
-      if (byOrderByKey.has(key)) {
-        issues.push(`By-order export has duplicate reconciliation key ${key}.`);
-      } else byOrderByKey.set(key, row);
+        Math.abs(parseCurrency(cell(row, "DetailRowC5"), rowNumber)),
+      )}|${cell(row, "DetailRowC1")}`;
+      byOrderByKey.set(key, [
+        ...(byOrderByKey.get(key) ?? []),
+        { row, rowNumber },
+      ]);
     }
   }
 
@@ -515,16 +543,11 @@ export function previewAspenwareRegistrationBatch(
         registration.participantKey,
         registration.product,
         registration.productDate,
-        cell(
-          input.promptRecords[
-            Math.max(0, (registration.rowNumbers[0] ?? 2) - 2)
-          ] ?? {},
-          "TotalPrice",
-        ),
+        registration.priceCents,
       );
       if (promptByKey.has(key)) {
         issues.push(
-          `Prompt export has duplicate registration reconciliation key ${key}.`,
+          `Prompt rows ${promptByKey.get(key)!.rowNumbers.join("/")} and ${registration.rowNumbers.join("/")} describe multiple purchases for the same child, product, date, and price. Review the prompt export.`,
         );
       } else promptByKey.set(key, registration);
       issues.push(
@@ -545,9 +568,37 @@ export function previewAspenwareRegistrationBatch(
       listing.participantKey,
       listing.product,
       listing.productDate,
-      cell(sourceRow, "DetailRowC5"),
+      listing.priceCents,
     );
-    const byOrder = byOrderByKey.get(key);
+    const purchaserKey = purchaserMatchKey(
+      cell(sourceRow, "CustomerName"),
+      listing,
+      cell(sourceRow, "DetailRowC1"),
+    );
+    const purchaserCandidates = cell(sourceRow, "CustomerName")
+      ? (byOrderByKey.get(purchaserKey) ?? [])
+      : [];
+    const purchaserContexts = new Set(
+      purchaserCandidates.map(({ row }) =>
+        JSON.stringify([
+          cell(row, "DetailRowC0"),
+          cell(row, "CustomerName"),
+          cell(row, "textbox7"),
+          cell(row, "PhoneNumber"),
+        ]),
+      ),
+    );
+    const ambiguousPurchaser =
+      purchaserCandidates.length > 0 &&
+      (purchaserContexts.size > 1 ||
+        (listingParticipants.get(purchaserKey)?.size ?? 0) > 1);
+    if (ambiguousPurchaser)
+      issues.push(
+        `Listing row ${listing.rowNumber}: purchaser match is ambiguous across by-order rows ${purchaserCandidates.map(({ rowNumber }) => rowNumber).join(", ")}. Check child identity and purchaser details in the exports.`,
+      );
+    const byOrder = ambiguousPurchaser
+      ? undefined
+      : purchaserCandidates[0]?.row;
     const prompt = promptByKey.get(key);
     if (byOrder) byOrderMatched += 1;
     if (prompt) promptMatched += 1;
@@ -582,7 +633,15 @@ export function previewAspenwareRegistrationBatch(
             }
           : null,
         issues: [
-          ...(isReturned ? [] : prompt ? [] : ["Ability level unavailable."]),
+          ...(isReturned
+            ? []
+            : prompt?.abilityLevel
+              ? []
+              : [
+                  prompt
+                    ? "Ability level answer is blank or unusable."
+                    : "No matching ability-level response in the prompt export.",
+                ]),
           ...(isReturned
             ? []
             : byOrder

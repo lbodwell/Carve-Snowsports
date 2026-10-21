@@ -10,12 +10,31 @@ import {
 function listing(overrides: Partial<CsvRecord> = {}): CsvRecord {
   return {
     DetailRowC0: "child-opaque-1",
+    CustomerName: "Example, Avery",
+    DetailRowC1: "3/12/2026",
     Product:
       "PM | Ski | Children's Seasonal Program | 26/27 | Saturday | 4-6yrs | 10am",
     "Product Date": "1/9/2027",
     Qty: "1",
     "Net Amount": "$719.00",
     "Transaction Type / Reservation Status": "Type:Sale; Status:Open",
+    ...overrides,
+  };
+}
+
+function byOrder(overrides: Partial<CsvRecord> = {}): CsvRecord {
+  return {
+    DetailRowC0: "purchaser-opaque-1",
+    CustomerName: "Example, Taylor",
+    LineCustomerName: "Example, Avery",
+    DetailRowC1: "3/12/2026",
+    DetailRowC2: "1/9/2027",
+    DetailRowC3: "1",
+    DetailRowC4: listing().Product!,
+    DetailRowC5: "$719.00",
+    DetailRowC6: "Type:Sale; Status:Open",
+    textbox7: "taylor@example.test",
+    PhoneNumber: "",
     ...overrides,
   };
 }
@@ -40,6 +59,117 @@ function prompt(
 }
 
 describe("Aspenware registration export analysis", () => {
+  it("enriches canonical listing prices using child IDs for prompts and names for purchasers", () => {
+    // Production remapping exposes Net Amount, not the raw DetailRowC5 field.
+    const preview = previewAspenwareRegistrationBatch({
+      listingRecords: [listing()],
+      byOrderRecords: [byOrder()],
+      promptRecords: [
+        prompt("order-1", "child-opaque-1", "Ability Level", "Level 3"),
+      ],
+    });
+    expect(preview.issues).toEqual([]);
+    expect(preview.summary).toMatchObject({
+      promptMatched: 1,
+      byOrderMatched: 1,
+    });
+    expect(preview.facts[0]).toMatchObject({
+      participantKey: "child-opaque-1",
+      abilityLevel: "Level 3",
+      purchaser: {
+        externalId: "purchaser-opaque-1",
+        email: "taylor@example.test",
+      },
+      issues: [],
+    });
+  });
+
+  it("treats by-order sales and refunds as separate facts regardless of order", () => {
+    const refund = byOrder({
+      DetailRowC3: "-1",
+      DetailRowC5: "($719.00)",
+      DetailRowC6: "Type:Return; Status:Open",
+    });
+    for (const rows of [
+      [byOrder(), refund],
+      [refund, byOrder()],
+    ]) {
+      const preview = previewAspenwareRegistrationBatch({
+        listingRecords: [listing()],
+        byOrderRecords: rows,
+      });
+      expect(preview.issues).toEqual([]);
+      expect(preview.summary.byOrderMatched).toBe(1);
+      expect(preview.facts[0]?.status).toBe("active");
+    }
+  });
+
+  it("blocks conflicting purchaser matches without choosing the first", () => {
+    const preview = previewAspenwareRegistrationBatch({
+      listingRecords: [listing()],
+      byOrderRecords: [
+        byOrder(),
+        byOrder({ DetailRowC0: "different-purchaser" }),
+      ],
+    });
+    expect(preview.issues).toEqual([
+      expect.stringContaining("purchaser match is ambiguous"),
+    ]);
+    expect(preview.facts[0]?.purchaser).toBeNull();
+  });
+
+  it("does not assign one name-based purchaser match to distinct child IDs", () => {
+    const preview = previewAspenwareRegistrationBatch({
+      listingRecords: [
+        listing(),
+        listing({ DetailRowC0: "other-child-with-same-name" }),
+      ],
+      byOrderRecords: [byOrder()],
+    });
+    expect(preview.issues).toHaveLength(2);
+    expect(preview.facts.every((fact) => fact.purchaser === null)).toBe(true);
+  });
+
+  it("uses the sale date to disambiguate repeat purchases and accepts equivalent purchaser context", () => {
+    const preview = previewAspenwareRegistrationBatch({
+      listingRecords: [listing()],
+      byOrderRecords: [
+        byOrder({ DetailRowC1: "4/1/2026", DetailRowC0: "other-purchaser" }),
+        byOrder(),
+        byOrder(),
+      ],
+    });
+    expect(preview.issues).toEqual([]);
+    expect(preview.facts[0]?.purchaser?.externalId).toBe("purchaser-opaque-1");
+  });
+
+  it("does not borrow prompt information from another child or a different price", () => {
+    const preview = previewAspenwareRegistrationBatch({
+      listingRecords: [listing()],
+      promptRecords: [
+        prompt("order-1", "other-child", "Ability Level", "Level 5"),
+        {
+          ...prompt("order-2", "child-opaque-1", "Ability Level", "Level 4"),
+          TotalPrice: "$819.00",
+        },
+      ],
+    });
+    expect(preview.summary.promptMatched).toBe(0);
+    expect(preview.facts[0]?.abilityLevel).toBeNull();
+  });
+
+  it("distinguishes a blank answer from an absent prompt without blocking enrollment", () => {
+    const preview = previewAspenwareRegistrationBatch({
+      listingRecords: [listing()],
+      promptRecords: [prompt("order-1", "child-opaque-1", "Ability Level", "")],
+    });
+    expect(preview.issues).toEqual([]);
+    expect(preview.summary.promptMatched).toBe(1);
+    expect(preview.facts[0]?.issues).toContain(
+      "Ability level answer is blank or unusable.",
+    );
+  });
+
   it("parses weekend and weekday product token orders", () => {
     expect(
       parseProductDimensions(

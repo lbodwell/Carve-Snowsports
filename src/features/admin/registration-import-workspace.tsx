@@ -69,6 +69,16 @@ type ImportPreview = {
 };
 type SelectedFile = { content: string; name: string; file: File };
 
+const reconciliationLabels: Record<string, string> = {
+  grossSales: "Registrations sold",
+  returns: "Refunds",
+  active: "Active registrations",
+  returned: "Returned registrations",
+  promptMatched: "Ability records matched",
+  byOrderMatched: "Purchasers matched",
+  issueCount: "Blocking issues",
+};
+
 async function textFromFile(file: File | null) {
   return file ? { content: await file.text(), name: file.name, file } : null;
 }
@@ -594,11 +604,20 @@ export function RegistrationImportWorkspace({
               <StaffNotice
                 variant="error"
                 title="Source rows need attention"
-                description="Correct the issues below in the source export, then upload the corrected files. Nothing has been applied."
+                description="Resolve the blocking reconciliation issues listed above, then upload the corrected files. Nothing has been applied."
               />
             )}
             {preview.facts?.some((fact) => fact.issues.length) && (
               <div className="max-h-72 overflow-y-auto rounded-lg border p-3 text-sm">
+                <h3 className="mb-2 font-semibold">
+                  Optional information missing
+                </h3>
+                <p className="text-muted-foreground mb-3">
+                  These rows can still be imported. Missing ability levels
+                  remain unknown; missing purchaser details remain blank.
+                  Re-export all reports with matching filters to improve
+                  coverage, or complete the information later.
+                </p>
                 {preview.facts
                   .filter((fact) => fact.issues.length)
                   .map((fact) => (
@@ -618,7 +637,9 @@ export function RegistrationImportWorkspace({
                 {Object.entries(preview.reconciliation).map(
                   ([label, value]) => (
                     <div key={label} className="bg-pm-mist rounded-xl p-3">
-                      <p className="text-muted-foreground text-xs">{label}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {reconciliationLabels[label] ?? label}
+                      </p>
                       <p className="text-xl font-semibold">{String(value)}</p>
                     </div>
                   ),

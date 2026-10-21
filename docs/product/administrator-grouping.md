@@ -15,6 +15,10 @@
    is required; the by-order listing and product prompts are optional.
 4. Wait for reconciliation. Review totals and any source issues. Correct source
    errors and upload corrected files rather than forcing an invalid batch.
+   Missing optional ability/purchaser information does not block import. Blank
+   ability answers and absent prompt records are shown separately. Refund rows
+   in the by-order report do not count as duplicate purchasers; conflicting
+   purchaser matches still require corrected exports.
 5. If an imported name resembles an existing student, explicitly choose that
    student or **Create a separate new student**. Carve never establishes an
    identity from a name alone.
@@ -25,6 +29,14 @@ An explicit paired return changes an imported registration to returned. A
 student missing from a later export is not cancelled. Purchasers remain
 purchasers; they are not automatically declared guardians. Existing grouping,
 notes, and populated roster values are preserved.
+
+Export all three reports using the same sale-date range and product filters.
+The child listing determines which registrations are imported: newer purchases
+present only in the purchaser or prompt reports do not create registrations.
+Purchaser matching uses the child name, product, lesson date, price, and sale
+date; prompt matching uses the child's Aspenware ID, product, lesson date, and
+price. Re-upload files after an importer update to create a fresh preview; resuming
+an old batch shows its stored reconciliation results.
 
 ## Connect parent surveys
 

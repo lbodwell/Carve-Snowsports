@@ -486,4 +486,40 @@ describe("public parent surveys", () => {
       preview.batchId,
     );
   });
+
+  test("reconciles the three raw report formats through production remapping", async () => {
+    const product =
+      "PM | Ski | Children's Seasonal Program | 26/27 | Saturday | 7-12yrs | 10am";
+    const preview = await previewRegistrationImport(actor, {
+      programId,
+      listingName: "listing.csv",
+      listingCsv: [
+        "DetailRowC0,CustomerName,textbox10,DetailRowC1,DetailRowC2,DetailRowC3,DetailRowC4,DetailRowC5,DetailRowC6",
+        `raw-report-child,"Example, Riley",9,3/12/2026,1/9/2027,1,"${product}",$719.00,Type:Sale; Status:Open`,
+      ].join("\n"),
+      byOrderName: "by-order.csv",
+      byOrderCsv: [
+        "DetailRowC0,CustomerName,LineCustomerName,Textbox21,DetailRowC1,DetailRowC2,DetailRowC3,DetailRowC4,DetailRowC5,DetailRowC6,textbox7,PhoneNumber",
+        `raw-report-purchaser,"Example, Taylor","Example, Riley",9,3/12/2026,1/9/2027,1,"${product}",$719.00,Type:Sale; Status:Open,taylor@example.test,`,
+        `raw-report-purchaser,"Example, Taylor","Example, Riley",9,3/13/2026,1/9/2027,-1,"${product}",($719.00),Type:Return; Status:Open,taylor@example.test,`,
+      ].join("\n"),
+      promptName: "prompts.csv",
+      promptCsv: [
+        "TransactionID,TransactionLineIPCode,ProductDate,ProductHeaderDescription,PromptName1,PromptData1,TotalPrice",
+        `raw-order,raw-report-child,1/9/2027,"${product}",Ability Level,Level 3,$719.00`,
+      ].join("\n"),
+    });
+    expect(preview.status).toBe("ready");
+    expect(preview.issues).toEqual([]);
+    expect(preview.reconciliation).toMatchObject({
+      promptMatched: 1,
+      byOrderMatched: 1,
+      active: 1,
+      issueCount: 0,
+    });
+    expect(preview.facts[0]).toMatchObject({
+      abilityLevel: "Level 3",
+      issues: [],
+    });
+  });
 });
