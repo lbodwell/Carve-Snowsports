@@ -1,8 +1,13 @@
-import { Pencil, Plus, Search, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Plus, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 
 import { AuditHistoryPanel } from "@/features/admin/audit-history-panel";
+import {
+  RosterDetailsDialog,
+  RosterPagination,
+  RosterRow,
+} from "@/features/admin/roster-ui";
 
 import {
   AlertDialog,
@@ -79,6 +84,13 @@ export function InstructorRoster({
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const detailsTrigger = useRef<HTMLElement | null>(null);
+  const selectedInstructor = instructors.find(
+    (instructor) => instructor.id === editingId,
+  );
   const [error, setError] = useState<string | null>(null);
   const [instructorToArchive, setInstructorToArchive] =
     useState<InstructorRow | null>(null);
@@ -98,6 +110,9 @@ export function InstructorRoster({
     void getInstructorAuditHistory({ data: { instructorId: editingId } })
       .then((events) => {
         if (!cancelled) setAuditHistory(events);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Audit history could not be loaded.");
       })
       .finally(() => {
         if (!cancelled) setAuditHistoryLoading(false);
@@ -128,6 +143,14 @@ export function InstructorRoster({
       );
     });
   }, [discipline, instructors, query]);
+  const currentPage = Math.min(
+    page,
+    Math.max(1, Math.ceil(filtered.length / pageSize)),
+  );
+  const pageRows = filtered.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
 
   function startCreate() {
     setEditingId(null);
@@ -150,7 +173,7 @@ export function InstructorRoster({
       ),
     });
     setError(null);
-    setShowForm(true);
+    setShowForm(false);
   }
 
   async function handleSave(event: React.FormEvent<HTMLFormElement>) {
@@ -187,9 +210,12 @@ export function InstructorRoster({
 
   async function handleArchive(instructor: InstructorRow) {
     setError(null);
+    setArchiving(true);
     try {
       await archiveInstructor({ data: { instructorId: instructor.id } });
       setInstructorToArchive(null);
+      setEditingId(null);
+      setShowForm(false);
       await router.invalidate();
     } catch (caught) {
       setError(
@@ -197,6 +223,8 @@ export function InstructorRoster({
           ? caught.message
           : "The instructor could not be archived.",
       );
+    } finally {
+      setArchiving(false);
     }
   }
 
@@ -212,124 +240,16 @@ export function InstructorRoster({
             Manage contact details and discipline qualifications.
           </p>
         </div>
-        <Button onClick={startCreate}>
+        <Button
+          onClick={(event) => {
+            detailsTrigger.current = event.currentTarget;
+            startCreate();
+          }}
+        >
           <Plus data-icon="inline-start" />
           Add instructor
         </Button>
       </header>
-
-      {showForm ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {editingId ? "Edit instructor" : "Add instructor"}
-            </CardTitle>
-            <CardDescription>
-              At least one contact method and discipline are required.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSave} className="grid gap-4 sm:grid-cols-2">
-              {(["firstName", "lastName", "phone", "email"] as const).map(
-                (field) => (
-                  <label
-                    key={field}
-                    className="grid gap-1.5 text-sm font-medium"
-                  >
-                    {field === "firstName"
-                      ? "First name"
-                      : field === "lastName"
-                        ? "Last name"
-                        : field === "phone"
-                          ? "Phone"
-                          : "Email"}
-                    <Input
-                      required={field === "firstName" || field === "lastName"}
-                      type={field === "email" ? "email" : "text"}
-                      value={form[field]}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          [field]: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                ),
-              )}
-              <fieldset className="flex flex-wrap gap-4 sm:col-span-2">
-                <legend className="mb-1.5 text-sm font-medium">
-                  Disciplines
-                </legend>
-                {(["ski", "snowboard"] as const).map((disciplineKey) => (
-                  <label
-                    key={disciplineKey}
-                    className="flex items-center gap-2 text-sm"
-                  >
-                    <Checkbox
-                      checked={form[disciplineKey]}
-                      onCheckedChange={(checked) =>
-                        setForm((current) => ({
-                          ...current,
-                          [disciplineKey]: checked === true,
-                        }))
-                      }
-                    />
-                    {disciplineKey === "ski" ? "Ski" : "Snowboard"}
-                  </label>
-                ))}
-              </fieldset>
-              <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
-                Notes
-                <Textarea
-                  value={form.notes}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      notes: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              {error ? (
-                <p
-                  role="alert"
-                  className="text-destructive text-sm sm:col-span-2"
-                >
-                  {error}
-                </p>
-              ) : null}
-              <div className="flex gap-2 sm:col-span-2">
-                <Button disabled={saving} type="submit">
-                  {saving ? "Saving…" : "Save instructor"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowForm(false)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </form>
-            {editingId ? (
-              <div className="mt-6">
-                {auditHistoryLoading ? (
-                  <p className="text-muted-foreground text-sm">
-                    Loading audit history…
-                  </p>
-                ) : (
-                  <AuditHistoryPanel
-                    title="Audit history"
-                    description="Recorded roster changes for this instructor."
-                    events={auditHistory}
-                  />
-                )}
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-      ) : null}
 
       <Card>
         <CardHeader>
@@ -346,7 +266,10 @@ export function InstructorRoster({
               <Search className="text-muted-foreground absolute top-2.5 left-2.5 size-4" />
               <Input
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setPage(1);
+                }}
                 placeholder="Search name, contact, or notes"
                 className="pr-8 pl-8"
               />
@@ -356,7 +279,10 @@ export function InstructorRoster({
                   variant="ghost"
                   size="icon-xs"
                   className="absolute top-1.5 right-1"
-                  onClick={() => setQuery("")}
+                  onClick={() => {
+                    setQuery("");
+                    setPage(1);
+                  }}
                   aria-label="Clear search"
                 >
                   <X />
@@ -365,7 +291,13 @@ export function InstructorRoster({
             </label>
             <label className="grid min-w-40 gap-1 text-sm font-medium">
               <span className="sr-only">Discipline</span>
-              <Select value={discipline} onValueChange={setDiscipline}>
+              <Select
+                value={discipline}
+                onValueChange={(value) => {
+                  setDiscipline(value);
+                  setPage(1);
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -377,6 +309,10 @@ export function InstructorRoster({
               </Select>
             </label>
           </div>
+          <p role="status" className="text-muted-foreground text-sm">
+            {filtered.length} matching instructor
+            {filtered.length === 1 ? "" : "s"}
+          </p>
           {error && !showForm ? (
             <p role="alert" className="text-destructive text-sm">
               {error}
@@ -390,14 +326,18 @@ export function InstructorRoster({
                   <TableHead>Disciplines</TableHead>
                   <TableHead>Contact</TableHead>
                   <TableHead>Notes</TableHead>
-                  <TableHead>
-                    <span className="sr-only">Actions</span>
-                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((instructor) => (
-                  <TableRow key={instructor.id}>
+                {pageRows.map((instructor) => (
+                  <RosterRow
+                    key={instructor.id}
+                    aria-label={`View instructor ${instructor.firstName} ${instructor.lastName}`}
+                    onOpen={(element) => {
+                      detailsTrigger.current = element;
+                      startEdit(instructor);
+                    }}
+                  >
                     <TableCell className="font-medium">
                       {instructor.firstName} {instructor.lastName}
                     </TableCell>
@@ -419,35 +359,190 @@ export function InstructorRoster({
                         {instructor.notes || "—"}
                       </span>
                     </TableCell>
-                    <TableCell>
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          type="button"
-                          size="icon-xs"
-                          variant="ghost"
-                          onClick={() => startEdit(instructor)}
-                          aria-label={`Edit ${instructor.firstName} ${instructor.lastName}`}
-                        >
-                          <Pencil />
-                        </Button>
-                        <Button
-                          type="button"
-                          size="icon-xs"
-                          variant="ghost"
-                          onClick={() => setInstructorToArchive(instructor)}
-                          aria-label={`Archive ${instructor.firstName} ${instructor.lastName}`}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                  </RosterRow>
                 ))}
               </TableBody>
             </Table>
           </div>
+          {filtered.length === 0 && (
+            <p className="text-muted-foreground py-6 text-center text-sm">
+              No instructors match these filters.
+            </p>
+          )}
+          <RosterPagination
+            total={filtered.length}
+            page={currentPage}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+          />
         </CardContent>
       </Card>
+      <RosterDetailsDialog
+        open={showForm || Boolean(editingId)}
+        onOpenChange={(open) => {
+          if (!open && !saving && !archiving) {
+            setShowForm(false);
+            setEditingId(null);
+            setError(null);
+          }
+        }}
+        restoreFocusTo={detailsTrigger}
+        title={
+          editingId
+            ? `${selectedInstructor?.firstName ?? ""} ${selectedInstructor?.lastName ?? ""} · ${showForm ? "Edit instructor" : "Instructor details"}`
+            : "Add instructor"
+        }
+        description={
+          showForm
+            ? "At least one contact method and discipline are required."
+            : "Contact details, qualifications and notes."
+        }
+      >
+        {showForm ? (
+          <form onSubmit={handleSave} className="grid gap-4 sm:grid-cols-2">
+            {(["firstName", "lastName", "phone", "email"] as const).map(
+              (field) => (
+                <label key={field} className="grid gap-1.5 text-sm font-medium">
+                  {field === "firstName"
+                    ? "First name"
+                    : field === "lastName"
+                      ? "Last name"
+                      : field === "phone"
+                        ? "Phone"
+                        : "Email"}
+                  <Input
+                    required={field === "firstName" || field === "lastName"}
+                    type={field === "email" ? "email" : "text"}
+                    value={form[field]}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        [field]: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              ),
+            )}
+            <fieldset className="flex flex-wrap gap-4 sm:col-span-2">
+              <legend className="mb-1.5 text-sm font-medium">
+                Disciplines
+              </legend>
+              {(["ski", "snowboard"] as const).map((disciplineKey) => (
+                <label
+                  key={disciplineKey}
+                  className="flex items-center gap-2 text-sm"
+                >
+                  <Checkbox
+                    checked={form[disciplineKey]}
+                    onCheckedChange={(checked) =>
+                      setForm((current) => ({
+                        ...current,
+                        [disciplineKey]: checked === true,
+                      }))
+                    }
+                  />
+                  {disciplineKey === "ski" ? "Ski" : "Snowboard"}
+                </label>
+              ))}
+            </fieldset>
+            <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
+              Notes
+              <Textarea
+                value={form.notes}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    notes: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            {error ? (
+              <p
+                role="alert"
+                className="text-destructive text-sm sm:col-span-2"
+              >
+                {error}
+              </p>
+            ) : null}
+            <div className="flex gap-2 sm:col-span-2">
+              <Button disabled={saving} type="submit">
+                {saving ? "Saving…" : "Save instructor"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={saving}
+                onClick={() => setShowForm(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        ) : selectedInstructor ? (
+          <>
+            <dl className="grid gap-4 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-muted-foreground">Phone</dt>
+                <dd>{selectedInstructor.phone || "Not recorded"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Email</dt>
+                <dd>{selectedInstructor.email || "Not recorded"}</dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-muted-foreground">Disciplines</dt>
+                <dd>
+                  {selectedInstructor.disciplines
+                    .map((item) => item.label)
+                    .join(", ") || "Not recorded"}
+                </dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-muted-foreground">Notes</dt>
+                <dd className="whitespace-pre-wrap">
+                  {selectedInstructor.notes || "Not recorded"}
+                </dd>
+              </div>
+            </dl>
+            {error && (
+              <p role="alert" className="text-destructive text-sm">
+                {error}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Button variant="outline" onClick={() => setShowForm(true)}>
+                Edit instructor
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={archiving}
+                onClick={() => setInstructorToArchive(selectedInstructor)}
+              >
+                Archive instructor
+              </Button>
+              <Button onClick={() => setEditingId(null)}>Close details</Button>
+            </div>
+          </>
+        ) : null}
+        {editingId &&
+          (auditHistoryLoading ? (
+            <p className="text-muted-foreground text-sm">
+              Loading audit history…
+            </p>
+          ) : (
+            <AuditHistoryPanel
+              title="Audit history"
+              description="Recorded roster changes for this instructor."
+              events={auditHistory}
+            />
+          ))}
+      </RosterDetailsDialog>
       <AlertDialog
         open={instructorToArchive !== null}
         onOpenChange={(open) => {
@@ -468,6 +563,7 @@ export function InstructorRoster({
           <AlertDialogFooter>
             <AlertDialogCancel>Keep instructor</AlertDialogCancel>
             <AlertDialogAction
+              disabled={archiving}
               onClick={() => {
                 if (instructorToArchive)
                   void handleArchive(instructorToArchive);

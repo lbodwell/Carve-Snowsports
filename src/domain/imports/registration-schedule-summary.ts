@@ -63,9 +63,9 @@ export function registrationScheduleSummary(
       : null,
     excludedDates: slot?.excludedDates ?? [],
     status: resolved
-      ? "Session matched"
+      ? "Time matched"
       : source?.sourceKey
-        ? "Needs session review"
+        ? "Needs time review"
         : "Schedule not recorded",
   };
 }
@@ -73,3 +73,13 @@ export function registrationScheduleSummary(
 export type RegistrationScheduleSummary = ReturnType<
   typeof registrationScheduleSummary
 >;
+
+export function registrationTimeLabel(schedule: RegistrationScheduleSummary) {
+  if (schedule.hours)
+    return /full day/i.test(schedule.session ?? "")
+      ? `Full Day · ${schedule.hours}`
+      : schedule.hours;
+  return /^session\s*[12]$/i.test(schedule.session ?? "")
+    ? "Time pending"
+    : (schedule.session ?? "Time not recorded");
+}

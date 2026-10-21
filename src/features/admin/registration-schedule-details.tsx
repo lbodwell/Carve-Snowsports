@@ -1,4 +1,5 @@
 import type { RegistrationScheduleSummary } from "@/domain/imports/registration-schedule-summary";
+import { registrationTimeLabel } from "@/domain/imports/registration-schedule-summary";
 
 export function RegistrationScheduleDetails({
   schedule,
@@ -7,8 +8,7 @@ export function RegistrationScheduleDetails({
 }) {
   const fields = [
     ["Lesson day", schedule.weekday ?? "Not recorded"],
-    ["Session", schedule.session ?? "Not recorded"],
-    ["Lesson hours", schedule.hours ?? "Hours pending"],
+    ["Time", registrationTimeLabel(schedule)],
     ["Seasonal cohort", schedule.cohort],
     [
       "Lesson date range",
@@ -16,8 +16,6 @@ export function RegistrationScheduleDetails({
         ? `${schedule.startsOn} to ${schedule.endsOn}`
         : "Dates pending configuration",
     ],
-    ["Aspenware product date", schedule.productDate ?? "Not recorded"],
-    ["Purchase date", schedule.saleDate ?? "Not recorded"],
     ["Purchased age band", schedule.ageBand ?? "Not recorded"],
     ["Schedule status", schedule.status],
   ];
@@ -41,10 +39,6 @@ export function RegistrationScheduleDetails({
           Purchased product: {schedule.product}
         </p>
       )}
-      <p className="text-muted-foreground text-xs">
-        The Aspenware product date is the date on the export. Recurring lesson
-        dates depend on the configured lesson calendar.
-      </p>
     </div>
   );
 }

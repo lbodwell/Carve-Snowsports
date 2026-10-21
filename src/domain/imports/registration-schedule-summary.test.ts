@@ -43,7 +43,7 @@ describe("registration schedule summary", () => {
       startsOn: "2027-01-10",
       endsOn: "2027-03-07",
       excludedDates: ["2027-02-14"],
-      status: "Session matched",
+      status: "Time matched",
     });
   });
   it("shows imported weekend hours even before a session is configured", () => {
@@ -54,7 +54,7 @@ describe("registration schedule summary", () => {
       ),
     ).toMatchObject({
       hours: "13:00–15:00",
-      status: "Needs session review",
+      status: "Needs time review",
       startsOn: null,
     });
   });
@@ -72,7 +72,7 @@ describe("registration schedule summary", () => {
       cohort: "Session 2",
       hours: null,
       startsOn: null,
-      status: "Needs session review",
+      status: "Needs time review",
     });
   });
   it("uses a reviewed schedule rather than stale imported session labels", () => {

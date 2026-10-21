@@ -34,11 +34,9 @@ test("serves health and the authenticated staff workspace", async ({
   await expect(page.getByRole("heading", { name: "Students" })).toBeVisible();
   const firstStudent = page.locator("tbody tr").first();
   await expect(firstStudent).toBeVisible();
-  await firstStudent.getByRole("button", { name: /View registration/ }).click();
+  await firstStudent.click();
   await expect(page.getByRole("dialog")).toBeVisible();
-  await expect(
-    page.getByText("Aspenware product date", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("Time", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Edit student profile" }).click();
   await expect(
     page.getByRole("button", { name: "Save changes" }),
@@ -56,6 +54,52 @@ test("serves health and the authenticated staff workspace", async ({
   await expect(
     page.getByRole("heading", { name: "Instructors" }),
   ).toBeVisible();
+  await page.locator("tbody tr").first().locator("td").nth(2).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Edit instructor", exact: true })
+    .click();
+  await page
+    .getByLabel("Notes", { exact: true })
+    .fill("Roster browser verification");
+  await page
+    .getByRole("button", { name: "Save instructor", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Edit instructor", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("dialog")).toContainText(
+    "Roster browser verification",
+  );
+  if (process.env.CARVE_UI_PROOF === "1")
+    await page.screenshot({
+      path: ".tmp/instructor-details.png",
+      fullPage: true,
+    });
+  await page
+    .getByRole("button", { name: "Close details", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Add instructor", exact: true })
+    .click();
+  await page.getByLabel("First name", { exact: true }).fill("Temporary");
+  await page.getByLabel("Last name", { exact: true }).fill("Rosterfixture");
+  await page.getByLabel("Phone", { exact: true }).fill("555-0100");
+  await page
+    .getByRole("button", { name: "Save instructor", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await page.getByLabel("Search instructors").fill("Temporary Rosterfixture");
+  await expect(page.getByRole("status")).toContainText("1 matching instructor");
+  await page.locator("tbody tr").click();
+  await page
+    .getByRole("button", { name: "Archive instructor", exact: true })
+    .click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Archive", exact: true })
+    .click();
+  await expect(page.locator("tbody tr")).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Add instructor" }),
   ).toBeVisible();
@@ -162,14 +206,13 @@ test("imports a new student, reviews their survey, and publishes adjusted groups
   await expect(importedRow).toHaveCount(1);
   await expect(importedRow).toContainText("Saturday");
   await expect(importedRow).toContainText("10:00–12:00");
-  await expect(importedRow).toContainText("1/10/2026");
   if (process.env.CARVE_UI_PROOF === "1")
     await page.screenshot({
       path: ".tmp/registration-table.png",
       fullPage: true,
     });
-  await importedRow.getByRole("button", { name: /View registration/ }).click();
-  await expect(page.getByRole("dialog")).toContainText("1/1/2026");
+  await importedRow.click();
+  await expect(page.getByRole("dialog")).toContainText("10:00–12:00");
   if (process.env.CARVE_UI_PROOF === "1")
     await page.screenshot({
       path: ".tmp/registration-details.png",

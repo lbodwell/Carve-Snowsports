@@ -62,21 +62,31 @@ survey inbox; they are not optimizer input.
 
 Open **Students** to see one row per registration across programs and unarchived
 seasons. Students with several signups appear once for each signup. The table
-shows the program, season, lesson day/session, hours, calendar range, imported
-product date, registration status, discipline, and ability.
+shows the program, season, lesson day, time, calendar range, registration status,
+discipline, and ability.
 
-Use the main program/day/session/status filters or expand **More filters** for
+Use the main program/day/time/status filters or expand **More filters** for
 season, cohort, discipline, ability, age, missing information, and sorting.
 Filters apply to all rows before pagination; choose 25, 50, or 100 rows per page.
-Click a student name or **View details** for that registration's lesson and purchase
-dates, purchased age band, raw product description, and schedule review status.
+The matching registration and distinct-student totals cover every filtered result,
+including rows on other pages. Combine filters to count, for example, Level 3
+students on Sunday in the morning.
+Click anywhere in a row (or focus it and press Enter/Space) for that registration's
+lesson dates, purchased age band, product description, and schedule review status.
 **Edit student profile** opens the profile with all that student's signups.
+**Archive student** is available inside details and requires confirmation; it
+archives all that student's registrations and retains audit history.
 
-Aspenware's product date is distinct from the full recurring lesson calendar.
 Unconfigured calendar ranges show **Dates pending configuration**. Session 1/2
 remain separate cohorts, and their dates and hours are not invented. Imported
 weekend AM/PM/Full Day hours remain visible even before a matching session is
 configured; those registrations are marked as needing session review.
+
+**Instructors** uses the same row-to-details dialog and pagination controls.
+Search or filter by discipline to see the total matching instructors across all
+pages. Open a row to view contact details, disciplines, notes, and audit history;
+choose **Edit instructor** to edit in the dialog or **Archive instructor** to
+archive with confirmation. The row has no separate edit/delete icons.
 
 ## Build groups
 

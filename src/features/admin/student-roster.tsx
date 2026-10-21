@@ -1,8 +1,23 @@
 import { Link, useRouter } from "@tanstack/react-router";
 import { Search, UserPlus, UsersRound, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import { Dialog } from "radix-ui";
 import type { RegistrationScheduleSummary } from "@/domain/imports/registration-schedule-summary";
+import {
+  RosterDetailsDialog,
+  RosterPagination,
+  RosterRow,
+} from "@/features/admin/roster-ui";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { registrationTimeLabel } from "@/domain/imports/registration-schedule-summary";
 import { RegistrationScheduleDetails } from "@/features/admin/registration-schedule-details";
 
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +45,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { registerStudent } from "@/server/functions/student-roster";
+import {
+  archiveStudent,
+  registerStudent,
+} from "@/server/functions/student-roster";
 
 type StudentRow = {
   id: string;
@@ -70,7 +88,9 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [selected, setSelected] = useState<StudentRow | null>(null);
-  const detailsTrigger = useRef<HTMLButtonElement | null>(null);
+  const detailsTrigger = useRef<HTMLElement | null>(null);
+  const [archiveConfirm, setArchiveConfirm] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const filter = (setter: (value: string) => void) => (value: string) => {
     setter(value);
     setPage(1);
@@ -102,7 +122,6 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
             student.schedule.weekday,
             student.schedule.session,
             student.schedule.hours,
-            student.schedule.productDate,
             student.schedule.product,
           ]
             .join(" ")
@@ -120,7 +139,7 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
             (day === "all" ||
               (student.schedule.weekday ?? "missing") === day) &&
             (session === "all" ||
-              (student.schedule.session ?? "missing") === session) &&
+              registrationTimeLabel(student.schedule) === session) &&
             (cohort === "all" || student.schedule.cohort === cohort) &&
             (purchasedAgeBand === "all" ||
               student.schedule.ageBand === purchasedAgeBand) &&
@@ -130,7 +149,7 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
                 : "unregistered") === status) &&
             (missing === "all" ||
               (missing === "schedule" &&
-                student.schedule.status !== "Session matched") ||
+                student.schedule.status !== "Time matched") ||
               (missing === "ability" && !student.abilityLevelLabel) ||
               (missing === "birthdate" && !student.dateOfBirth)) &&
             (discipline === "all" || student.disciplineLabel === discipline) &&
@@ -163,11 +182,6 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
               name
             );
           }
-          if (sort === "date")
-            return (
-              (Date.parse(a.schedule.productDate ?? "") || Infinity) -
-                (Date.parse(b.schedule.productDate ?? "") || Infinity) || name
-            );
           return (
             name ||
             (a.programName ?? "").localeCompare(b.programName ?? "") ||
@@ -193,6 +207,12 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
     ],
   );
   const pageCount = Math.max(1, Math.ceil(filteredStudents.length / pageSize));
+  const matchingRegistrations = filteredStudents.filter(
+    (student) => student.registrationId,
+  ).length;
+  const matchingStudents = new Set(
+    filteredStudents.map((student) => student.id),
+  ).size;
   const currentPage = Math.min(page, pageCount);
   const pageRows = filteredStudents.slice(
     (currentPage - 1) * pageSize,
@@ -265,8 +285,8 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
         <CardHeader>
           <CardTitle>Student registrations</CardTitle>
           <CardDescription>
-            Filter by program, lesson day, session or missing information. Open
-            a registration for dates and purchase details.
+            Filter by program, lesson day, time or missing information. Open a
+            registration to review the lesson schedule.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -284,7 +304,7 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
                   id="student-search"
                   value={query}
                   onChange={(event) => filter(setQuery)(event.target.value)}
-                  placeholder="Name, program, session or date"
+                  placeholder="Name, program, day or time"
                   className="pl-8"
                 />
                 {query ? (
@@ -330,13 +350,14 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
               ]}
             />
             <FilterSelect
-              label="Lesson session"
+              label="Time"
               value={session}
               onChange={filter(setSession)}
               options={[
-                ["all", "All sessions"],
-                ...options(students.map((row) => row.schedule.session)),
-                ["missing", "Session not recorded"],
+                ["all", "All times"],
+                ...options(
+                  students.map((row) => registrationTimeLabel(row.schedule)),
+                ),
               ]}
             />
             <FilterSelect
@@ -430,7 +451,7 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
                 onChange={filter(setMissing)}
                 options={[
                   ["all", "Any"],
-                  ["schedule", "Session needs review"],
+                  ["schedule", "Time needs review"],
                   ["ability", "Ability missing"],
                   ["birthdate", "Birthdate missing"],
                 ]}
@@ -442,13 +463,16 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
                 options={[
                   ["name", "Student name"],
                   ["day", "Lesson day and time"],
-                  ["date", "Product date"],
                 ]}
               />
             </div>
           </details>
           <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-            <span>{filteredStudents.length} matching rows</span>
+            <span role="status">
+              {matchingRegistrations} matching registration
+              {matchingRegistrations === 1 ? "" : "s"} · {matchingStudents}{" "}
+              student{matchingStudents === 1 ? "" : "s"}
+            </span>
             <Button variant="ghost" size="sm" onClick={resetFilters}>
               Clear filters
             </Button>
@@ -469,7 +493,7 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
                 No registrations match these filters
               </p>
               <p className="text-muted-foreground text-sm">
-                Clear filters or try another program, day or session.
+                Clear filters or try another program, day or time.
               </p>
             </div>
           ) : (
@@ -479,30 +503,27 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
                   <TableRow>
                     <TableHead>Student</TableHead>
                     <TableHead>Program / season</TableHead>
-                    <TableHead>Lesson day / session</TableHead>
+                    <TableHead>Lesson day / time</TableHead>
                     <TableHead>Lesson dates</TableHead>
                     <TableHead>Registration</TableHead>
                     <TableHead>Discipline / ability</TableHead>
-                    <TableHead>Next step</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {pageRows.map((student) => {
                     const isRegistered = student.registrationId != null;
                     return (
-                      <TableRow key={student.registrationId ?? student.id}>
+                      <RosterRow
+                        key={student.registrationId ?? student.id}
+                        aria-label={`View registration for ${student.firstName} ${student.lastName} · ${student.schedule.weekday ?? ""} · ${registrationTimeLabel(student.schedule)}`}
+                        onOpen={(element) => {
+                          detailsTrigger.current = element;
+                          setSelected(student);
+                          setActionError(null);
+                        }}
+                      >
                         <TableCell className="font-medium">
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              detailsTrigger.current = event.currentTarget;
-                              setSelected(student);
-                            }}
-                            className="text-left underline-offset-4 hover:underline"
-                            aria-label={`View registration for ${student.firstName} ${student.lastName}${student.schedule.weekday ? ` · ${student.schedule.weekday}` : ""}${student.schedule.session ? ` · ${student.schedule.session}` : ""}`}
-                          >
-                            {student.firstName} {student.lastName}
-                          </button>
+                          {student.firstName} {student.lastName}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           <div>{student.programName ?? "No program"}</div>
@@ -511,13 +532,12 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
                         <TableCell>
                           <div className="font-medium">
                             {student.schedule.weekday ?? "Day not recorded"} ·{" "}
-                            {student.schedule.session ?? "Session not recorded"}
+                            {registrationTimeLabel(student.schedule)}
                           </div>
                           <div className="text-muted-foreground text-xs">
-                            {student.schedule.hours ?? "Hours pending"} ·{" "}
                             {student.schedule.cohort}
                           </div>
-                          {student.schedule.status !== "Session matched" && (
+                          {student.schedule.status !== "Time matched" && (
                             <Badge variant="outline">
                               {student.schedule.status}
                             </Badge>
@@ -530,10 +550,6 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
                               ? `${student.schedule.startsOn} – ${student.schedule.endsOn}`
                               : "Calendar dates pending"}
                           </div>
-                          <div className="text-muted-foreground text-xs">
-                            Product date:{" "}
-                            {student.schedule.productDate ?? "Not recorded"}
-                          </div>
                         </TableCell>
                         <TableCell>
                           <Badge
@@ -543,26 +559,7 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
                               ? statusLabel(student.registrationStatus)
                               : "Not registered"}
                           </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {student.disciplineLabel ?? "Not set"}
-                          {student.abilityLevelLabel
-                            ? ` · ${student.abilityLevelLabel}`
-                            : ""}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {isRegistered ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={(event) => {
-                                detailsTrigger.current = event.currentTarget;
-                                setSelected(student);
-                              }}
-                            >
-                              View details
-                            </Button>
-                          ) : (
+                          {!isRegistered && (
                             <Button
                               type="button"
                               size="xs"
@@ -576,144 +573,132 @@ export function StudentRoster({ students }: { students: Array<StudentRow> }) {
                             </Button>
                           )}
                         </TableCell>
-                      </TableRow>
+                        <TableCell className="text-muted-foreground">
+                          {student.disciplineLabel ?? "Not set"}
+                          {student.abilityLevelLabel
+                            ? ` · ${student.abilityLevelLabel}`
+                            : ""}
+                        </TableCell>
+                      </RosterRow>
                     );
                   })}
                 </TableBody>
               </Table>
             </div>
           )}
-          <div
-            className="flex flex-wrap items-center justify-between gap-3"
-            aria-label="Registration pagination"
-          >
-            <label className="flex items-center gap-2 text-sm">
-              Rows per page
-              <select
-                className="rounded-md border bg-white p-2"
-                value={pageSize}
-                onChange={(event) => {
-                  setPageSize(Number(event.target.value));
-                  setPage(1);
-                }}
-              >
-                {[25, 50, 100].map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <span className="text-muted-foreground text-sm">
-              {filteredStudents.length ? (currentPage - 1) * pageSize + 1 : 0}–
-              {Math.min(currentPage * pageSize, filteredStudents.length)} of{" "}
-              {filteredStudents.length} · Page {currentPage} of {pageCount}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage === 1}
-                onClick={() => setPage(1)}
-              >
-                First
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage === 1}
-                onClick={() => setPage(currentPage - 1)}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage === pageCount}
-                onClick={() => setPage(currentPage + 1)}
-              >
-                Next
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage === pageCount}
-                onClick={() => setPage(pageCount)}
-              >
-                Last
-              </Button>
-            </div>
-          </div>
+          <RosterPagination
+            total={filteredStudents.length}
+            page={currentPage}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+          />
         </CardContent>
       </Card>
-      <Dialog.Root
+      <RosterDetailsDialog
         open={Boolean(selected)}
         onOpenChange={(open) => {
-          if (!open) setSelected(null);
+          if (!open && !archiving) setSelected(null);
         }}
+        restoreFocusTo={detailsTrigger}
+        title={`${selected?.firstName ?? ""} ${selected?.lastName ?? ""} · Registration details`}
+        description={`${selected?.programName ?? "No program registration"} · ${selected?.seasonName ?? ""} · ${selected?.registrationStatus ?? "Not registered"}`}
       >
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
-          <Dialog.Content
-            onCloseAutoFocus={(event) => {
-              event.preventDefault();
-              detailsTrigger.current?.focus();
-            }}
-            className="bg-background fixed top-1/2 left-1/2 z-50 grid max-h-[90vh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-2xl border p-6 shadow-lg"
-          >
-            <Dialog.Title className="text-xl font-semibold">
-              {selected?.firstName} {selected?.lastName} · Registration details
-            </Dialog.Title>
-            <Dialog.Description className="text-muted-foreground text-sm">
-              {selected?.programName ?? "No program registration"} ·{" "}
-              {selected?.seasonName} ·{" "}
-              {selected?.registrationStatus ?? "Not registered"}
-            </Dialog.Description>
-            {selected && (
-              <>
-                <p className="text-sm">
-                  {selected.disciplineLabel ?? "Discipline not set"} ·{" "}
-                  {selected.abilityLevelLabel ?? "Ability missing"} · Birthdate:{" "}
-                  {selected.dateOfBirth ?? "Not recorded"}
-                </p>
-                <RegistrationScheduleDetails schedule={selected.schedule} />
-                <dl className="grid gap-2 text-sm sm:grid-cols-2">
-                  <div>
-                    <dt className="text-muted-foreground">Guardian</dt>
-                    <dd>{selected.guardianName || "Not recorded"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">Guardian contact</dt>
-                    <dd>
-                      {selected.guardianPhone ||
-                        selected.guardianEmail ||
-                        "Not recorded"}
-                    </dd>
-                  </div>
-                </dl>
-                {selected.medicalInfo && (
-                  <p className="text-sm">
-                    Support information: {selected.medicalInfo}
-                  </p>
-                )}
-                <div className="flex items-center justify-between gap-2">
-                  <Button asChild variant="outline">
-                    <Link
-                      to="/admin/students/$studentId"
-                      params={{ studentId: selected.id }}
-                    >
-                      Edit student profile
-                    </Link>
-                  </Button>
-                  <Dialog.Close asChild>
-                    <Button>Close details</Button>
-                  </Dialog.Close>
-                </div>
-              </>
+        {selected && (
+          <>
+            <p className="text-sm">
+              {selected.disciplineLabel ?? "Discipline not set"} ·{" "}
+              {selected.abilityLevelLabel ?? "Ability missing"} · Birthdate:{" "}
+              {selected.dateOfBirth ?? "Not recorded"}
+            </p>
+            <RegistrationScheduleDetails schedule={selected.schedule} />
+            <dl className="grid gap-2 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-muted-foreground">Guardian</dt>
+                <dd>{selected.guardianName || "Not recorded"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Guardian contact</dt>
+                <dd>
+                  {selected.guardianPhone ||
+                    selected.guardianEmail ||
+                    "Not recorded"}
+                </dd>
+              </div>
+            </dl>
+            {selected.medicalInfo && (
+              <p className="text-sm">
+                Support information: {selected.medicalInfo}
+              </p>
             )}
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+            <div className="flex items-center justify-between gap-2">
+              <Button asChild variant="outline">
+                <Link
+                  to="/admin/students/$studentId"
+                  params={{ studentId: selected.id }}
+                >
+                  Edit student profile
+                </Link>
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={archiving}
+                onClick={() => setArchiveConfirm(true)}
+              >
+                Archive student
+              </Button>
+              <Button disabled={archiving} onClick={() => setSelected(null)}>
+                Close details
+              </Button>
+            </div>
+          </>
+        )}
+        {actionError && (
+          <p role="alert" className="text-destructive text-sm">
+            {actionError}
+          </p>
+        )}
+        <AlertDialog open={archiveConfirm} onOpenChange={setArchiveConfirm}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Archive {selected?.firstName} {selected?.lastName}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                This removes the student and all their registrations from the
+                working roster. Audit history is retained.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep student</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={archiving}
+                onClick={() => {
+                  if (!selected) return;
+                  setArchiving(true);
+                  void archiveStudent({ data: { studentId: selected.id } })
+                    .then(async () => {
+                      setArchiveConfirm(false);
+                      setSelected(null);
+                      await router.invalidate();
+                    })
+                    .catch(() =>
+                      setActionError(
+                        "The student could not be archived. Please try again.",
+                      ),
+                    )
+                    .finally(() => setArchiving(false));
+                }}
+              >
+                Archive
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </RosterDetailsDialog>
     </div>
   );
 }
