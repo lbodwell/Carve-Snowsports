@@ -241,8 +241,16 @@ test("imports a new student, reviews their survey, and publishes adjusted groups
   ).toBeVisible();
   await page
     .getByRole("combobox", { name: "Student for Ellis Reviewfixture" })
-    .selectOption({ label: "Ellis Reviewfixture · Birthdate missing" });
-  await page.getByRole("checkbox", { name: /Fill missing birthdate/ }).check();
+    .selectOption({ label: "Ellis Reviewfixture · 2016-01-08" });
+  await expect(
+    page.getByRole("button", { name: "Confirm student match" }),
+  ).toBeDisabled();
+  await page
+    .getByRole("checkbox", { name: /Fill missing registration discipline/ })
+    .check();
+  await page.getByLabel("Program for survey details").selectOption({
+    label: "Winter 2026 · Weekend Snowsports",
+  });
   await page.getByRole("button", { name: "Confirm student match" }).click();
   await expect(
     page.getByText("Student match confirmed.", { exact: true }),

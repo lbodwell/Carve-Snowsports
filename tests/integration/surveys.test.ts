@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 
 import { and, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -345,7 +346,7 @@ describe("public parent surveys", () => {
     expect(preserved?.confirmedStudentId).toBe(person!.id);
   });
 
-  test("links a unique name without a roster birthdate and fills it only on explicit confirmation", async () => {
+  test("links a unique name and automatically fills a missing roster birthdate", async () => {
     await submitPublicSurvey({
       slug: "pre-lesson-test",
       website: "",
@@ -375,7 +376,7 @@ describe("public parent surveys", () => {
       .select()
       .from(people)
       .where(eq(people.id, person!.id));
-    expect(beforeConfirmation?.dateOfBirth).toBeNull();
+    expect(beforeConfirmation?.dateOfBirth).toBe("2018-04-05");
     await confirmSurveyMatch(actor, {
       responseId: response!.id,
       studentId: person!.id,
@@ -407,6 +408,160 @@ describe("public parent surveys", () => {
         },
       ),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  test("a new response fills a unique student's birthdate without a confirmation action", async () => {
+    const [person] = await database
+      .insert(people)
+      .values({
+        organizationId: actor.organizationId,
+        firstName: "Automatic",
+        lastName: "Birthdate",
+      })
+      .returning();
+    await database.insert(students).values({ personId: person!.id });
+    await submitPublicSurvey({
+      slug: "pre-lesson-test",
+      website: "",
+      answers: {
+        ...answers,
+        childFirstName: "Automatic",
+        childLastName: "Birthdate",
+        childDateOfBirth: "2018-06-07",
+      },
+    });
+    const [saved] = await database
+      .select()
+      .from(people)
+      .where(eq(people.id, person!.id));
+    expect(saved?.dateOfBirth).toBe("2018-06-07");
+    // A conflicting subsequent answer must neither overwrite the profile nor auto-link.
+    await submitPublicSurvey({
+      slug: "pre-lesson-test",
+      website: "",
+      answers: {
+        ...answers,
+        childFirstName: "Automatic",
+        childLastName: "Birthdate",
+        childDateOfBirth: "2019-06-07",
+      },
+    });
+    const [conflict] = await database
+      .select()
+      .from(surveyResponses)
+      .where(
+        and(
+          eq(surveyResponses.childFirstName, "Automatic"),
+          eq(surveyResponses.childDateOfBirth, "2019-06-07"),
+        ),
+      );
+    expect(conflict?.confirmedStudentId).toBeNull();
+    const [preserved] = await database
+      .select()
+      .from(people)
+      .where(eq(people.id, person!.id));
+    expect(preserved?.dateOfBirth).toBe("2018-06-07");
+  });
+
+  test("backfills historical links, skips conflicts and unmatched responses, and preserves recorded dates", async () => {
+    const family = await database
+      .insert(people)
+      .values([
+        {
+          organizationId: actor.organizationId,
+          firstName: "Historical",
+          lastName: "Agreed",
+        },
+        {
+          organizationId: actor.organizationId,
+          firstName: "Historical",
+          lastName: "Conflict",
+        },
+        {
+          organizationId: actor.organizationId,
+          firstName: "Historical",
+          lastName: "Recorded",
+          dateOfBirth: "2017-01-01",
+        },
+        {
+          organizationId: actor.organizationId,
+          firstName: "Historical",
+          lastName: "Unmatched",
+        },
+      ])
+      .returning();
+    await database
+      .insert(students)
+      .values(family.map((person) => ({ personId: person.id })));
+    const response = (index: number, date: string) => ({
+      surveyId,
+      answers,
+      childFirstName: "Historical",
+      childLastName: family[index]!.lastName,
+      childDateOfBirth: date,
+      confirmedStudentId: family[index]!.id,
+      matchStatus: "unique" as const,
+    });
+    await database.insert(surveyResponses).values([
+      response(0, "2018-01-01"),
+      response(0, "2018-01-01"),
+      response(1, "2018-01-01"),
+      response(1, "2019-01-01"),
+      response(2, "2018-01-01"),
+      {
+        ...response(3, "2018-01-01"),
+        confirmedStudentId: null,
+        childFirstName: "Unknown",
+      },
+    ]);
+    const backfill = await readFile(
+      resolve("src/db/migrations/0016_sync-survey-birthdates.sql"),
+      "utf8",
+    );
+    await testSql.unsafe(backfill);
+    const readBirthdate = async (index: number) => {
+      const [person] = await database
+        .select()
+        .from(people)
+        .where(eq(people.id, family[index]!.id));
+      return person?.dateOfBirth;
+    };
+    expect(await readBirthdate(0)).toBe("2018-01-01");
+    expect(await readBirthdate(1)).toBeNull();
+    expect(await readBirthdate(2)).toBe("2017-01-01");
+    expect(await readBirthdate(3)).toBeNull();
+    await testSql.unsafe(backfill); // repeat safely
+    await database
+      .update(people)
+      .set({ dateOfBirth: null })
+      .where(eq(people.id, family[0]!.id));
+    await expect(refreshSurveyMatches(actor)).resolves.toMatchObject({
+      birthdatesFilled: 1,
+      birthdateConflicts: 1,
+    });
+    expect(await readBirthdate(0)).toBe("2018-01-01");
+    expect(await readBirthdate(1)).toBeNull();
+    const [unlinked] = await database
+      .select()
+      .from(surveyResponses)
+      .where(eq(surveyResponses.childFirstName, "Unknown"));
+    await confirmSurveyMatch(actor, {
+      responseId: unlinked!.id,
+      studentId: family[3]!.id,
+      fillMissingBirthDate: false,
+    });
+    expect(await readBirthdate(3)).toBe("2018-01-01");
+    // Even explicit confirmation cannot choose between conflicting linked dates.
+    const [conflict] = await database
+      .select()
+      .from(surveyResponses)
+      .where(eq(surveyResponses.confirmedStudentId, family[1]!.id));
+    await confirmSurveyMatch(actor, {
+      responseId: conflict!.id,
+      studentId: family[1]!.id,
+      fillMissingBirthDate: true,
+    });
+    expect(await readBirthdate(1)).toBeNull();
   });
 
   test("failed dispatch can be retried without clobbering an active or completed worker", async () => {

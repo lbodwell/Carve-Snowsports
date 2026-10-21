@@ -130,17 +130,21 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
   }
   const activeSurvey = survey;
 
-  async function run(
+  async function run<T>(
     key: string,
-    action: () => Promise<unknown>,
-    successMessage: string,
+    action: () => Promise<T>,
+    successMessage: string | ((result: T) => string),
   ) {
     setBusy(key);
     setError(null);
     setMessage(null);
     try {
-      await action();
-      setMessage(successMessage);
+      const result = await action();
+      setMessage(
+        typeof successMessage === "function"
+          ? successMessage(result)
+          : successMessage,
+      );
       await router.invalidate();
     } catch (caught) {
       setError(
@@ -468,7 +472,8 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
                 void run(
                   "matching",
                   () => reconcileParentSurveyMatches(),
-                  "Matching refreshed. Uncertain responses still need your review.",
+                  (result) =>
+                    `Matching refreshed. ${result.birthdatesFilled} missing birthdates filled. Uncertain responses still need your review.${result.birthdateConflicts ? ` ${result.birthdateConflicts} students have conflicting linked survey birthdates; review their linked responses before recording a birthdate.` : ""}`,
                 )
               }
             >

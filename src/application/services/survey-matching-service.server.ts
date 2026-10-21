@@ -23,6 +23,67 @@ import { matchSurveyStudent } from "@/domain/surveys/student-matching";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+// Only confirmed identities and agreeing responses may fill a blank profile.
+// Existing profile values remain authoritative, including concurrent edits.
+export async function fillConfirmedSurveyBirthdates(
+  tx: Transaction,
+  organizationId: string,
+  actorId: string | null,
+  studentId?: string,
+) {
+  const dates = await tx
+    .select({
+      studentId: people.id,
+      earliest: sql<string>`min(${surveyResponses.childDateOfBirth})::text`,
+      latest: sql<string>`max(${surveyResponses.childDateOfBirth})::text`,
+    })
+    .from(surveyResponses)
+    .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
+    .innerJoin(people, eq(people.id, surveyResponses.confirmedStudentId))
+    .innerJoin(students, eq(students.personId, people.id))
+    .where(
+      and(
+        eq(surveys.organizationId, organizationId),
+        eq(people.organizationId, organizationId),
+        isNull(people.archivedAt),
+        isNull(people.dateOfBirth),
+        studentId ? eq(people.id, studentId) : undefined,
+      ),
+    )
+    .groupBy(people.id);
+  const filled: Array<string> = [];
+  let conflicts = 0;
+  for (const date of dates) {
+    if (date.earliest !== date.latest) {
+      conflicts++;
+      continue;
+    }
+    const updated = await tx
+      .update(people)
+      .set({ dateOfBirth: date.earliest, updatedAt: new Date() })
+      .where(
+        and(
+          eq(people.id, date.studentId),
+          eq(people.organizationId, organizationId),
+          isNull(people.dateOfBirth),
+          isNull(people.archivedAt),
+        ),
+      )
+      .returning({ id: people.id });
+    if (updated.length) filled.push(date.studentId);
+  }
+  if (filled.length)
+    await tx.insert(auditEvents).values({
+      organizationId,
+      actorId,
+      entityType: "survey_matching",
+      entityId: organizationId,
+      action: "survey.birthdates_filled",
+      metadata: { studentIds: filled, count: filled.length },
+    });
+  return { birthdatesFilled: filled.length, birthdateConflicts: conflicts };
+}
+
 export async function surveyMatchCandidates(
   tx: Transaction | typeof db,
   organizationId: string,
@@ -115,7 +176,12 @@ export async function reconcileSurveyMatches(tx: Transaction, actor: Actor) {
     action: "survey.matches_reconciled",
     metadata: { matched, reviewed: responses.length },
   });
-  return { matched, needsReview: responses.length - matched };
+  const birthdates = await fillConfirmedSurveyBirthdates(
+    tx,
+    actor.organizationId,
+    actor.userId,
+  );
+  return { matched, needsReview: responses.length - matched, ...birthdates };
 }
 
 export async function refreshSurveyMatches(actor: Actor) {
@@ -177,11 +243,13 @@ export async function confirmSurveyMatch(
         updatedAt: new Date(),
       })
       .where(eq(surveyResponses.id, response.id));
+    await fillConfirmedSurveyBirthdates(
+      tx,
+      actor.organizationId,
+      actor.userId,
+      student.id,
+    );
     if (parsed.fillMissingBirthDate) {
-      await tx
-        .update(people)
-        .set({ dateOfBirth: response.dateOfBirth, updatedAt: new Date() })
-        .where(and(eq(people.id, student.id), isNull(people.dateOfBirth)));
       if (parsed.programId) {
         const [program] = await tx
           .select({ id: programs.id })

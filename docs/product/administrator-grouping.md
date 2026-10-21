@@ -47,12 +47,15 @@ birthdates require review. Checks run when a response arrives and after import
 application. Use **Check matches again** to process existing unmatched responses
 after this matching update or later roster corrections. Confirmed links stay intact.
 
-Aspenware does not supply a birthdate in the supported exports. Automatic name
-matching links the response without copying a birthdate or overwriting roster
-information. For an uncertain response, compare the child and family information,
-choose the student, and select **Confirm student match**.
+Aspenware does not supply a birthdate in the supported exports. A clear automatic
+match links the response and fills the student's missing birthdate in one step.
+No confirmation or sync action is needed. Existing links are backfilled during
+deployment, and **Check matches again** can repeat the backfill safely. Existing
+student birthdates are preserved, and conflicting linked answers stay unresolved.
+For an uncertain response, compare the child and family information, choose the
+student, and select **Confirm student match**; the same automatic fill then runs.
 
-Optionally select **Fill missing birthdate, discipline and ability**, choosing
+Optionally select **Fill missing registration discipline and ability**, choosing
 the program whose registrations should be completed. This preserves populated
 values. A differing registered discipline prevents a survey from filling an
 unrelated discipline's ability level. Medical answers stay in the restricted
@@ -65,8 +68,8 @@ with several signups appear once for each signup in that program. The table
 shows name, lesson day, time, ability level, age, and discipline. Times use AM/PM;
 lesson date ranges and program/status columns are omitted.
 
-Age is calculated from a recorded birthdate or an agreed birthdate on confirmed,
-linked survey responses. It stays blank when no reliable birthdate is available;
+Age is calculated from the student's saved birthdate. It stays blank when no
+reliable birthdate is available;
 Aspenware age estimates are not substituted.
 
 Use the day/time/status filters or expand **More filters** for cohort, discipline,

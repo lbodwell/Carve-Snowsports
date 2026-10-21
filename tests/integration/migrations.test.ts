@@ -98,16 +98,16 @@ describe("database migrations", () => {
       SELECT count(*) FROM drizzle.__drizzle_migrations
     `;
 
-    expect(migrationCount?.count).toBe("16");
+    expect(migrationCount?.count).toBe("17");
   });
 
   test("release checks verify existing history and reapplying is a no-op", async () => {
     await expect(
       runReleaseMigrations({ env: releaseEnv, checkOnly: true }),
-    ).resolves.toMatchObject({ pending: 0, total: 16, checkedOnly: true });
+    ).resolves.toMatchObject({ pending: 0, total: 17, checkedOnly: true });
     await expect(
       runReleaseMigrations({ env: releaseEnv }),
-    ).resolves.toMatchObject({ pending: 0, total: 16 });
+    ).resolves.toMatchObject({ pending: 0, total: 17 });
   });
 
   test("overlapping migration runners cannot enter the database together", async () => {
@@ -177,7 +177,7 @@ describe("database migrations", () => {
       expect(table?.name).toBeNull();
       const [count] =
         await testSql`select count(*)::int as count from drizzle.__drizzle_migrations`;
-      expect(count?.count).toBe(16);
+      expect(count?.count).toBe(17);
     } finally {
       await rm(fixture, { recursive: true, force: true });
     }

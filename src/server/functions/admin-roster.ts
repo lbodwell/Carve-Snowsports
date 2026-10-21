@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
@@ -20,8 +20,6 @@ import {
   studentGuardians,
   students,
   supportRecords,
-  surveyResponses,
-  surveys,
   timeSlots,
 } from "@/db/schema";
 import { registrationScheduleSummary } from "@/domain/imports/registration-schedule-summary";
@@ -205,9 +203,9 @@ async function loadAdminWorkspace(
       ])
     : [[], []];
   const rosterIds = roster.map((student) => student.id);
-  const [supportRows, guardianLinks, surveyBirthdates] =
+  const [supportRows, guardianLinks] =
     rosterIds.length === 0
-      ? [[], [], []]
+      ? [[], []]
       : await Promise.all([
           db
             .select({
@@ -228,21 +226,6 @@ async function loadAdminWorkspace(
             })
             .from(studentGuardians)
             .where(inArray(studentGuardians.studentId, rosterIds)),
-          db
-            .select({
-              studentId: surveyResponses.confirmedStudentId,
-              earliest: sql<string>`min(${surveyResponses.childDateOfBirth})::text`,
-              latest: sql<string>`max(${surveyResponses.childDateOfBirth})::text`,
-            })
-            .from(surveyResponses)
-            .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
-            .where(
-              and(
-                eq(surveys.organizationId, organization.id),
-                inArray(surveyResponses.confirmedStudentId, rosterIds),
-              ),
-            )
-            .groupBy(surveyResponses.confirmedStudentId),
         ]);
   const guardianIds = guardianLinks.map((link) => link.guardianId);
   const [guardianPeople, guardianContacts] =
@@ -275,12 +258,6 @@ async function loadAdminWorkspace(
     );
     return {
       ...student,
-      surveyDateOfBirth: (() => {
-        const dates = surveyBirthdates.find(
-          (row) => row.studentId === student.id,
-        );
-        return dates && dates.earliest === dates.latest ? dates.earliest : null;
-      })(),
       schedule: registrationScheduleSummary(
         sourceSnapshot,
         scheduleSlots.filter((slot) => slot.programId === student.programId),

@@ -119,10 +119,10 @@ describe("registration roster", () => {
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
-  it("shows an age from a confirmed survey birthdate and leaves unknown ages blank", () => {
+  it("shows an age from the student birthdate and leaves unknown ages blank", () => {
     render(
       <StudentRoster
-        students={[{ ...rows[0]!, surveyDateOfBirth: "2017-01-01" }, rows[1]!]}
+        students={[{ ...rows[0]!, dateOfBirth: "2017-01-01" }, rows[1]!]}
       />,
     );
     const bodyRows = within(screen.getByRole("table"))

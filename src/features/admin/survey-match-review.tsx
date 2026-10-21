@@ -113,6 +113,11 @@ export function SurveyMatchReview({
             linking. The roster birthdate will be preserved.
           </p>
         )}
+      <p className="text-muted-foreground text-sm">
+        Linking a response automatically fills a missing student birthdate.
+        Existing birthdates are preserved; conflicting linked answers need
+        review.
+      </p>
       {selected && (
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -120,7 +125,7 @@ export function SurveyMatchReview({
             checked={fillMissing}
             onChange={(event) => setFillMissing(event.target.checked)}
           />
-          Fill missing birthdate, discipline and ability from this survey.
+          Fill missing registration discipline and ability from this survey.
           Existing values are preserved.
         </label>
       )}
@@ -133,7 +138,7 @@ export function SurveyMatchReview({
             value={programId}
             onChange={(event) => setProgramId(event.target.value)}
           >
-            <option value="">Birthdate only</option>
+            <option value="">Choose a program</option>
             {programs.map((program) => (
               <option key={program.id} value={program.id}>
                 {program.seasonName} · {program.name}
@@ -147,6 +152,7 @@ export function SurveyMatchReview({
         disabled={
           busy ||
           !selectedId ||
+          (fillMissing && !programId) ||
           (selectedId === response.confirmedStudentId && !fillMissing)
         }
         onClick={() =>

@@ -27,7 +27,10 @@ import {
 } from "@/domain/surveys/pre-lesson-intake";
 import { matchSurveyStudent } from "@/domain/surveys/student-matching";
 import { env } from "@/server/env.server";
-import { surveyMatchCandidates } from "@/application/services/survey-matching-service.server";
+import {
+  fillConfirmedSurveyBirthdates,
+  surveyMatchCandidates,
+} from "@/application/services/survey-matching-service.server";
 
 export const publicSurveyRequestSchema = z.object({
   slug: z.string().trim().min(1).max(100),
@@ -246,6 +249,13 @@ export async function submitPublicSurvey(
         "Pleasant Mountain could not save this response.",
       );
     }
+    if (match.status === "unique" && match.suggestedStudentId)
+      await fillConfirmedSurveyBirthdates(
+        tx,
+        survey.organizationId,
+        null,
+        match.suggestedStudentId,
+      );
     await tx.insert(auditEvents).values({
       organizationId: survey.organizationId,
       actorId: null,

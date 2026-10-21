@@ -42,7 +42,6 @@ type StudentRow = {
   firstName: string;
   lastName: string;
   dateOfBirth: string | null;
-  surveyDateOfBirth?: string | null;
   registrationId: string | null;
   registrationStatus: string | null;
   disciplineLabel: string | null;
@@ -141,9 +140,7 @@ export function StudentRoster({
           ]
             .join(" ")
             .toLowerCase();
-          const age = ageFromDateOfBirth(
-            student.dateOfBirth ?? student.surveyDateOfBirth ?? null,
-          );
+          const age = ageFromDateOfBirth(student.dateOfBirth);
           const matchesAge =
             ageBand === "all" ||
             (ageBand === "4-6" && age !== null && age >= 4 && age <= 6) ||
@@ -547,11 +544,7 @@ export function StudentRoster({
                             {student.abilityLevelLabel ?? "Not recorded"}
                           </TableCell>
                           <TableCell>
-                            {ageFromDateOfBirth(
-                              student.dateOfBirth ??
-                                student.surveyDateOfBirth ??
-                                null,
-                            ) ?? ""}
+                            {ageFromDateOfBirth(student.dateOfBirth) ?? ""}
                           </TableCell>
                           <TableCell>
                             {student.disciplineLabel ?? "Not recorded"}
@@ -602,11 +595,7 @@ export function StudentRoster({
               </div>
               <div>
                 <dt className="text-muted-foreground">Age</dt>
-                <dd>
-                  {ageFromDateOfBirth(
-                    selected.dateOfBirth ?? selected.surveyDateOfBirth ?? null,
-                  ) ?? ""}
-                </dd>
+                <dd>{ageFromDateOfBirth(selected.dateOfBirth) ?? ""}</dd>
               </div>
             </dl>
             <StudentDetailEditor
