@@ -102,8 +102,10 @@ migrations; checks database health and sign-in rendering; and promotes that exac
 deployment. Project and promotion API requests use explicit project/team IDs,
 avoiding account-wide lookups that project-scoped tokens cannot perform. Promotion
 uses the same Vercel endpoint as `vercel promote` and waits for successful alias
-assignment and the expected Production target. Remote builds retain Vercel's
-Workflow system configuration. Rolling releases require a separate design and are
+assignment and the expected Production target. The confirmation query requests
+`rollbackInfo=true`, which is required for Vercel
+to include `lastAliasRequest` completion metadata in its project response.
+Remote builds retain Vercel's Workflow system configuration. Rolling releases require a separate design and are
 rejected by this pipeline's preflight.
 The stage command uses explicit JSON output; the returned deployment ID and
 canonical URL are independently checked against the API. Human console summaries

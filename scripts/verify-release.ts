@@ -169,7 +169,7 @@ try {
       while (Date.now() < deadline) {
         const project = await vercelApi<
           Parameters<typeof isReleasePromoted>[0]
-        >(`/v9/projects/${target.projectId}`);
+        >(`/v9/projects/${target.projectId}?rollbackInfo=true`);
         if (isReleasePromoted(project, target, deployment.id)) {
           promoted = true;
           break;
