@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { z } from "zod";
 
 import { AdminShell } from "@/features/admin/admin-shell";
 import { NewStudentForm } from "@/features/admin/new-student-form";
@@ -9,10 +10,18 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { getAdminWorkspace } from "@/server/functions/admin-roster";
+import {
+  getAdminWorkspace,
+  getRegistrationWorkspace,
+} from "@/server/functions/admin-roster";
 
 export const Route = createFileRoute("/admin/students/new")({
-  loader: () => getAdminWorkspace(),
+  validateSearch: z.object({ programId: z.uuid().optional() }),
+  loaderDeps: ({ search }) => ({ programId: search.programId }),
+  loader: ({ deps }) =>
+    deps.programId
+      ? getRegistrationWorkspace({ data: deps })
+      : getAdminWorkspace(),
   component: NewStudentPage,
   head: () => ({ meta: [{ title: "New student · Carve" }] }),
 });
@@ -39,7 +48,13 @@ function NewStudentPage() {
               disciplines={workspace.disciplines}
               abilityLevels={workspace.abilityLevels}
               programName={workspace.program?.name ?? null}
-              onCreated={() => navigate({ to: "/admin/students" })}
+              programId={workspace.program?.id}
+              onCreated={() =>
+                navigate({
+                  to: "/admin/students",
+                  search: { programId: workspace.program?.id },
+                })
+              }
             />
           </CardContent>
         </Card>

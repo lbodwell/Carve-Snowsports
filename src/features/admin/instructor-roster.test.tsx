@@ -96,9 +96,11 @@ describe("instructor roster", () => {
     fireEvent.keyDown(screen.getByRole("row", { name: /View instructor/ }), {
       key: "Enter",
     });
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Edit instructor" }),
-    );
+    expect(
+      screen
+        .getByRole("button", { name: "Save instructor" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
     fireEvent.change(screen.getByLabelText("Phone"), {
       target: { value: "555-9999" },
     });

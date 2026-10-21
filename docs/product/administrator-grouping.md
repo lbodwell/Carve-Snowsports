@@ -60,33 +60,37 @@ survey inbox; they are not optimizer input.
 
 ## See who is signed up and when
 
-Open **Students** to see one row per registration across programs and unarchived
-seasons. Students with several signups appear once for each signup. The table
-shows the program, season, lesson day, time, calendar range, registration status,
-discipline, and ability.
+Open **Students** and choose one program before loading registrations. Students
+with several signups appear once for each signup in that program. The table
+shows name, lesson day, time, ability level, age, and discipline. Times use AM/PM;
+lesson date ranges and program/status columns are omitted.
 
-Use the main program/day/time/status filters or expand **More filters** for
-season, cohort, discipline, ability, age, missing information, and sorting.
-Filters apply to all rows before pagination; choose 25, 50, or 100 rows per page.
-The matching registration and distinct-student totals cover every filtered result,
-including rows on other pages. Combine filters to count, for example, Level 3
-students on Sunday in the morning.
-Click anywhere in a row (or focus it and press Enter/Space) for that registration's
-lesson dates, purchased age band, product description, and schedule review status.
-**Edit student profile** opens the profile with all that student's signups.
-**Archive student** is available inside details and requires confirmation; it
-archives all that student's registrations and retains audit history.
+Age is calculated from a recorded birthdate or an agreed birthdate on confirmed,
+linked survey responses. It stays blank when no reliable birthdate is available;
+Aspenware age estimates are not substituted.
 
-Unconfigured calendar ranges show **Dates pending configuration**. Session 1/2
-remain separate cohorts, and their dates and hours are not invented. Imported
-weekend AM/PM/Full Day hours remain visible even before a matching session is
-configured; those registrations are marked as needing session review.
+Use the day/time/status filters or expand **More filters** for cohort, discipline,
+ability, age, missing information, and sorting. Filters apply to all rows before
+pagination; choose 25, 50, or 100 rows per page. The matching registration and
+distinct-student totals cover every filtered result, including other pages.
+Combine filters to count, for example, Level 3 students on Sunday at 10 AM.
 
-**Instructors** uses the same row-to-details dialog and pagination controls.
+Click anywhere in a row (or focus it and press Enter/Space) to edit immediately
+in a modal. **Save changes** enables only when values change. Saving closes the
+modal and returns to the same filtered list. Discipline and level changes apply
+to the selected registration; the student's profile and guardian information are
+shared across their registrations. **Archive student** requires confirmation
+and archives all that student's registrations while retaining audit history.
+
+Session 1/2 remain separate cohorts. Imported weekend AM/PM/Full Day hours stay
+visible before a matching session is configured. Those registrations still need
+session review before grouping.
+
+**Instructors** uses the same immediate editing modal and pagination controls.
 Search or filter by discipline to see the total matching instructors across all
-pages. Open a row to view contact details, disciplines, notes, and audit history;
-choose **Edit instructor** to edit in the dialog or **Archive instructor** to
-archive with confirmation. The row has no separate edit/delete icons.
+pages. Open a row to edit contacts, disciplines, and notes or review audit history.
+Save enables after changes and returns to the list. **Archive instructor** is
+available inside the modal and requires confirmation.
 
 ## Build groups
 

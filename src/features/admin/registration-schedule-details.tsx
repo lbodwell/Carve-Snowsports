@@ -10,12 +10,6 @@ export function RegistrationScheduleDetails({
     ["Lesson day", schedule.weekday ?? "Not recorded"],
     ["Time", registrationTimeLabel(schedule)],
     ["Seasonal cohort", schedule.cohort],
-    [
-      "Lesson date range",
-      schedule.startsOn && schedule.endsOn
-        ? `${schedule.startsOn} to ${schedule.endsOn}`
-        : "Dates pending configuration",
-    ],
     ["Purchased age band", schedule.ageBand ?? "Not recorded"],
     ["Schedule status", schedule.status],
   ];
@@ -29,11 +23,6 @@ export function RegistrationScheduleDetails({
           </div>
         ))}
       </dl>
-      {schedule.excludedDates.length > 0 && (
-        <p className="text-sm">
-          No lessons: {schedule.excludedDates.join(", ")}
-        </p>
-      )}
       {schedule.product && (
         <p className="text-muted-foreground text-xs">
           Purchased product: {schedule.product}

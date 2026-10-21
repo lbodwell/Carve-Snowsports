@@ -72,6 +72,18 @@ const emptyForm = {
   snowboard: false,
 };
 
+function instructorForm(instructor: InstructorRow) {
+  return {
+    firstName: instructor.firstName,
+    lastName: instructor.lastName,
+    phone: instructor.phone,
+    email: instructor.email,
+    notes: instructor.notes,
+    ski: instructor.disciplines.some((item) => item.key === "ski"),
+    snowboard: instructor.disciplines.some((item) => item.key === "snowboard"),
+  };
+}
+
 export function InstructorRoster({
   instructors,
 }: {
@@ -91,6 +103,11 @@ export function InstructorRoster({
   const selectedInstructor = instructors.find(
     (instructor) => instructor.id === editingId,
   );
+  const isDirty =
+    JSON.stringify(form) !==
+    JSON.stringify(
+      selectedInstructor ? instructorForm(selectedInstructor) : emptyForm,
+    );
   const [error, setError] = useState<string | null>(null);
   const [instructorToArchive, setInstructorToArchive] =
     useState<InstructorRow | null>(null);
@@ -173,11 +190,12 @@ export function InstructorRoster({
       ),
     });
     setError(null);
-    setShowForm(false);
+    setShowForm(true);
   }
 
   async function handleSave(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!isDirty || saving) return;
     setSaving(true);
     setError(null);
     try {
@@ -196,6 +214,7 @@ export function InstructorRoster({
         },
       });
       setShowForm(false);
+      setEditingId(null);
       await router.invalidate();
     } catch (caught) {
       setError(
@@ -470,65 +489,33 @@ export function InstructorRoster({
                 {error}
               </p>
             ) : null}
-            <div className="flex gap-2 sm:col-span-2">
-              <Button disabled={saving} type="submit">
+            <div className="flex flex-wrap gap-2 sm:col-span-2">
+              <Button disabled={saving || !isDirty} type="submit">
                 {saving ? "Saving…" : "Save instructor"}
               </Button>
               <Button
                 type="button"
                 variant="outline"
                 disabled={saving}
-                onClick={() => setShowForm(false)}
+                onClick={() => {
+                  setShowForm(false);
+                  setEditingId(null);
+                }}
               >
                 Cancel
               </Button>
+              {selectedInstructor && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={saving || archiving}
+                  onClick={() => setInstructorToArchive(selectedInstructor)}
+                >
+                  Archive instructor
+                </Button>
+              )}
             </div>
           </form>
-        ) : selectedInstructor ? (
-          <>
-            <dl className="grid gap-4 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-muted-foreground">Phone</dt>
-                <dd>{selectedInstructor.phone || "Not recorded"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Email</dt>
-                <dd>{selectedInstructor.email || "Not recorded"}</dd>
-              </div>
-              <div className="sm:col-span-2">
-                <dt className="text-muted-foreground">Disciplines</dt>
-                <dd>
-                  {selectedInstructor.disciplines
-                    .map((item) => item.label)
-                    .join(", ") || "Not recorded"}
-                </dd>
-              </div>
-              <div className="sm:col-span-2">
-                <dt className="text-muted-foreground">Notes</dt>
-                <dd className="whitespace-pre-wrap">
-                  {selectedInstructor.notes || "Not recorded"}
-                </dd>
-              </div>
-            </dl>
-            {error && (
-              <p role="alert" className="text-destructive text-sm">
-                {error}
-              </p>
-            )}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Button variant="outline" onClick={() => setShowForm(true)}>
-                Edit instructor
-              </Button>
-              <Button
-                variant="destructive"
-                disabled={archiving}
-                onClick={() => setInstructorToArchive(selectedInstructor)}
-              >
-                Archive instructor
-              </Button>
-              <Button onClick={() => setEditingId(null)}>Close details</Button>
-            </div>
-          </>
         ) : null}
         {editingId &&
           (auditHistoryLoading ? (

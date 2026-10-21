@@ -21,12 +21,14 @@ import {
   updateStudent,
 } from "@/application/services/student-roster-service.server";
 import {
+  abilityLevels,
   auditEvents,
   disciplines,
   organizationMemberships,
   organizations,
   people,
   programs,
+  registrations,
   seasons,
   students,
   users,
@@ -258,6 +260,79 @@ describe("people write transactions", () => {
       .from(people)
       .where(eq(people.id, created.studentId));
     expect(saved?.dateOfBirth).toBeNull();
+  });
+
+  test("changes level for only the registration being edited", async () => {
+    const [program] = await db.select().from(programs);
+    const [low, high] = await db
+      .insert(abilityLevels)
+      .values([
+        {
+          programId: program!.id,
+          key: "scope-low",
+          label: "Level 1",
+          numericRank: 1,
+        },
+        {
+          programId: program!.id,
+          key: "scope-high",
+          label: "Level 3",
+          numericRank: 3,
+        },
+      ])
+      .returning();
+    const profile = {
+      firstName: "Scoped",
+      lastName: "Student",
+      dateOfBirth: "2015-01-01",
+      guardianName: "",
+      guardianPhone: "",
+      guardianEmail: "",
+      medicalInfo: "",
+      notes: "",
+    };
+    const created = await createStudentRegistration(adminActor, {
+      ...profile,
+      programId: program!.id,
+      abilityLevelId: low!.id,
+    });
+    const [other] = await db
+      .insert(registrations)
+      .values({
+        programId: program!.id,
+        studentId: created.studentId,
+        abilityLevelId: low!.id,
+      })
+      .returning();
+    await updateStudent(adminActor, {
+      ...profile,
+      studentId: created.studentId,
+      registrationId: created.registrationId,
+      abilityLevelId: high!.id,
+    });
+    const [changed] = await db
+      .select()
+      .from(registrations)
+      .where(eq(registrations.id, created.registrationId));
+    const [untouched] = await db
+      .select()
+      .from(registrations)
+      .where(eq(registrations.id, other!.id));
+    expect(changed?.abilityLevelId).toBe(high!.id);
+    expect(untouched?.abilityLevelId).toBe(low!.id);
+    await expect(
+      updateStudent(adminActor, {
+        ...profile,
+        studentId: created.studentId,
+        registrationId: randomUUID(),
+        firstName: "Wrong target",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(
+      (
+        await db.select().from(people).where(eq(people.id, created.studentId))
+      )[0]?.firstName,
+    ).toBe("Scoped");
   });
 
   test("archives a student and records audit history", async () => {

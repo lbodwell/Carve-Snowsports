@@ -75,10 +75,17 @@ export type RegistrationScheduleSummary = ReturnType<
 >;
 
 export function registrationTimeLabel(schedule: RegistrationScheduleSummary) {
-  if (schedule.hours)
+  const hours = schedule.hours?.replace(
+    /\b(\d{1,2}):(\d{2})\b/g,
+    (_match, hourText: string, minute: string) => {
+      const hour = Number(hourText);
+      return `${hour % 12 || 12}${minute === "00" ? "" : `:${minute}`} ${hour < 12 ? "AM" : "PM"}`;
+    },
+  );
+  if (hours)
     return /full day/i.test(schedule.session ?? "")
-      ? `Full Day · ${schedule.hours}`
-      : schedule.hours;
+      ? `Full Day · ${hours}`
+      : hours;
   return /^session\s*[12]$/i.test(schedule.session ?? "")
     ? "Time pending"
     : (schedule.session ?? "Time not recorded");

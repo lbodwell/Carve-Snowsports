@@ -2,16 +2,19 @@
 import {
   cleanup,
   fireEvent,
-  render,
+  render as renderUnselected,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { StudentRoster } from "./student-roster";
 import type { ComponentProps, ReactNode } from "react";
 import { registrationScheduleSummary } from "@/domain/imports/registration-schedule-summary";
-import { archiveStudent } from "@/server/functions/student-roster";
+import {
+  archiveStudent,
+  updateStudent,
+} from "@/server/functions/student-roster";
 
 vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ invalidate: vi.fn() }),
@@ -21,9 +24,30 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 vi.mock("@/server/functions/student-roster", () => ({
   registerStudent: vi.fn(),
+  updateStudent: vi.fn().mockResolvedValue({}),
   archiveStudent: vi.fn().mockResolvedValue({}),
 }));
-afterEach(cleanup);
+vi.stubGlobal(
+  "ResizeObserver",
+  class {
+    observe = vi.fn();
+    unobserve = vi.fn();
+    disconnect = vi.fn();
+  },
+);
+afterAll(() => vi.unstubAllGlobals());
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+function render(node: ReactNode) {
+  const result = renderUnselected(node);
+  fireEvent.change(screen.getByLabelText("Program"), {
+    target: { value: "program" },
+  });
+  return result;
+}
+
 const rows: ComponentProps<typeof StudentRoster>["students"] = Array.from(
   { length: 60 },
   (_, i) => ({
@@ -31,6 +55,8 @@ const rows: ComponentProps<typeof StudentRoster>["students"] = Array.from(
     firstName: `Student ${String(i).padStart(2, "0")}`,
     lastName: "Fixture",
     dateOfBirth: null,
+    disciplineId: null,
+    abilityLevelId: null,
     registrationId: `registration-${i}`,
     registrationStatus: "active",
     disciplineLabel: "Ski",
@@ -56,6 +82,63 @@ const rows: ComponentProps<typeof StudentRoster>["students"] = Array.from(
   }),
 );
 describe("registration roster", () => {
+  it("shows no results until one program is explicitly selected", () => {
+    renderUnselected(<StudentRoster students={rows} />);
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Program"), {
+      target: { value: "program" },
+    });
+    expect(screen.getByRole("table")).toBeDefined();
+  });
+  it("opens directly for editing, enables Save only for changes, and closes after saving", async () => {
+    render(<StudentRoster students={[rows[0]!]} />);
+    fireEvent.click(screen.getByRole("row", { name: /Edit registration/ }));
+    const save = screen.getByRole("button", { name: "Save changes" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByLabelText("First name"), {
+      target: { value: "Changed" },
+    });
+    expect(save.hasAttribute("disabled")).toBe(false);
+    fireEvent.change(screen.getByLabelText("First name"), {
+      target: { value: rows[0]!.firstName },
+    });
+    expect(save.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByLabelText("First name"), {
+      target: { value: "Changed" },
+    });
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(updateStudent).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          studentId: "student-0",
+          registrationId: "registration-0",
+          firstName: "Changed",
+        }),
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+  it("shows an age from a confirmed survey birthdate and leaves unknown ages blank", () => {
+    render(
+      <StudentRoster
+        students={[{ ...rows[0]!, surveyDateOfBirth: "2017-01-01" }, rows[1]!]}
+      />,
+    );
+    const bodyRows = within(screen.getByRole("table"))
+      .getAllByRole("row")
+      .slice(1);
+    expect(within(bodyRows[0]!).getAllByRole("cell")[4]!.textContent).toBe(
+      String(new Date().getFullYear() - 2017),
+    );
+    expect(within(bodyRows[1]!).getAllByRole("cell")[4]!.textContent).toBe("");
+    expect(
+      screen.queryByRole("columnheader", { name: "Lesson dates" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("columnheader", { name: "Program / season" }),
+    ).toBeNull();
+  });
   it("counts the combined ability, Sunday and morning filters across all pages", async () => {
     Element.prototype.scrollIntoView = vi.fn();
     render(
@@ -78,7 +161,7 @@ describe("registration roster", () => {
     for (const [label, value] of [
       ["Level", "Level 3"],
       ["Lesson day", "Sunday"],
-      ["Time", "10:00–12:00"],
+      ["Time", "10 AM–12 PM"],
     ]) {
       fireEvent.keyDown(screen.getByRole("combobox", { name: label }), {
         key: " ",
@@ -91,7 +174,7 @@ describe("registration roster", () => {
   });
   it("archives through details only after confirmation", async () => {
     render(<StudentRoster students={[rows[0]!]} />);
-    fireEvent.click(screen.getByText("Weekend lessons"));
+    fireEvent.click(screen.getByRole("row", { name: /Edit registration/ }));
     fireEvent.click(screen.getByRole("button", { name: "Archive student" }));
     expect(archiveStudent).not.toHaveBeenCalled();
     fireEvent.click(
@@ -167,13 +250,13 @@ describe("registration roster", () => {
       />,
     );
     fireEvent.click(
-      screen.getByRole("row", { name: /View registration.*Sunday/ }),
+      screen.getByRole("row", { name: /Edit registration.*Sunday/ }),
     );
     expect(
       within(screen.getByRole("dialog")).getByText("Sunday", { exact: true }),
     ).toBeDefined();
     expect(
-      within(screen.getByRole("dialog")).getByText("Full Day · 10:00–15:00", {
+      within(screen.getByRole("dialog")).getByText("Full Day · 10 AM–3 PM", {
         exact: true,
       }),
     ).toBeDefined();

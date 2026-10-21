@@ -27,6 +27,7 @@ type NewStudentFormProps = {
   abilityLevels: Array<{ id: string; label: string }>;
   disciplines: Array<{ id: string; label: string }>;
   programName: string | null;
+  programId?: string;
   onCreated: () => void;
 };
 
@@ -35,6 +36,7 @@ export function NewStudentForm({
   disciplines,
   onCreated,
   programName,
+  programId,
 }: NewStudentFormProps) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -59,6 +61,7 @@ export function NewStudentForm({
     try {
       await createStudent({
         data: {
+          programId,
           firstName,
           lastName,
           dateOfBirth,

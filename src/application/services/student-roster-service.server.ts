@@ -37,6 +37,7 @@ const studentProfileFields = {
 } as const;
 
 export const createStudentRegistrationSchema = z.object({
+  programId: z.uuid().optional(),
   firstName: z.string().trim().min(1, "First name is required.").max(100),
   lastName: z.string().trim().min(1, "Last name is required.").max(100),
   dateOfBirth: z.iso.date("Enter a valid date of birth."),
@@ -55,6 +56,7 @@ export type RegisterStudentInput = z.infer<typeof registerStudentSchema>;
 
 export const updateStudentSchema = z.object({
   studentId: z.uuid("Invalid student."),
+  registrationId: z.uuid("Invalid registration.").optional(),
   firstName: z.string().trim().min(1, "First name is required.").max(100),
   lastName: z.string().trim().min(1, "Last name is required.").max(100),
   dateOfBirth: z.union([
@@ -76,6 +78,7 @@ async function assertPlacementConfiguration(
   actor: Actor,
   disciplineId?: string | null,
   abilityLevelId?: string | null,
+  programId?: string,
 ) {
   if (disciplineId) {
     const [discipline] = await db
@@ -87,6 +90,7 @@ async function assertPlacementConfiguration(
         and(
           eq(disciplines.id, disciplineId),
           eq(seasons.organizationId, actor.organizationId),
+          programId ? eq(programs.id, programId) : undefined,
         ),
       );
     if (!discipline) {
@@ -106,6 +110,7 @@ async function assertPlacementConfiguration(
         and(
           eq(abilityLevels.id, abilityLevelId),
           eq(seasons.organizationId, actor.organizationId),
+          programId ? eq(programs.id, programId) : undefined,
         ),
       );
     if (!level) {
@@ -127,6 +132,7 @@ export async function createStudentRegistration(
     actor,
     parsed.disciplineId,
     parsed.abilityLevelId,
+    parsed.programId,
   );
 
   return db.transaction(async (tx) => {
@@ -139,28 +145,17 @@ export async function createStudentRegistration(
       throw new ApplicationError("NOT_FOUND", "Organization not found.");
     }
 
-    const [season] = await tx
-      .select({ id: seasons.id })
-      .from(seasons)
+    const [program] = await tx
+      .select({ id: programs.id, name: programs.name })
+      .from(programs)
+      .innerJoin(seasons, eq(seasons.id, programs.seasonId))
       .where(
         and(
           eq(seasons.organizationId, organization.id),
           isNull(seasons.archivedAt),
+          parsed.programId ? eq(programs.id, parsed.programId) : undefined,
         ),
       );
-
-    if (!season) {
-      throw new ApplicationError(
-        "INVALID_STATE",
-        "This organization needs an active season before adding students.",
-      );
-    }
-
-    const [program] = await tx
-      .select({ id: programs.id, name: programs.name })
-      .from(programs)
-      .where(eq(programs.seasonId, season.id));
-
     if (!program) {
       throw new ApplicationError(
         "INVALID_STATE",
@@ -403,6 +398,50 @@ export async function updateStudent(actor: Actor, input: UpdateStudentInput) {
       throw new ApplicationError("NOT_FOUND", "Student not found.");
     }
 
+    const [targetRegistration] = parsed.registrationId
+      ? await tx
+          .select({ id: registrations.id, programId: registrations.programId })
+          .from(registrations)
+          .innerJoin(programs, eq(programs.id, registrations.programId))
+          .innerJoin(seasons, eq(seasons.id, programs.seasonId))
+          .where(
+            and(
+              eq(registrations.id, parsed.registrationId),
+              eq(registrations.studentId, student.id),
+              eq(seasons.organizationId, actor.organizationId),
+              isNull(seasons.archivedAt),
+              isNull(registrations.archivedAt),
+            ),
+          )
+      : [];
+    if (parsed.registrationId && !targetRegistration)
+      throw new ApplicationError("NOT_FOUND", "Registration not found.");
+    if (targetRegistration) {
+      const [discipline] = parsed.disciplineId
+        ? await tx
+            .select({ programId: disciplines.programId })
+            .from(disciplines)
+            .where(eq(disciplines.id, parsed.disciplineId))
+        : [];
+      const [level] = parsed.abilityLevelId
+        ? await tx
+            .select({ programId: abilityLevels.programId })
+            .from(abilityLevels)
+            .where(eq(abilityLevels.id, parsed.abilityLevelId))
+        : [];
+      if (
+        (discipline && discipline.programId !== targetRegistration.programId) ||
+        (level && level.programId !== targetRegistration.programId)
+      )
+        throw new ApplicationError(
+          "VALIDATION",
+          "Choose discipline and level from this registration's program.",
+        );
+    } else if (parsed.disciplineId || parsed.abilityLevelId)
+      throw new ApplicationError(
+        "VALIDATION",
+        "Select a registration before changing discipline or level.",
+      );
     const [updatedStudent] = await tx
       .update(people)
       .set({
@@ -423,19 +462,21 @@ export async function updateStudent(actor: Actor, input: UpdateStudentInput) {
       .update(students)
       .set({ notes: parsed.notes, updatedAt: new Date() })
       .where(eq(students.personId, student.id));
-    await tx
-      .update(registrations)
-      .set({
-        disciplineId: parsed.disciplineId,
-        abilityLevelId: parsed.abilityLevelId,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(registrations.studentId, student.id),
-          isNull(registrations.archivedAt),
-        ),
-      );
+    if (targetRegistration)
+      await tx
+        .update(registrations)
+        .set({
+          disciplineId: parsed.disciplineId,
+          abilityLevelId: parsed.abilityLevelId,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(registrations.studentId, student.id),
+            eq(registrations.id, targetRegistration.id),
+            isNull(registrations.archivedAt),
+          ),
+        );
 
     const previousGuardians = await tx
       .select({ id: studentGuardians.guardianId })

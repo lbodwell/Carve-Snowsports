@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
@@ -20,12 +20,17 @@ import {
   studentGuardians,
   students,
   supportRecords,
+  surveyResponses,
+  surveys,
   timeSlots,
 } from "@/db/schema";
 import { registrationScheduleSummary } from "@/domain/imports/registration-schedule-summary";
 import { resolveActor } from "@/server/auth/resolve-actor.server";
 
-async function loadAdminWorkspace(allPrograms: boolean) {
+async function loadAdminWorkspace(
+  registrationView: boolean,
+  selectedProgramId?: string,
+) {
   const actor = await resolveActor();
   requirePermission(actor, "people:manage");
   const [organization] = await db
@@ -45,9 +50,35 @@ async function loadAdminWorkspace(allPrograms: boolean) {
       students: [],
       disciplines: [],
       abilityLevels: [],
+      programOptions: [],
     };
   }
 
+  const programOptions = await db
+    .select({ id: programs.id, name: programs.name, seasonName: seasons.name })
+    .from(programs)
+    .innerJoin(seasons, eq(seasons.id, programs.seasonId))
+    .where(
+      and(
+        eq(seasons.organizationId, organization.id),
+        isNull(seasons.archivedAt),
+      ),
+    )
+    .orderBy(asc(seasons.startsOn), asc(programs.name));
+  if (
+    registrationView &&
+    (!selectedProgramId ||
+      !programOptions.some((option) => option.id === selectedProgramId))
+  )
+    return {
+      organization,
+      season: null,
+      program: null,
+      students: [],
+      disciplines: [],
+      abilityLevels: [],
+      programOptions,
+    };
   const [season] = await db
     .select({
       id: seasons.id,
@@ -61,6 +92,15 @@ async function loadAdminWorkspace(allPrograms: boolean) {
       and(
         eq(seasons.organizationId, organization.id),
         isNull(seasons.archivedAt),
+        selectedProgramId
+          ? inArray(
+              seasons.id,
+              db
+                .select({ id: programs.seasonId })
+                .from(programs)
+                .where(eq(programs.id, selectedProgramId)),
+            )
+          : undefined,
       ),
     )
     .orderBy(asc(seasons.startsOn));
@@ -73,7 +113,12 @@ async function loadAdminWorkspace(allPrograms: boolean) {
           status: programs.status,
         })
         .from(programs)
-        .where(eq(programs.seasonId, season.id))
+        .where(
+          and(
+            eq(programs.seasonId, season.id),
+            selectedProgramId ? eq(programs.id, selectedProgramId) : undefined,
+          ),
+        )
         .orderBy(asc(programs.name))
     : [];
 
@@ -122,11 +167,9 @@ async function loadAdminWorkspace(allPrograms: boolean) {
       registrations,
       and(
         eq(registrations.studentId, students.personId),
-        allPrograms
-          ? inArray(registrations.programId, organizationPrograms)
-          : program
-            ? eq(registrations.programId, program.id)
-            : inArray(registrations.programId, organizationPrograms),
+        program
+          ? eq(registrations.programId, program.id)
+          : inArray(registrations.programId, organizationPrograms),
         isNull(registrations.archivedAt),
       ),
     )
@@ -138,6 +181,7 @@ async function loadAdminWorkspace(allPrograms: boolean) {
       and(
         eq(people.organizationId, organization.id),
         isNull(people.archivedAt),
+        registrationView ? isNotNull(registrations.id) : undefined,
       ),
     )
     .orderBy(asc(people.lastName), asc(people.firstName));
@@ -161,9 +205,9 @@ async function loadAdminWorkspace(allPrograms: boolean) {
       ])
     : [[], []];
   const rosterIds = roster.map((student) => student.id);
-  const [supportRows, guardianLinks] =
+  const [supportRows, guardianLinks, surveyBirthdates] =
     rosterIds.length === 0
-      ? [[], []]
+      ? [[], [], []]
       : await Promise.all([
           db
             .select({
@@ -184,6 +228,21 @@ async function loadAdminWorkspace(allPrograms: boolean) {
             })
             .from(studentGuardians)
             .where(inArray(studentGuardians.studentId, rosterIds)),
+          db
+            .select({
+              studentId: surveyResponses.confirmedStudentId,
+              earliest: sql<string>`min(${surveyResponses.childDateOfBirth})::text`,
+              latest: sql<string>`max(${surveyResponses.childDateOfBirth})::text`,
+            })
+            .from(surveyResponses)
+            .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
+            .where(
+              and(
+                eq(surveys.organizationId, organization.id),
+                inArray(surveyResponses.confirmedStudentId, rosterIds),
+              ),
+            )
+            .groupBy(surveyResponses.confirmedStudentId),
         ]);
   const guardianIds = guardianLinks.map((link) => link.guardianId);
   const [guardianPeople, guardianContacts] =
@@ -216,6 +275,12 @@ async function loadAdminWorkspace(allPrograms: boolean) {
     );
     return {
       ...student,
+      surveyDateOfBirth: (() => {
+        const dates = surveyBirthdates.find(
+          (row) => row.studentId === student.id,
+        );
+        return dates && dates.earliest === dates.latest ? dates.earliest : null;
+      })(),
       schedule: registrationScheduleSummary(
         sourceSnapshot,
         scheduleSlots.filter((slot) => slot.programId === student.programId),
@@ -254,6 +319,7 @@ async function loadAdminWorkspace(allPrograms: boolean) {
     ),
     disciplines: configuredDisciplines,
     abilityLevels: configuredLevels,
+    programOptions,
   };
 }
 
@@ -262,7 +328,9 @@ export const getAdminWorkspace = createServerFn({ method: "GET" }).handler(() =>
 );
 export const getRegistrationWorkspace = createServerFn({
   method: "GET",
-}).handler(() => loadAdminWorkspace(true));
+})
+  .validator(z.object({ programId: z.uuid().optional() }).optional())
+  .handler(({ data }) => loadAdminWorkspace(true, data?.programId));
 
 export const getStudent = createServerFn({ method: "GET" })
   .validator(z.object({ studentId: z.uuid() }))
