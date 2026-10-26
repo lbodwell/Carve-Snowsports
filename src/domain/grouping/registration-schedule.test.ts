@@ -10,6 +10,40 @@ const slots = [
 ];
 
 describe("imported registration sessions", () => {
+  it("resolves Thursday and Friday cohorts at 9am without merging their identities", () => {
+    const weekdaySlots = [1, 2].map((n) => ({
+      id: `session-${n}`,
+      label: `9:00 AM - Session ${n}`,
+      cohort: `session-${n}`,
+      startsAt: "09:00",
+      endsAt: "12:00",
+      allowedWeekdays: [4, 5],
+    }));
+    for (const [weekday, day] of [
+      ["Thursday", 4],
+      ["Friday", 5],
+    ] as const) {
+      for (const n of [1, 2])
+        expect(
+          resolveRegistrationSchedule(
+            { weekday, session: `Session ${n}` },
+            weekdaySlots,
+          ),
+        ).toEqual({ weekday: day, timeSlotId: `session-${n}` });
+    }
+    expect(
+      resolveRegistrationSchedule(
+        { weekday: "Thursday", session: "Session 2" },
+        weekdaySlots.slice(0, 1),
+      ),
+    ).toBeNull();
+    expect(
+      resolveRegistrationSchedule(
+        { weekday: "Thursday", session: "Session 1" },
+        [...weekdaySlots, { ...weekdaySlots[0]!, id: "duplicate" }],
+      ),
+    ).toBeNull();
+  });
   it("flags the same child's overlapping enrollments while allowing separate sessions", () => {
     const times = [
       { id: "morning", startsAt: "09:00", endsAt: "12:00" },

@@ -16,8 +16,10 @@ for (const key of [
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  reporter: process.env.CI ? "line" : "list",
   use: {
     baseURL,
+    actionTimeout: 15_000,
     trace: "retain-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],

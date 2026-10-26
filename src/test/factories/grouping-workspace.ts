@@ -23,7 +23,7 @@ export function createGroupingWorkspaceFixture(): Workspace {
         dateOfBirth: "2017-01-08",
         disciplineId: "ski",
         abilityLevelId: "level3",
-        schedule: null,
+        schedule: { weekday: 6, timeSlotId: "morning" },
         needsSchedule: false,
         survey: null,
       },

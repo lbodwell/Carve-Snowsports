@@ -89,6 +89,18 @@ test("serves health and the authenticated staff workspace", async ({
     .getByRole("group", { name: "Saturday availability" })
     .getByRole("button", { name: "Full day", exact: true })
     .click();
+  const saturdayAvailability = page.getByRole("group", {
+    name: "Saturday availability",
+  });
+  for (const name of ["AM", "PM", "Full day"]) {
+    const button = saturdayAvailability.getByRole("button", {
+      name,
+      exact: true,
+    });
+    if ((await button.getAttribute("aria-pressed")) !== "true")
+      await button.click();
+    await expect(button).toHaveAttribute("aria-pressed", "true");
+  }
   await expect(
     page
       .getByRole("dialog")
@@ -102,6 +114,12 @@ test("serves health and the authenticated staff workspace", async ({
       path: ".tmp/instructor-details.png",
       fullPage: true,
     });
+  if (process.env.CARVE_UI_PROOF === "1") {
+    await page
+      .getByRole("heading", { name: "Weekly availability", exact: true })
+      .locator("../..")
+      .screenshot({ path: ".tmp/weekly-availability.png" });
+  }
   await page
     .getByRole("button", { name: "Save instructor", exact: true })
     .click();
@@ -359,11 +377,41 @@ test("imports a new student, syncs their survey, and finalizes unstaffed placeme
     name: "Return for changes",
   });
   if (await returnForChanges.isVisible()) await returnForChanges.click();
-  await page.getByRole("button", { name: /Ellis Reviewfixture/ }).click();
-  await page.getByRole("button", { name: "Confirm this session" }).click();
-  await expect(page.getByRole("status")).toContainText(
-    "Lesson session confirmed.",
-  );
+  // Unmapped registrations stay out of the session pool until a matching lesson slot exists.
+  await expect(
+    page.locator("aside").getByRole("button", { name: /Ellis Reviewfixture/ }),
+  ).toHaveCount(0);
+  await page.goto("/admin/seasons");
+  await page.getByRole("link", { name: "Configure" }).first().click();
+  const slots = page.locator('[data-slot="card"]').filter({
+    has: page.getByRole("heading", { name: "Time slots", exact: true }),
+  });
+  await slots.getByRole("button", { name: "Add", exact: true }).click();
+  await slots.getByLabel("Label", { exact: true }).fill("Imported AM");
+  await slots
+    .getByRole("button", { name: "AM · 10:00–12:00", exact: true })
+    .click();
+  await slots.getByLabel("Saturday", { exact: true }).check();
+  await slots
+    .getByRole("button", { name: "Add time slot", exact: true })
+    .click();
+  await expect(slots.getByText("Imported AM", { exact: true })).toBeVisible();
+  await page.goto("/admin/surveys");
+  await page
+    .getByRole("button", { name: "Re-link and sync", exact: true })
+    .click();
+  await expect(page.getByText(/Matching refreshed\./)).toBeVisible();
+  await page.goto("/grouping");
+  await page.getByLabel("Time", { exact: true }).click();
+  await page
+    .getByRole("option", {
+      name: "Imported AM (10:00 AM–12:00 PM)",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.locator("aside").getByRole("button", { name: /Ellis Reviewfixture/ }),
+  ).toBeVisible();
   await page
     .getByRole("button", { name: "Suggest remaining placements" })
     .click();
@@ -373,14 +421,9 @@ test("imports a new student, syncs their survey, and finalizes unstaffed placeme
   const unplacedEllis = page
     .locator("aside")
     .getByRole("button", { name: /Ellis Reviewfixture/ });
-  if (await unplacedEllis.isVisible()) {
-    if ((await unplacedEllis.getAttribute("aria-pressed")) !== "true")
-      await unplacedEllis.click();
-    await page
-      .getByRole("button", { name: "Place student here", exact: true })
-      .first()
-      .click();
-  }
+  // Wait for the refreshed placement projection. A snapshot visibility check
+  // can see the old pool card just before automatic placement removes it.
+  await expect(unplacedEllis).toHaveCount(0);
   await expect(
     page
       .getByRole("region", { name: "Lesson groups" })
@@ -463,31 +506,29 @@ test("administrators can prepare separate seasonal cohorts with dates pending", 
   for (const number of [1, 2]) {
     await section.getByRole("button", { name: "Add", exact: true }).click();
     await section
-      .getByLabel("Label", { exact: true })
-      .fill(`Seasonal fixture ${number}`);
-    await section
-      .getByLabel("Seasonal cohort", { exact: true })
-      .selectOption(`session-${number}`);
-    await section
-      .getByRole("button", { name: "AM · 10:00–12:00", exact: true })
+      .getByRole("button", {
+        name: "Thu/Fri · 9:00 AM - Session " + number,
+        exact: true,
+      })
       .click();
-    await section.getByLabel("Saturday", { exact: true }).check();
     await section
       .getByRole("button", { name: "Add time slot", exact: true })
       .click();
     await expect(
-      section.getByText(`Seasonal fixture ${number}`, { exact: true }),
+      section.getByText(`9:00 AM - Session ${number}`, { exact: true }),
     ).toBeVisible();
   }
   await expect(section.getByText("Dates pending", { exact: true })).toHaveCount(
     2,
   );
   await page.goto("/grouping");
+  await page.getByLabel("Day", { exact: true }).click();
+  await page.getByRole("option", { name: "Thursday", exact: true }).click();
   const session = page.getByLabel("Time", { exact: true });
   await session.click();
   await page
     .getByRole("option", {
-      name: "Session 1 · Seasonal fixture 1 (10:00 AM–12:00 PM)",
+      name: "9:00 AM - Session 1",
       exact: true,
     })
     .click();
@@ -499,7 +540,7 @@ test("administrators can prepare separate seasonal cohorts with dates pending", 
   await session.click();
   await page
     .getByRole("option", {
-      name: "Session 2 · Seasonal fixture 2 (10:00 AM–12:00 PM)",
+      name: "9:00 AM - Session 2",
       exact: true,
     })
     .click();
@@ -508,4 +549,12 @@ test("administrators can prepare separate seasonal cohorts with dates pending", 
       exact: true,
     }),
   ).toBeVisible();
+  if (process.env.CARVE_UI_PROOF === "1") {
+    await session.click();
+    await page.screenshot({
+      path: ".tmp/weekday-sessions.png",
+      fullPage: true,
+    });
+    await page.keyboard.press("Escape");
+  }
 });

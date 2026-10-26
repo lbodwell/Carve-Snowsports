@@ -22,6 +22,19 @@ const session = {
   endsAt: "12:00",
 };
 describe("weekly instructor preferences", () => {
+  it("requires each lesson type explicitly, even when Full is selected", () => {
+    const full = { ...preference, teachingSlot: "full" as const };
+    expect(instructorAvailability([full], session).eligible).toBe(false);
+    expect(instructorAvailability([full, preference], session).eligible).toBe(
+      true,
+    );
+    expect(
+      instructorAvailability(
+        [preference, { ...preference, teachingSlot: "pm" }],
+        { ...session, endsAt: "16:00" },
+      ).eligible,
+    ).toBe(false);
+  });
   it("applies across programs and cohorts while respecting the selected period", () => {
     expect(instructorAvailability([preference], session).eligible).toBe(true);
     expect(
@@ -78,7 +91,8 @@ describe("weekly instructor preferences", () => {
   it("rejects out-of-bounds and reversed teaching ranges", () => {
     for (const invalid of [
       { minimumAge: 1 },
-      { maximumAge: 19 },
+      { maximumAge: 13 },
+      { minimumAge: 13 },
       { minimumLevel: 0 },
       { maximumLevel: 7 },
       { minimumAge: 12, maximumAge: 7 },

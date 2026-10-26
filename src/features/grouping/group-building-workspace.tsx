@@ -325,21 +325,17 @@ export function PersistedGroupingBoard({
     );
   const roster = workspace.roster.filter(
     (student) =>
+      student.registrationStatus === "active" &&
+      student.schedule?.weekday === weekday &&
+      student.schedule.timeSlotId === timeSlotId &&
       `${student.firstName} ${student.lastName}`
         .toLowerCase()
         .includes(query.trim().toLowerCase()) &&
       (discipline === "all" || student.disciplineId === discipline) &&
       (!extraFilters.levelId ||
         student.abilityLevelId === extraFilters.levelId) &&
-      (extraFilters.weekday === undefined ||
-        student.schedule?.weekday === extraFilters.weekday) &&
-      (!extraFilters.timeSlotId ||
-        student.schedule?.timeSlotId === extraFilters.timeSlotId) &&
-      (rosterView !== "unplaced" ||
-        (student.registrationStatus === "active" &&
-          !assignedIds.has(student.registrationId))) &&
+      (rosterView !== "unplaced" || !assignedIds.has(student.registrationId)) &&
       (rosterView !== "review" ||
-        student.registrationStatus !== "active" ||
         student.needsSchedule ||
         !student.dateOfBirth ||
         !student.abilityLevelId ||
@@ -849,7 +845,10 @@ export function PersistedGroupingBoard({
             .filter((slot) => slot.allowedWeekdays.includes(weekday))
             .map((slot) => ({
               ...slot,
-              label: `${slot.cohort === "session-1" ? "Session 1 · " : slot.cohort === "session-2" ? "Session 2 · " : ""}${slot.label} (${displayTime(slot.startsAt)}–${displayTime(slot.endsAt)})`,
+              label:
+                (weekday === 4 || weekday === 5) && slot.cohort !== "season"
+                  ? `${displayTime(slot.startsAt)} - ${slot.cohort === "session-1" ? "Session 1" : "Session 2"}`
+                  : `${slot.cohort === "session-1" ? "Session 1 · " : slot.cohort === "session-2" ? "Session 2 · " : ""}${slot.label} (${displayTime(slot.startsAt)}–${displayTime(slot.endsAt)})`,
             }))}
         />
         <Picker
@@ -1117,7 +1116,7 @@ export function PersistedGroupingBoard({
                 Students
               </h2>
               <p className="text-muted-foreground mt-1 text-xs">
-                Placement counts include every session.
+                Students registered for this day and session.
               </p>
               <Input
                 aria-label="Find a student"
@@ -1151,8 +1150,8 @@ export function PersistedGroupingBoard({
                   {query
                     ? "No students match your search."
                     : rosterView === "unplaced"
-                      ? "Everyone is placed. Choose All to browse students and their notes."
-                      : "No students in this view."}
+                      ? "Everyone registered for this session is placed. Choose All to browse their notes."
+                      : "No registered students match this session and view."}
                 </p>
               )}
             </div>
@@ -1929,6 +1928,39 @@ function InstructorOverview({
 }) {
   const [search, setSearch] = useState("");
   const slot = workspace.timeSlots.find((item) => item.id === timeSlotId);
+  const availableInstructors = workspace.instructors
+    .filter((instructor) =>
+      Boolean(
+        slot &&
+        instructorAvailability(instructor.preferences, {
+          ...slot,
+          programId: workspace.program.id,
+          weekday,
+        }).eligible,
+      ),
+    )
+    .filter(
+      (instructor) =>
+        !workspace.groups.some((group) => {
+          if (
+            group.weekday !== weekday ||
+            group.timeSlotId === timeSlotId ||
+            !group.instructorIds.includes(instructor.id)
+          )
+            return false;
+          const otherSlot = workspace.timeSlots.find(
+            (item) => item.id === group.timeSlotId,
+          );
+          return Boolean(
+            slot && otherSlot && sessionsOverlap(slot, otherSlot, weekday),
+          );
+        }),
+    )
+    .filter((instructor) =>
+      `${instructor.firstName} ${instructor.lastName}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
+    );
   return (
     <section
       className="flex h-[min(40vh,28rem)] min-h-64 flex-col rounded-xl border bg-white p-4"
@@ -1954,64 +1986,63 @@ function InstructorOverview({
         onChange={(event) => setSearch(event.target.value)}
       />
       <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain">
-        {workspace.instructors
-          .filter((instructor) =>
-            `${instructor.firstName} ${instructor.lastName}`
-              .toLowerCase()
-              .includes(search.toLowerCase()),
-          )
-          .map((instructor) => {
-            const assigned = workspace.groups.filter((group) => {
-              const other = workspace.timeSlots.find(
-                (item) => item.id === group.timeSlotId,
-              );
-              return (
-                group.weekday === weekday &&
-                group.instructorIds.includes(instructor.id) &&
-                Boolean(slot && other && sessionsOverlap(slot, other, weekday))
-              );
-            });
-            return (
-              <div
-                key={instructor.id}
-                draggable
-                onDragStart={(event) =>
-                  event.dataTransfer.setData(
-                    "application/carve-instructor",
-                    instructor.id,
-                  )
-                }
-                className="rounded-lg border px-3 py-2 text-xs"
-              >
-                <p className="font-medium">
-                  {instructor.firstName} {instructor.lastName}
-                </p>
-                <p className="mt-1 font-medium">
-                  {instructor.disciplineIds
-                    .map((id) => findLabel(workspace.disciplines, id))
-                    .join(" · ") || "Qualifications needed"}
-                </p>
-                <p className="text-muted-foreground mt-1">
-                  {slot
-                    ? instructorAvailability(instructor.preferences, {
-                        programId: workspace.program.id,
-                        cohort: slot.cohort,
-                        weekday,
-                        startsAt: slot.startsAt,
-                        endsAt: slot.endsAt,
-                      }).reason
-                    : "Choose a configured session"}
-                </p>
-                <p className="text-muted-foreground mt-1">
-                  {assigned.length
-                    ? assigned.map((group) => groupName(group.id)).join(", ")
-                    : instructor.disciplineIds.length
-                      ? "Not assigned this session"
-                      : "Qualifications needed"}
-                </p>
-              </div>
+        {!availableInstructors.length && (
+          <p className="text-muted-foreground py-4 text-sm">
+            No available instructors match this session and search.
+          </p>
+        )}
+        {availableInstructors.map((instructor) => {
+          const assigned = workspace.groups.filter((group) => {
+            const other = workspace.timeSlots.find(
+              (item) => item.id === group.timeSlotId,
             );
-          })}
+            return (
+              group.weekday === weekday &&
+              group.instructorIds.includes(instructor.id) &&
+              Boolean(slot && other && sessionsOverlap(slot, other, weekday))
+            );
+          });
+          return (
+            <div
+              key={instructor.id}
+              draggable
+              onDragStart={(event) =>
+                event.dataTransfer.setData(
+                  "application/carve-instructor",
+                  instructor.id,
+                )
+              }
+              className="rounded-lg border px-3 py-2 text-xs"
+            >
+              <p className="font-medium">
+                {instructor.firstName} {instructor.lastName}
+              </p>
+              <p className="mt-1 font-medium">
+                {instructor.disciplineIds
+                  .map((id) => findLabel(workspace.disciplines, id))
+                  .join(" · ") || "Qualifications needed"}
+              </p>
+              <p className="text-muted-foreground mt-1">
+                {slot
+                  ? instructorAvailability(instructor.preferences, {
+                      programId: workspace.program.id,
+                      cohort: slot.cohort,
+                      weekday,
+                      startsAt: slot.startsAt,
+                      endsAt: slot.endsAt,
+                    }).reason
+                  : "Choose a configured session"}
+              </p>
+              <p className="text-muted-foreground mt-1">
+                {assigned.length
+                  ? assigned.map((group) => groupName(group.id)).join(", ")
+                  : instructor.disciplineIds.length
+                    ? "Not assigned this session"
+                    : "Qualifications needed"}
+              </p>
+            </div>
+          );
+        })}
         {!workspace.instructors.length && (
           <Link to="/admin/instructors" className="text-sm underline">
             Add instructors and qualifications
