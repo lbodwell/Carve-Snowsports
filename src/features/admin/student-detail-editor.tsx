@@ -3,7 +3,6 @@ import { Archive, ArrowLeft, Save } from "lucide-react";
 import { useState } from "react";
 import type { FormEvent } from "react";
 import type { RegistrationScheduleSummary } from "@/domain/imports/registration-schedule-summary";
-import { RefreshButton } from "@/components/refresh-button";
 import { RegistrationScheduleDetails } from "@/features/admin/registration-schedule-details";
 
 import { Badge } from "@/components/ui/badge";
@@ -200,7 +199,6 @@ export function StudentDetailEditor({
 
   return (
     <div className="flex flex-col gap-6">
-      <RefreshButton />
       {!embedded && (
         <header className="flex flex-col gap-3">
           <Link

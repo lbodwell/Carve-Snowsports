@@ -2,6 +2,7 @@ import { Plus, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { InstructorPreferencesEditor } from "./instructor-preferences-editor";
+import type { InstructorPreference } from "@/domain/grouping/instructor-preferences";
 import { RefreshButton } from "@/components/refresh-button";
 
 import { AuditHistoryPanel } from "@/features/admin/audit-history-panel";
@@ -105,11 +106,15 @@ export function InstructorRoster({
   const selectedInstructor = instructors.find(
     (instructor) => instructor.id === editingId,
   );
+  const [preferences, setPreferences] = useState<
+    Array<InstructorPreference> | undefined
+  >();
   const isDirty =
+    preferences !== undefined ||
     JSON.stringify(form) !==
-    JSON.stringify(
-      selectedInstructor ? instructorForm(selectedInstructor) : emptyForm,
-    );
+      JSON.stringify(
+        selectedInstructor ? instructorForm(selectedInstructor) : emptyForm,
+      );
   const [error, setError] = useState<string | null>(null);
   const [instructorToArchive, setInstructorToArchive] =
     useState<InstructorRow | null>(null);
@@ -173,6 +178,7 @@ export function InstructorRoster({
 
   function startCreate() {
     setEditingId(null);
+    setPreferences(undefined);
     setForm(emptyForm);
     setError(null);
     setShowForm(true);
@@ -180,6 +186,7 @@ export function InstructorRoster({
 
   function startEdit(instructor: InstructorRow) {
     setEditingId(instructor.id);
+    setPreferences(undefined);
     setForm({
       firstName: instructor.firstName,
       lastName: instructor.lastName,
@@ -209,6 +216,7 @@ export function InstructorRoster({
           phone: form.phone,
           email: form.email,
           notes: form.notes,
+          preferences,
           disciplineKeys: [
             ...(form.ski ? (["ski"] as const) : []),
             ...(form.snowboard ? (["snowboard"] as const) : []),
@@ -340,7 +348,9 @@ export function InstructorRoster({
             </p>
           ) : null}
           <div className="rounded-xl border">
-            <RefreshButton />
+            <div className="flex justify-end border-b px-4 py-3">
+              <RefreshButton />
+            </div>
             <Table className="min-w-[44rem]">
               <TableHeader>
                 <TableRow>
@@ -472,6 +482,13 @@ export function InstructorRoster({
                 </label>
               ))}
             </fieldset>
+            <div className="sm:col-span-2">
+              <InstructorPreferencesEditor
+                key={editingId ?? "new"}
+                instructorId={editingId ?? undefined}
+                onChange={setPreferences}
+              />
+            </div>
             <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">
               Notes
               <Textarea
@@ -520,12 +537,6 @@ export function InstructorRoster({
             </div>
           </form>
         ) : null}
-        {editingId && (
-          <InstructorPreferencesEditor
-            key={editingId}
-            instructorId={editingId}
-          />
-        )}
         {editingId &&
           (auditHistoryLoading ? (
             <p className="text-muted-foreground text-sm">

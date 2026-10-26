@@ -60,6 +60,7 @@ export async function saveInstructorPreferences(
   if (
     parsed.preferences.some(
       (item) =>
+        item.programId &&
         !context.programs.some((program) => program.id === item.programId),
     )
   )
@@ -93,6 +94,7 @@ const optionalEmail = z
 export const instructorInputSchema = z
   .object({
     instructorId: z.uuid().optional(),
+    preferences: z.array(instructorPreferenceSchema).max(100).optional(),
     firstName: z.string().trim().min(1).max(100),
     lastName: z.string().trim().min(1).max(100),
     phone: z.string().trim().max(100),
@@ -233,7 +235,11 @@ export async function saveInstructor(actor: Actor, input: InstructorInput) {
         .where(eq(people.id, instructorId));
       await tx
         .update(instructors)
-        .set({ notes: parsed.notes, updatedAt: new Date() })
+        .set({
+          notes: parsed.notes,
+          ...(parsed.preferences ? { preferences: parsed.preferences } : {}),
+          updatedAt: new Date(),
+        })
         .where(eq(instructors.personId, instructorId));
       await tx
         .delete(contactMethods)
@@ -258,7 +264,11 @@ export async function saveInstructor(actor: Actor, input: InstructorInput) {
       instructorId = person.id;
       await tx
         .insert(instructors)
-        .values({ personId: instructorId, notes: parsed.notes });
+        .values({
+          personId: instructorId,
+          notes: parsed.notes,
+          preferences: parsed.preferences ?? [],
+        });
     }
 
     const contacts = [

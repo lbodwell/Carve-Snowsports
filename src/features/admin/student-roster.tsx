@@ -512,7 +512,9 @@ export function StudentRoster({
                 </div>
               ) : (
                 <div className="rounded-xl border">
-                  <RefreshButton />
+                  <div className="flex justify-end border-b px-4 py-3">
+                    <RefreshButton />
+                  </div>
                   <Table className="min-w-[40rem]">
                     <TableHeader>
                       <TableRow>

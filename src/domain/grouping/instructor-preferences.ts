@@ -3,15 +3,16 @@ import { z } from "zod";
 const clock = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 export const instructorPreferenceSchema = z
   .object({
-    programId: z.uuid(),
-    cohort: z.enum(["season", "session-1", "session-2"]),
+    programId: z.uuid().optional(),
+    cohort: z.enum(["season", "session-1", "session-2"]).optional(),
+    teachingSlot: z.enum(["am", "pm", "full", "weekday"]).optional(),
     weekday: z.number().int().min(0).max(6),
     startsAt: clock,
     endsAt: clock,
-    minimumAge: z.number().int().min(0).max(100).nullable(),
-    maximumAge: z.number().int().min(0).max(100).nullable(),
-    minimumLevel: z.number().int().min(1).max(20).nullable(),
-    maximumLevel: z.number().int().min(1).max(20).nullable(),
+    minimumAge: z.number().int().min(2).max(18).nullable(),
+    maximumAge: z.number().int().min(2).max(18).nullable(),
+    minimumLevel: z.number().int().min(1).max(6).nullable(),
+    maximumLevel: z.number().int().min(1).max(6).nullable(),
   })
   .refine(
     (value) => value.startsAt < value.endsAt,
@@ -46,11 +47,13 @@ export function instructorAvailability(
 ) {
   const matches = preferences.filter(
     (item) =>
-      item.programId === session.programId &&
       item.weekday === session.weekday &&
-      item.cohort === session.cohort &&
-      item.startsAt <= session.startsAt.slice(0, 5) &&
-      item.endsAt >= session.endsAt.slice(0, 5),
+      (item.teachingSlot
+        ? item.teachingSlot === "weekday" ||
+          item.teachingSlot === "full" ||
+          item.teachingSlot === teachingPeriod(session)
+        : item.startsAt <= session.startsAt.slice(0, 5) &&
+          item.endsAt >= session.endsAt.slice(0, 5)),
   );
   if (!matches.length)
     return {
@@ -87,4 +90,15 @@ export function instructorAvailability(
       ? `Available · ${score} age/level preferences matched`
       : "Available · no matching preference",
   };
+}
+
+export function teachingPeriod(session: {
+  startsAt: string;
+  endsAt: string;
+}): "am" | "pm" | "full" {
+  return session.endsAt.slice(0, 5) <= "12:30"
+    ? "am"
+    : session.startsAt.slice(0, 5) >= "12:00"
+      ? "pm"
+      : "full";
 }

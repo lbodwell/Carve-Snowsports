@@ -52,10 +52,11 @@ test("serves health and the authenticated staff workspace", async ({
     .fill(
       "Build confidence on turns; prefers a patient instructor and a familiar buddy.",
     );
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Refresh", exact: true })
-    .click();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Refresh", exact: true }),
+  ).toHaveCount(0);
   await expect(page.getByLabel("Placement notes", { exact: true })).toHaveValue(
     "Build confidence on turns; prefers a patient instructor and a familiar buddy.",
   );
@@ -81,6 +82,18 @@ test("serves health and the authenticated staff workspace", async ({
   await expect(
     page.getByRole("button", { name: "Save instructor", exact: true }),
   ).toBeDisabled();
+  await expect(
+    page.getByText("Weekly availability", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("group", { name: "Saturday availability" })
+    .getByRole("button", { name: "Full day", exact: true })
+    .click();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Refresh", exact: true }),
+  ).toHaveCount(0);
   await page
     .getByLabel("Notes", { exact: true })
     .fill("Roster browser verification");
@@ -208,7 +221,7 @@ test("serves health and the authenticated staff workspace", async ({
     await page.screenshot({ path: ".tmp/grouping-mobile.png", fullPage: true });
     await page.setViewportSize({ width: 1280, height: 720 });
   }
-  await page.getByRole("button", { name: "Cancel selection" }).click();
+  await page.getByRole("button", { name: "Clear selection" }).click();
   await page.goto("/admin");
   await expect(page.locator(".recharts-surface").first()).toBeVisible();
   await expect(
@@ -228,6 +241,24 @@ test("serves health and the authenticated staff workspace", async ({
     page.getByRole("heading", { name: "Roster audit" }),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Results" })).toBeVisible();
+  await expect(
+    page.getByRole("combobox", { name: "Rows per page" }),
+  ).toHaveText("10");
+  await page.getByRole("combobox", { name: "Rows per page" }).click();
+  await page.getByRole("option", { name: "25", exact: true }).click();
+  await expect(page).toHaveURL(/pageSize=25/);
+  await expect(
+    page.getByRole("button", { name: "Refresh", exact: true }),
+  ).toHaveCount(1);
+  await page.goto("/admin/surveys");
+  await expect(
+    page.getByRole("combobox", { name: "Rows per page" }),
+  ).toHaveText("10");
+  await page.getByRole("combobox", { name: "Rows per page" }).click();
+  await page.getByRole("option", { name: "25", exact: true }).click();
+  await expect(page).toHaveURL(/pageSize=25/);
+  if (process.env.CARVE_UI_PROOF === "1")
+    await page.screenshot({ path: ".tmp/survey-review.png", fullPage: true });
 });
 
 test("imports a new student, syncs their survey, and finalizes unstaffed placements", async ({
@@ -456,7 +487,7 @@ test("administrators can prepare separate seasonal cohorts with dates pending", 
   await session.click();
   await page
     .getByRole("option", {
-      name: "Session 1 · Seasonal fixture 1 (10:00–12:00)",
+      name: "Session 1 · Seasonal fixture 1 (10:00 AM–12:00 PM)",
       exact: true,
     })
     .click();
@@ -468,7 +499,7 @@ test("administrators can prepare separate seasonal cohorts with dates pending", 
   await session.click();
   await page
     .getByRole("option", {
-      name: "Session 2 · Seasonal fixture 2 (10:00–12:00)",
+      name: "Session 2 · Seasonal fixture 2 (10:00 AM–12:00 PM)",
       exact: true,
     })
     .click();

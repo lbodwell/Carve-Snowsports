@@ -16,7 +16,6 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import type { Role } from "@/application/policies/authorization";
-import { RefreshButton } from "@/components/refresh-button";
 import {
   getStaffHomePath,
   navigationForRole,
@@ -71,7 +70,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   return (
     <div className="staff-workspace bg-pm-cream/70 min-h-svh">
       <header className="border-pm-orange bg-pm-forest border-t-4 text-white shadow-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-2">
             <Sheet
               open={mobileNavigationOpen}
@@ -161,7 +160,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:flex-row lg:px-8">
+      <div className="mx-auto flex max-w-[1600px] flex-col gap-6 px-4 py-6 sm:px-6 lg:flex-row lg:px-8">
         <nav
           aria-label="Admin navigation"
           className="bg-background hidden h-fit shrink-0 rounded-2xl border p-2 shadow-sm lg:flex lg:w-52 lg:flex-col lg:gap-1"
@@ -188,9 +187,6 @@ export function AdminShell({ children }: { children: ReactNode }) {
         </nav>
         <main className="min-w-0 flex-1">
           <fieldset className="contents" disabled={!isHydrated}>
-            <div className="mb-3">
-              <RefreshButton />
-            </div>
             {children}
           </fieldset>
         </main>

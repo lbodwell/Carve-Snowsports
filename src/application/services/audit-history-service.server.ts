@@ -21,7 +21,8 @@ export const rosterAuditSearchSchema = z.object({
     .enum(["all", "student", "instructor", "registration"])
     .optional()
     .default("all"),
-  limit: z.number().int().min(1).max(100).optional().default(50),
+  offset: z.number().int().min(0).optional().default(0),
+  limit: z.number().int().min(1).max(101).optional().default(10),
 });
 
 const rosterEntityTypes = ["student", "instructor", "registration"] as const;
@@ -293,7 +294,8 @@ export async function searchRosterAuditHistory(
       ),
     )
     .where(and(...filters))
-    .orderBy(desc(auditEvents.createdAt))
+    .orderBy(desc(auditEvents.createdAt), desc(auditEvents.id))
+    .offset(parsed.offset)
     .limit(parsed.limit);
 
   return rows.map((row) => {

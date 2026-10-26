@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { useRouter } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
+import { TablePagination } from "@/components/table-pagination";
+import { RefreshButton } from "@/components/refresh-button";
 
 import { AuditHistoryPanel } from "@/features/admin/audit-history-panel";
 import { Button } from "@/components/ui/button";
@@ -12,7 +14,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { searchRosterAuditHistory } from "@/server/functions/audit-history";
 
 type RosterAuditEvent = {
   id: string;
@@ -37,16 +38,21 @@ export function RosterAuditSearch({
   initialQuery = "",
   initialEntityType = "all",
   events,
+  page,
+  pageSize,
+  hasNext,
 }: {
   initialQuery?: string;
   initialEntityType?: (typeof entityTypeOptions)[number]["value"];
   events: Array<RosterAuditEvent>;
+  page: number;
+  pageSize: number;
+  hasNext: boolean;
 }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [query, setQuery] = useState(initialQuery);
   const [entityType, setEntityType] =
     useState<(typeof entityTypeOptions)[number]["value"]>(initialEntityType);
-  const [results, setResults] = useState(events);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,15 +60,16 @@ export function RosterAuditSearch({
     setBusy(true);
     setError(null);
     try {
-      const nextResults = await searchRosterAuditHistory({
-        data: {
+      await navigate({
+        to: "/admin/audit",
+        resetScroll: false,
+        search: {
           query: query.trim() || undefined,
-          entityType,
-          limit: 50,
+          entityType: entityType === "all" ? undefined : entityType,
+          page: 1,
+          pageSize,
         },
       });
-      setResults(nextResults);
-      void router.invalidate();
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -138,11 +145,48 @@ export function RosterAuditSearch({
         </p>
       ) : null}
 
-      <AuditHistoryPanel
-        title="Results"
-        description="Most recent matching roster events, newest first."
-        events={results}
-      />
+      <section className="overflow-hidden rounded-xl border bg-white">
+        <div className="flex items-center justify-between border-b px-5 py-3">
+          <span className="text-muted-foreground text-sm">Recent activity</span>
+          <RefreshButton />
+        </div>
+        <AuditHistoryPanel
+          title="Results"
+          description="Most recent matching roster events, newest first."
+          events={events}
+        />
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          hasNext={hasNext}
+          onPage={(next) =>
+            void navigate({
+              to: "/admin/audit",
+              resetScroll: false,
+              search: {
+                query: initialQuery || undefined,
+                entityType:
+                  initialEntityType === "all" ? undefined : initialEntityType,
+                page: next,
+                pageSize,
+              },
+            })
+          }
+          onPageSize={(size) =>
+            void navigate({
+              to: "/admin/audit",
+              resetScroll: false,
+              search: {
+                query: initialQuery || undefined,
+                entityType:
+                  initialEntityType === "all" ? undefined : initialEntityType,
+                page: 1,
+                pageSize: size,
+              },
+            })
+          }
+        />
+      </section>
     </div>
   );
 }

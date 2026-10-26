@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Save, Trash2 } from "lucide-react";
+import { Search, Trash2 } from "lucide-react";
 import type { Workspace } from "./persisted-grouping-board";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -11,89 +12,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { weekdayNames as weekdays } from "@/domain/grouping/registration-schedule";
+import { instructorAvailability } from "@/domain/grouping/instructor-preferences";
+import { displayTime } from "@/domain/calendar/display-time";
+import { weekdayNames } from "@/domain/grouping/registration-schedule";
 
-export function InstructorConfiguration({
-  busy,
-  readOnly,
-  group,
-  instructors,
-  onSave,
-}: {
-  busy: boolean;
-  readOnly: boolean;
-  group: Workspace["groups"][number];
-  instructors: Workspace["instructors"];
-  onSave: (
-    instructorIds: Array<string>,
-    leadInstructorId: string | null,
-  ) => void;
-}) {
-  const [selected, setSelected] = useState(group.instructorIds);
-  const [lead, setLead] = useState(group.leadInstructorId ?? "");
-
-  return (
-    <fieldset className="grid gap-2" disabled={readOnly || busy}>
-      <legend className="text-xs font-medium">Instructors</legend>
-      <div className="flex flex-wrap gap-3">
-        {instructors.map((instructor) => (
-          <label
-            key={instructor.id}
-            className="flex cursor-pointer items-center gap-1.5 text-xs"
-          >
-            <Checkbox
-              disabled={readOnly}
-              checked={selected.includes(instructor.id)}
-              onCheckedChange={(checked) => {
-                const next =
-                  checked === true
-                    ? [...selected, instructor.id]
-                    : selected.filter((id) => id !== instructor.id);
-                setSelected(next);
-                if (!next.includes(lead)) setLead(next[0] ?? "");
-              }}
-            />
-            {instructor.firstName} {instructor.lastName}
-          </label>
-        ))}
-      </div>
-      <div className="flex items-end gap-2">
-        <label className="grid flex-1 gap-1 text-xs font-medium">
-          Lead
-          <Select
-            disabled={readOnly}
-            value={lead || "none"}
-            onValueChange={(value) => setLead(value === "none" ? "" : value)}
-          >
-            <SelectTrigger size="sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">Unassigned</SelectItem>
-              {instructors
-                .filter((instructor) => selected.includes(instructor.id))
-                .map((instructor) => (
-                  <SelectItem key={instructor.id} value={instructor.id}>
-                    {instructor.firstName} {instructor.lastName}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-        </label>
-        <Button
-          type="button"
-          size="xs"
-          variant="outline"
-          disabled={busy || readOnly || (selected.length > 0 && !lead)}
-          onClick={() => onSave(selected, lead || null)}
-        >
-          Save staff
-        </Button>
-      </div>
-    </fieldset>
-  );
-}
-
+type Details = {
+  weekday: number;
+  timeSlotId: string;
+  disciplineId: string;
+  abilityLevelId: string | null;
+  ageBandId: string | null;
+  notes: string;
+  instructorIds: Array<string>;
+  leadInstructorId: string | null;
+};
 export function GroupConfiguration({
   busy,
   group,
@@ -105,166 +37,230 @@ export function GroupConfiguration({
   busy: boolean;
   group: Workspace["groups"][number];
   onDelete: () => void;
-  onSave: (values: {
-    weekday: number;
-    timeSlotId: string;
-    disciplineId: string;
-    abilityLevelId: string | null;
-    ageBandId: string | null;
-    notes: string;
-  }) => void;
+  onSave: (values: Details) => void;
   readOnly: boolean;
   workspace: Workspace;
 }) {
-  const [disciplineId, setDisciplineId] = useState(group.disciplineId ?? "");
-  const [weekday, setWeekday] = useState(group.weekday);
-  const [timeSlotId, setTimeSlotId] = useState(group.timeSlotId);
-  const [abilityLevelId, setAbilityLevelId] = useState(
-    group.abilityLevelId ?? "",
+  const [values, setValues] = useState<Details>({
+    weekday: group.weekday,
+    timeSlotId: group.timeSlotId,
+    disciplineId: group.disciplineId ?? "",
+    abilityLevelId: group.abilityLevelId,
+    ageBandId: group.ageBandId,
+    notes: group.notes ?? "",
+    instructorIds: group.instructorIds,
+    leadInstructorId: group.leadInstructorId,
+  });
+  const [query, setQuery] = useState("");
+  const patch = (next: Partial<Details>) =>
+    setValues((old) => ({ ...old, ...next }));
+  const slot = workspace.timeSlots.find((row) => row.id === values.timeSlotId);
+  const field = (
+    label: string,
+    value: string,
+    options: Array<{ id: string; label: string }>,
+    onChange: (value: string) => void,
+  ) => (
+    <label className="grid gap-1.5 text-xs font-medium">
+      {label}
+      <Select
+        disabled={busy || readOnly}
+        value={value || "any"}
+        onValueChange={onChange}
+      >
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder={`Choose ${label.toLowerCase()}`} />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((item) => (
+            <SelectItem key={item.id} value={item.id}>
+              {item.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </label>
   );
-  const [ageBandId, setAgeBandId] = useState(group.ageBandId ?? "");
-  const [notes, setNotes] = useState(group.notes ?? "");
-
   return (
-    <fieldset className="grid gap-2" disabled={readOnly || busy}>
-      <div className="grid grid-cols-2 gap-2">
-        <label className="grid gap-1 text-xs font-medium">
-          Day
-          <Select
-            disabled={readOnly}
-            value={String(weekday)}
-            onValueChange={(value) => setWeekday(Number(value))}
-          >
-            <SelectTrigger size="sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {weekdays.map((label, value) => (
-                <SelectItem key={label} value={String(value)}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
-        <label className="grid gap-1 text-xs font-medium">
-          Time
-          <Select value={timeSlotId} onValueChange={setTimeSlotId}>
-            <SelectTrigger size="sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {workspace.timeSlots.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  {item.cohort === "session-1"
-                    ? "Session 1 · "
-                    : item.cohort === "session-2"
-                      ? "Session 2 · "
-                      : ""}
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
-        <label className="grid gap-1 text-xs font-medium">
-          Discipline
-          <Select value={disciplineId} onValueChange={setDisciplineId}>
-            <SelectTrigger size="sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {workspace.disciplines.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
-        <label className="grid gap-1 text-xs font-medium">
-          Level
-          <Select
-            value={abilityLevelId || "any"}
-            onValueChange={(value) =>
-              setAbilityLevelId(value === "any" ? "" : value)
-            }
-          >
-            <SelectTrigger size="sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="any">Any</SelectItem>
-              {workspace.abilityLevels.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
-        <label className="grid gap-1 text-xs font-medium">
-          Ages
-          <Select
-            value={ageBandId || "any"}
-            onValueChange={(value) =>
-              setAgeBandId(value === "any" ? "" : value)
-            }
-          >
-            <SelectTrigger size="sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="any">Any</SelectItem>
-              {workspace.ageBands.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
-      </div>
-      <label className="grid gap-1 text-xs font-medium">
-        Notes
+    <div className="space-y-6">
+      <section className="space-y-3">
+        <h3 className="text-sm font-semibold">Lesson details</h3>
+        <div className="grid grid-cols-2 gap-4">
+          {field(
+            "Day",
+            String(values.weekday),
+            [
+              ...new Set(
+                workspace.timeSlots.flatMap((row) => row.allowedWeekdays),
+              ),
+            ].map((day) => ({ id: String(day), label: weekdayNames[day]! })),
+            (value) =>
+              patch({
+                weekday: Number(value),
+                timeSlotId:
+                  workspace.timeSlots.find((row) =>
+                    row.allowedWeekdays.includes(Number(value)),
+                  )?.id ?? "",
+              }),
+          )}
+          {field(
+            "Time",
+            values.timeSlotId,
+            workspace.timeSlots
+              .filter((row) => row.allowedWeekdays.includes(values.weekday))
+              .map((row) => ({
+                id: row.id,
+                label: `${row.label} · ${displayTime(row.startsAt)}`,
+              })),
+            (timeSlotId) => patch({ timeSlotId }),
+          )}
+          {field(
+            "Discipline",
+            values.disciplineId,
+            workspace.disciplines,
+            (disciplineId) => patch({ disciplineId }),
+          )}
+          {field(
+            "Level",
+            values.abilityLevelId ?? "any",
+            [{ id: "any", label: "Mixed levels" }, ...workspace.abilityLevels],
+            (value) =>
+              patch({ abilityLevelId: value === "any" ? null : value }),
+          )}
+          {field(
+            "Age band",
+            values.ageBandId ?? "any",
+            [{ id: "any", label: "All ages" }, ...workspace.ageBands],
+            (value) => patch({ ageBandId: value === "any" ? null : value }),
+          )}
+        </div>
+      </section>
+      <section className="space-y-3 border-t pt-5">
+        <div>
+          <h3 className="text-sm font-semibold">Teaching team</h3>
+          <p className="text-muted-foreground mt-1 text-xs">
+            Select eligible instructors, then choose one lead. All changes save
+            together.
+          </p>
+        </div>
+        <div className="relative">
+          <Search className="text-muted-foreground absolute top-2.5 left-3 size-4" />
+          <Input
+            className="pl-9"
+            placeholder="Find an instructor…"
+            aria-label="Find group instructor"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+        <div className="bg-muted/20 max-h-64 space-y-2 overflow-y-auto rounded-lg border p-2">
+          {workspace.instructors
+            .filter((row) =>
+              `${row.firstName} ${row.lastName}`
+                .toLowerCase()
+                .includes(query.toLowerCase()),
+            )
+            .map((instructor) => {
+              const selected = values.instructorIds.includes(instructor.id);
+              const availability = slot
+                ? instructorAvailability(instructor.preferences, {
+                    ...slot,
+                    programId: workspace.program.id,
+                    weekday: values.weekday,
+                  })
+                : { eligible: false, reason: "Choose a session" };
+              const qualified = instructor.disciplineIds.includes(
+                values.disciplineId,
+              );
+              return (
+                <div
+                  key={instructor.id}
+                  className="bg-background flex items-center justify-between gap-3 rounded-lg border p-3"
+                >
+                  <label className="flex min-w-0 cursor-pointer items-center gap-3">
+                    <Checkbox
+                      disabled={
+                        busy ||
+                        readOnly ||
+                        (!selected && (!availability.eligible || !qualified))
+                      }
+                      checked={selected}
+                      onCheckedChange={(checked) =>
+                        patch({
+                          instructorIds: checked
+                            ? [...values.instructorIds, instructor.id]
+                            : values.instructorIds.filter(
+                                (id) => id !== instructor.id,
+                              ),
+                          leadInstructorId:
+                            !checked &&
+                            values.leadInstructorId === instructor.id
+                              ? null
+                              : values.leadInstructorId,
+                        })
+                      }
+                    />
+                    <span>
+                      <span className="block text-sm font-medium">
+                        {instructor.firstName} {instructor.lastName}
+                      </span>
+                      <span className="text-muted-foreground block text-xs">
+                        {qualified
+                          ? availability.reason
+                          : "Different discipline"}
+                      </span>
+                    </span>
+                  </label>
+                  {selected && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={busy || readOnly}
+                      variant={
+                        values.leadInstructorId === instructor.id
+                          ? "default"
+                          : "outline"
+                      }
+                      onClick={() => patch({ leadInstructorId: instructor.id })}
+                    >
+                      {values.leadInstructorId === instructor.id
+                        ? "Lead"
+                        : "Make lead"}
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+      </section>
+      <label className="grid gap-2 text-sm font-medium">
+        Group notes
         <Textarea
-          className="min-h-16 text-xs"
-          disabled={readOnly}
-          value={notes}
-          onChange={(event) => setNotes(event.target.value)}
+          disabled={busy || readOnly}
+          value={values.notes}
+          onChange={(event) => patch({ notes: event.target.value })}
+          placeholder="Group guidance or the reason for a mixed-level group"
         />
       </label>
-      <div className="flex justify-between gap-2">
+      <div className="bg-background sticky bottom-0 flex items-center justify-between gap-3 border-t py-4">
         <Button
-          type="button"
-          size="xs"
-          variant="outline"
-          disabled={busy || readOnly || !disciplineId}
-          onClick={() =>
-            onSave({
-              weekday,
-              timeSlotId,
-              disciplineId,
-              abilityLevelId: abilityLevelId || null,
-              ageBandId: ageBandId || null,
-              notes,
-            })
-          }
-        >
-          <Save data-icon="inline-start" />
-          Save details
-        </Button>
-        <Button
-          type="button"
-          size="icon-xs"
           variant="ghost"
+          size="sm"
           disabled={busy || readOnly}
           onClick={onDelete}
-          aria-label="Delete group"
         >
           <Trash2 />
+          Remove group
+        </Button>
+        <Button
+          disabled={
+            busy || readOnly || !values.timeSlotId || !values.disciplineId
+          }
+          onClick={() => onSave(values)}
+        >
+          {busy ? "Saving…" : "Save group"}
         </Button>
       </div>
-    </fieldset>
+    </div>
   );
 }

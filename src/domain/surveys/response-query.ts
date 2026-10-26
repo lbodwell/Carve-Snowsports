@@ -6,8 +6,8 @@ export const surveyResponseQuerySchema = z.object({
   page: z.coerce.number().int().min(1).catch(1),
   pageSize: z.coerce
     .number()
-    .refine((value) => [25, 50, 100].includes(value))
-    .catch(25),
+    .refine((value) => [10, 25, 50, 100].includes(value))
+    .catch(10),
   link: z.enum(["all", "linked", "unlinked", "review"]).catch("all"),
   session: z.string().max(100).catch(""),
   discipline: z.enum(["", "ski", "snowboard"]).catch(""),

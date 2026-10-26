@@ -52,6 +52,7 @@ import {
   registrations,
   seasons,
   students,
+  supportRecords,
   surveyResponses,
   surveys,
   timeSlots,
@@ -466,6 +467,8 @@ export const assignDraftInstructorSchema = z
     },
   );
 export const updateDraftGroupSchema = z.object({
+  instructorIds: z.array(z.uuid()).optional(),
+  leadInstructorId: z.uuid().nullable().optional(),
   draftId: z.uuid(),
   baseVersion: z.number().int().positive(),
   commandId: z.uuid(),
@@ -600,6 +603,7 @@ export async function getGroupingWorkspace(
         disciplineId: registrations.disciplineId,
         abilityLevelId: registrations.abilityLevelId,
         placementNotes: students.notes,
+        medicalNotes: sql<string>`coalesce((select string_agg(concat(case when ${supportRecords.sourceResponseId} is null then 'Staff: ' else 'Survey: ' end, ${supportRecords.restrictedNote}), E'\n') from ${supportRecords} where ${supportRecords.studentId} = ${people.id} and ${supportRecords.active} = true), '')`,
         sourceSnapshot: registrations.sourceSnapshot,
         registrationStatus: registrations.status,
         isArchived: sql<boolean>`${registrations.archivedAt} is not null or ${people.archivedAt} is not null`,
@@ -660,6 +664,10 @@ export async function getGroupingWorkspace(
   const projectedRoster = roster.map(({ sourceSnapshot, ...student }) => ({
     ...projectGroupingRosterStudent(actor, student),
     studentId: student.studentId,
+    medicalNotes:
+      actor.role === "admin" || actor.role === "coordinator"
+        ? student.medicalNotes
+        : "",
     placementNotes: [
       student.placementNotes,
       ...(Array.isArray(sourceSnapshot?.placementNotes)
@@ -2205,6 +2213,18 @@ export async function updateDraftGroup(
         "Move students with a different registered discipline before changing this group.",
       );
     }
+    if (parsed.instructorIds) {
+      await tx
+        .delete(groupingDraftInstructors)
+        .where(eq(groupingDraftInstructors.draftGroupId, parsed.groupId));
+      if (parsed.instructorIds.length)
+        await tx.insert(groupingDraftInstructors).values(
+          [...new Set(parsed.instructorIds)].map((instructorId) => ({
+            draftGroupId: parsed.groupId,
+            instructorId,
+          })),
+        );
+    }
     const assignedStaff = await tx
       .select({ instructorId: groupingDraftInstructors.instructorId })
       .from(groupingDraftInstructors)
@@ -2338,6 +2358,9 @@ export async function updateDraftGroup(
         abilityLevelId: parsed.abilityLevelId,
         ageBandId: parsed.ageBandId,
         notes: parsed.notes,
+        ...(parsed.instructorIds
+          ? { leadInstructorId: parsed.leadInstructorId ?? null }
+          : {}),
         updatedAt: new Date(),
       })
       .where(
@@ -2364,6 +2387,12 @@ export async function updateDraftGroup(
         disciplineId: parsed.disciplineId,
         abilityLevelId: parsed.abilityLevelId,
         ageBandId: parsed.ageBandId,
+        ...(parsed.instructorIds
+          ? {
+              instructorIds: parsed.instructorIds,
+              leadInstructorId: parsed.leadInstructorId ?? null,
+            }
+          : {}),
       },
     });
     await validateGroupingDraft(tx, parsed.draftId, parsed.groupId);

@@ -59,6 +59,73 @@ function prompt(
 }
 
 describe("Aspenware registration export analysis", () => {
+  it.each(["($719.00)", "-$719.00", "$-719.00"])(
+    "keeps refund prompts (%s) out of sale enrichment without losing returns",
+    (refundPrice) => {
+      const preview = previewAspenwareRegistrationBatch({
+        listingRecords: [
+          listing(),
+          listing({
+            Qty: "-1",
+            "Net Amount": "($719.00)",
+            "Transaction Type / Reservation Status": "Type:Return; Status:Open",
+          }),
+        ],
+        byOrderRecords: [byOrder()],
+        promptRecords: [
+          {
+            ...prompt("refund", "child-opaque-1", "Ability Level", "Level 6"),
+            TotalPrice: refundPrice,
+          },
+          prompt("sale", "child-opaque-1", "Ability Level", "Level 3"),
+        ],
+      });
+      expect(preview.issues).toEqual([]);
+      expect(preview.facts[0]).toMatchObject({
+        status: "returned",
+        abilityLevel: "Level 3",
+      });
+      expect(preview.summary).toMatchObject({
+        grossSales: 1,
+        returns: 1,
+        active: 0,
+        returned: 1,
+      });
+    },
+  );
+
+  it("still flags genuine duplicate sales using original CSV row numbers after refunds", () => {
+    const preview = previewAspenwareRegistrationBatch({
+      listingRecords: [listing()],
+      promptRecords: [
+        {
+          ...prompt("refund", "child-opaque-1", "Ability Level", ""),
+          TotalPrice: "($719.00)",
+        },
+        prompt("sale-1", "child-opaque-1", "Ability Level", "Level 2"),
+        prompt("sale-2", "child-opaque-1", "Ability Level", "Level 4"),
+      ],
+    });
+    expect(preview.issues).toEqual([
+      expect.stringContaining(
+        "Prompt rows 3 and 4 describe multiple purchases",
+      ),
+    ]);
+  });
+
+  it("never enriches a sale from refund-only answers", () => {
+    const preview = previewAspenwareRegistrationBatch({
+      listingRecords: [listing()],
+      promptRecords: [
+        {
+          ...prompt("refund", "child-opaque-1", "Ability Level", "Level 6"),
+          TotalPrice: "($719.00)",
+        },
+      ],
+    });
+    expect(preview.facts[0]?.abilityLevel).toBeNull();
+    expect(preview.summary.promptMatched).toBe(0);
+  });
   it("enriches canonical listing prices using child IDs for prompts and names for purchasers", () => {
     // Production remapping exposes Net Amount, not the raw DetailRowC5 field.
     const preview = previewAspenwareRegistrationBatch({

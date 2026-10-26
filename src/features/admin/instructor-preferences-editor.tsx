@@ -1,213 +1,253 @@
 import { useEffect, useState } from "react";
+import { CalendarDays, GraduationCap } from "lucide-react";
 import type { InstructorPreference } from "@/domain/grouping/instructor-preferences";
-import { RefreshButton } from "@/components/refresh-button";
-import {
-  loadInstructorPreferences,
-  updateInstructorPreferences,
-} from "@/server/functions/instructors";
+import { teachingPeriod } from "@/domain/grouping/instructor-preferences";
+import { loadInstructorPreferences } from "@/server/functions/instructors";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
+type Slot = "am" | "pm" | "full" | "weekday" | "off";
+const days = [
+  { day: 4, label: "Thursday" },
+  { day: 5, label: "Friday" },
+  { day: 6, label: "Saturday" },
+  { day: 0, label: "Sunday" },
+];
 export function InstructorPreferencesEditor({
   instructorId,
+  onChange,
 }: {
-  instructorId: string;
+  instructorId?: string;
+  onChange: (rows: Array<InstructorPreference>) => void;
 }) {
-  const [context, setContext] = useState<Awaited<
-    ReturnType<typeof loadInstructorPreferences>
-  > | null>(null);
   const [rows, setRows] = useState<Array<InstructorPreference>>([]);
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(Boolean(instructorId));
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    if (!instructorId) return;
     let active = true;
+    setLoading(true);
+    setError("");
     loadInstructorPreferences({ data: { instructorId } })
-      .then((value) => {
-        if (active) {
-          setContext(value);
-          setRows(value.preferences);
-        }
+      .then((data) => {
+        if (active) setRows(data.preferences);
       })
       .catch(() => {
-        if (active) setMessage("Could not load preferences.");
+        if (active) setError("Availability could not be loaded.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
     return () => {
       active = false;
     };
-  }, [instructorId]);
-  const change = (index: number, value: Partial<InstructorPreference>) =>
-    setRows((previous) =>
-      previous.map((row, position) =>
-        position === index ? { ...row, ...value } : row,
-      ),
-    );
+  }, [instructorId, attempt]);
+  const slotFor = (day: number): Slot => {
+    const matches = rows.filter((row) => row.weekday === day);
+    if (!matches.length) return "off";
+    if (day === 4 || day === 5) return "weekday";
+    const slots = matches.map((row) => row.teachingSlot ?? teachingPeriod(row));
+    return slots.includes("full") ||
+      (slots.includes("am") && slots.includes("pm"))
+      ? "full"
+      : slots.includes("am")
+        ? "am"
+        : "pm";
+  };
+  const ranges = {
+    minimumAge: rows[0]?.minimumAge ?? null,
+    maximumAge: rows[0]?.maximumAge ?? null,
+    minimumLevel: rows[0]?.minimumLevel ?? null,
+    maximumLevel: rows[0]?.maximumLevel ?? null,
+  };
+  function update(
+    day?: number,
+    slot?: Slot,
+    range: Partial<typeof ranges> = {},
+  ) {
+    const next = days.flatMap((item) => {
+      const value = item.day === day ? slot! : slotFor(item.day);
+      return value === "off"
+        ? []
+        : [
+            {
+              weekday: item.day,
+              teachingSlot: value,
+              startsAt: "00:00",
+              endsAt: "23:59",
+              ...ranges,
+              ...range,
+            },
+          ];
+    });
+    setRows(next);
+    onChange(next);
+  }
   return (
-    <section className="space-y-3 rounded-xl border p-4">
-      <RefreshButton
-        onRefresh={async () => {
-          const clean =
-            !context ||
-            JSON.stringify(rows) === JSON.stringify(context.preferences);
-          const latest = await loadInstructorPreferences({
-            data: { instructorId },
-          });
-          setContext(latest);
-          if (clean) setRows(latest.preferences);
-          else
-            setMessage(
-              "Availability refreshed; your unsaved edits are preserved.",
-            );
-        }}
-      />
-      <h3 className="font-semibold">Availability and teaching preferences</h3>
-      <p className="text-muted-foreground text-sm">
-        Day and time determine availability. Age and level ranges rank
-        suggestions.
-      </p>
-      {rows.map((row, index) => (
-        <div key={index} className="flex flex-wrap gap-2 rounded border p-2">
-          <label>
-            Program
-            <select
-              value={row.programId}
-              onChange={(e) => change(index, { programId: e.target.value })}
-            >
-              {context?.programs.map((program) => (
-                <option key={program.id} value={program.id}>
-                  {program.seasonName} · {program.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Cohort
-            <select
-              value={row.cohort}
-              onChange={(e) =>
-                change(index, {
-                  cohort: e.target.value as InstructorPreference["cohort"],
-                })
-              }
-            >
-              {["season", "session-1", "session-2"].map((cohort) => (
-                <option key={cohort}>{cohort}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Day
-            <select
-              value={row.weekday}
-              onChange={(e) =>
-                change(index, { weekday: Number(e.target.value) })
-              }
-            >
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
-                (day, value) => (
-                  <option key={day} value={value}>
-                    {day}
-                  </option>
-                ),
-              )}
-            </select>
-          </label>
-          <label>
-            From
-            <input
-              type="time"
-              value={row.startsAt}
-              onChange={(e) => change(index, { startsAt: e.target.value })}
-            />
-          </label>
-          <label>
-            Until
-            <input
-              type="time"
-              value={row.endsAt}
-              onChange={(e) => change(index, { endsAt: e.target.value })}
-            />
-          </label>
-          {(
-            [
-              ["minimumAge", "Min age"],
-              ["maximumAge", "Max age"],
-              ["minimumLevel", "Min level"],
-              ["maximumLevel", "Max level"],
-            ] as const
-          ).map(([field, label]) => (
-            <label key={field}>
-              {label}
-              <input
-                className="w-16 border"
-                type="number"
-                value={row[field] ?? ""}
-                onChange={(e) =>
-                  change(index, {
-                    [field]:
-                      e.target.value === "" ? null : Number(e.target.value),
-                  })
-                }
-              />
-            </label>
-          ))}
+    <section className="bg-muted/20 space-y-5 rounded-xl border p-5">
+      <div>
+        <h3 className="flex items-center gap-2 font-semibold">
+          <CalendarDays className="text-primary size-4" /> Weekly availability
+        </h3>
+        <p className="text-muted-foreground mt-1 text-xs">
+          Applies across programs and sessions. Saved with this instructor.
+        </p>
+      </div>
+      {error ? (
+        <div role="alert" className="text-destructive text-sm">
+          {error}{" "}
           <Button
             type="button"
-            variant="ghost"
-            onClick={() =>
-              setRows((previous) =>
-                previous.filter((_, position) => position !== index),
-              )
-            }
+            variant="outline"
+            size="sm"
+            onClick={() => setAttempt((n) => n + 1)}
           >
-            Remove window
+            Retry
           </Button>
         </div>
-      ))}
-      <Button
-        type="button"
-        variant="outline"
-        disabled={!context?.programs.length || busy}
-        onClick={() =>
-          setRows((previous) => [
-            ...previous,
-            {
-              programId: context!.programs[0]!.id,
-              cohort: "season",
-              weekday: 6,
-              startsAt: "09:00",
-              endsAt: "15:00",
-              minimumAge: null,
-              maximumAge: null,
-              minimumLevel: null,
-              maximumLevel: null,
-            },
-          ])
-        }
-      >
-        Add availability
-      </Button>
-      <Button
-        type="button"
-        disabled={!context || busy}
-        onClick={async () => {
-          setBusy(true);
-          try {
-            await updateInstructorPreferences({
-              data: { instructorId, preferences: rows },
-            });
-            setContext((previous) =>
-              previous ? { ...previous, preferences: rows } : previous,
-            );
-            setMessage("Preferences saved.");
-          } catch (error) {
-            setMessage(error instanceof Error ? error.message : "Save failed.");
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        Save preferences
-      </Button>
-      {message && <p role="status">{message}</p>}
+      ) : loading ? (
+        <p className="text-muted-foreground text-sm">Loading availability…</p>
+      ) : (
+        <>
+          <div className="bg-background divide-y rounded-lg border">
+            {days.map(({ day, label }) => (
+              <div
+                key={day}
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+              >
+                <span className="text-sm font-medium">{label}</span>
+                {day === 4 || day === 5 ? (
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={slotFor(day) !== "off"}
+                      onCheckedChange={(checked) =>
+                        update(day, checked ? "weekday" : "off")
+                      }
+                    />
+                    Available
+                  </label>
+                ) : (
+                  <div
+                    className="flex flex-wrap gap-1"
+                    role="group"
+                    aria-label={`${label} availability`}
+                  >
+                    {(
+                      [
+                        ["off", "Unavailable"],
+                        ["am", "AM"],
+                        ["pm", "PM"],
+                        ["full", "Full day"],
+                      ] as const
+                    ).map(([value, title]) => (
+                      <Button
+                        type="button"
+                        key={value}
+                        size="sm"
+                        variant={slotFor(day) === value ? "default" : "outline"}
+                        aria-pressed={slotFor(day) === value}
+                        onClick={() => update(day, value)}
+                      >
+                        {title}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div>
+            <h4 className="flex items-center gap-2 text-sm font-semibold">
+              <GraduationCap className="text-primary size-4" /> Teaching
+              preferences
+            </h4>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Used to rank suggestions, not restrict eligibility. Choose
+              availability first.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {(["Age", "Level"] as const).map((kind) => {
+              const min = kind === "Age" ? "minimumAge" : "minimumLevel";
+              const max = kind === "Age" ? "maximumAge" : "maximumLevel";
+              const values =
+                kind === "Age"
+                  ? Array.from({ length: 17 }, (_, i) => i + 2)
+                  : [1, 2, 3, 4, 5, 6];
+              return (
+                <fieldset
+                  key={kind}
+                  disabled={!rows.length}
+                  className="space-y-2"
+                >
+                  <legend className="text-xs font-medium">
+                    Preferred {kind.toLowerCase()} range
+                  </legend>
+                  <div className="flex items-center gap-2">
+                    {([min, max] as Array<keyof typeof ranges>).map(
+                      (field, index) => (
+                        <Select
+                          key={field}
+                          disabled={!rows.length}
+                          value={String(ranges[field] ?? "any")}
+                          onValueChange={(value) => {
+                            const n = value === "any" ? null : Number(value);
+                            const patch: Partial<typeof ranges> = {
+                              [field]: n,
+                            };
+                            if (
+                              n !== null &&
+                              field === min &&
+                              ranges[max] !== null &&
+                              n > ranges[max]
+                            )
+                              patch[max] = n;
+                            if (
+                              n !== null &&
+                              field === max &&
+                              ranges[min] !== null &&
+                              n < ranges[min]
+                            )
+                              patch[min] = n;
+                            update(undefined, undefined, patch);
+                          }}
+                        >
+                          <SelectTrigger
+                            aria-label={`${index ? "Maximum" : "Minimum"} preferred ${kind.toLowerCase()}`}
+                            className="flex-1"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="any">
+                              {index ? "Any maximum" : "Any minimum"}
+                            </SelectItem>
+                            {values.map((value) => (
+                              <SelectItem key={value} value={String(value)}>
+                                {kind === "Age"
+                                  ? `Age ${value}`
+                                  : `Level ${value}`}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ),
+                    )}
+                  </div>
+                </fieldset>
+              );
+            })}
+          </div>
+        </>
+      )}
     </section>
   );
 }
