@@ -31,6 +31,7 @@ const localTimeSchema = z
   .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Enter a valid time in HH:MM format.");
 
 const calendarFields = {
+  allowedWeekdays: z.array(z.number().int().min(0).max(6)).max(7).default([]),
   cohort: z.enum(["season", "session-1", "session-2"]).default("season"),
   startsOn: z.iso.date().nullable().default(null),
   endsOn: z.iso.date().nullable().default(null),
@@ -214,6 +215,7 @@ export async function getProgramConfiguration(actor: Actor, programId: string) {
           endsAt: timeSlots.endsAt,
           startsOn: timeSlots.startsOn,
           endsOn: timeSlots.endsOn,
+          allowedWeekdays: timeSlots.allowedWeekdays,
           excludedDates: timeSlots.excludedDates,
           cohort: timeSlots.cohort,
           displayOrder: timeSlots.displayOrder,
@@ -646,7 +648,7 @@ export const updateTimeSlotSchema = z
 
 export async function createTimeSlot(
   actor: Actor,
-  input: z.infer<typeof createTimeSlotSchema>,
+  input: z.input<typeof createTimeSlotSchema>,
 ) {
   requirePermission(actor, "program:manage");
   const parsed = createTimeSlotSchema.parse(input);
@@ -669,6 +671,7 @@ export async function createTimeSlot(
           endsAt: parsed.endsAt,
           startsOn: parsed.startsOn,
           endsOn: parsed.endsOn,
+          allowedWeekdays: [...new Set(parsed.allowedWeekdays)].sort(),
           excludedDates: [...new Set(parsed.excludedDates)].sort(),
           cohort: parsed.cohort,
           displayOrder: parsed.displayOrder,
@@ -715,7 +718,7 @@ export async function createTimeSlot(
 
 export async function updateTimeSlot(
   actor: Actor,
-  input: z.infer<typeof updateTimeSlotSchema>,
+  input: z.input<typeof updateTimeSlotSchema>,
 ) {
   requirePermission(actor, "program:manage");
   const parsed = updateTimeSlotSchema.parse(input);
@@ -752,10 +755,20 @@ export async function updateTimeSlot(
       .from(groupRecurrences)
       .where(eq(groupRecurrences.timeSlotId, existing.id))
       .limit(1);
-    if (publishedUse)
+    const [finalizedUse] = await tx
+      .select({ id: groupingDrafts.id })
+      .from(groupingDrafts)
+      .where(
+        and(
+          eq(groupingDrafts.programId, existing.programId),
+          sql`${groupingDrafts.finalizedSnapshot} is not null`,
+        ),
+      )
+      .limit(1);
+    if (publishedUse || finalizedUse)
       throw new ApplicationError(
         "INVALID_STATE",
-        "This session already has published lessons. Create a new session for a changed calendar or time.",
+        "This program already has finalized placements. Create a new session for a changed calendar or time.",
       );
 
     const [slot] = await tx
@@ -766,6 +779,7 @@ export async function updateTimeSlot(
         endsAt: parsed.endsAt,
         startsOn: parsed.startsOn,
         endsOn: parsed.endsOn,
+        allowedWeekdays: [...new Set(parsed.allowedWeekdays)].sort(),
         excludedDates: [...new Set(parsed.excludedDates)].sort(),
         cohort: parsed.cohort,
         displayOrder: parsed.displayOrder,

@@ -1,73 +1,17 @@
 # Grouping rule catalogue
 
-This document is the versioned source of truth for the first production
-grouping engine. Rules are evaluated against a season/program snapshot and the
-rule-set version is stored on every generated draft.
+## Rule set 4
 
-## Implemented rule set 2
+Generate by configured weekday, time/cohort, discipline, season-start age band, and exact level. Combine all compatible students in each category into one group, with no size-based splitting. The recommended ratio is four students per assigned instructor (lead and assistants); exceeding it shows a warning and never blocks placements, splits, approval, or publication. Generation has no instructor dependency and assigns no instructors. Incremental suggestions preserve existing placements. Unknown birthdate/discipline/level/session evidence stays visible for review.
 
-The current engine orders registrations by hard dimensions and ability, favors
-the target size of four, and limits groups to six. A substantial ability
-difference can start another group when an additional qualified instructor is
-available. One instructor can lead one group at an overlapping time. These
-parameters are currently application defaults; rule administration is not yet a UI.
+Manual level mixing and age-band exceptions require recorded reasons. Discipline, active registration, and schedule compatibility remain server-enforced. Session 1/2 stay separate; full-day sessions overlap the corresponding AM/PM times. A child cannot hold overlapping placements through different registrations.
 
-Suggestions partition by confirmed imported day/time. Unmapped imports and
-overlapping enrollments for the same child stay unplaced for review. Native
-registrations use the session explicitly selected when suggesting placements.
-Incremental suggestions preserve existing placements.
+Instructor assignment requires manager-recorded availability and discipline qualifications. Missing availability is unknown and blocks assignment. Age/level preferences rank eligible suggestions. Publication and finalized changes additionally validate overlapping published commitments across programs.
 
-Working-hour availability, structured relationship requests, per-session date
-windows, and holiday configuration are not fully wired to the application.
-The rule catalogue below remains the target contract; see the
-[readiness review](../operations/administrator-readiness-review.md) for launch gaps.
+Configured must-separate constraints remain supported by the pure engine; relationship-request administration is not part of this release. Restricted medical content never enters grouping optimization.
 
-## Terms
+## Lifecycle
 
-- **Registration**: a student's enrollment in a specific season/program.
-- **Season group**: the durable, numbered group that represents the intended
-  recurring placement.
-- **Lesson instance**: one dated occurrence generated from a published season
-  group.
-- **Draft**: a private, editable proposal. It does not alter published groups.
-- **Override**: a coordinator's explained departure from an engine
-  recommendation or a soft rule.
+Editable drafts support scoped atomic rebuilds with immutable prior snapshots and latest-operation undo. Finalized placements are distinct from staffed publication. Finalized changes use versioned requests with actor, reason, effective dates, and before/after references. Coordinators propose; administrators apply. Temporary exceptions expire back to the underlying placement. Splits retain parent lineage; empty groups can be closed and reopened through audited changes.
 
-## Hard constraints
-
-The engine must never knowingly violate these rules.
-
-| Rule                     | Initial behavior                                                           |
-| ------------------------ | -------------------------------------------------------------------------- |
-| Enrollment compatibility | A registration belongs to the selected program and is active.              |
-| Student availability     | Every required recurring time slot is available.                           |
-| Instructor availability  | The assigned instructor is available for the group time.                   |
-| Qualification            | The instructor holds the required discipline/program qualification.        |
-| Capacity                 | Group size and configured instructor-to-student limits are not exceeded.   |
-| Separation request       | A configured must-separate relationship is not placed together.            |
-| Time conflict            | A student or instructor is not assigned to overlapping actual time ranges. |
-
-## Soft scores
-
-Soft rules generate explanations, not automatic blocks.
-
-| Rule              | Intent                                                          |
-| ----------------- | --------------------------------------------------------------- |
-| Ability proximity | Prefer a group aligned to the student's recorded ability level. |
-| Age cohesion      | Prefer peers with compatible age-band placement.                |
-| Instructor fit    | Prefer stated instructor qualification and preference matches.  |
-| Together request  | Prefer configured sibling/friend placement together.            |
-| Balance           | Prefer balanced group sizes.                                    |
-| Continuity        | Prefer retaining a prior approved assignment where relevant.    |
-
-## Safety and support information
-
-Restricted medication, allergy, and support records never enter the optimizer.
-They can create a visible coordinator review warning when policy requires it.
-Only authorized staff can read the underlying details.
-
-## Publication rule
-
-A group may be incomplete while drafting. An approved group must have a lead
-instructor before publication. Publication reruns every hard constraint in a
-single transaction and creates dated lesson instances.
+Published changes regenerate only affected untouched future lessons. Existing completed lesson records, attendance, and notes remain immutable. All group references retain stable IDs; descriptions are characteristic-based and historical descriptions are frozen in events and lesson revisions.

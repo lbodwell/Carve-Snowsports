@@ -1,7 +1,8 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
-
 import type { Actor } from "@/application/policies/authorization";
+import { instructorPreferenceSchema } from "@/domain/grouping/instructor-preferences";
+
 import { ApplicationError } from "@/application/errors";
 import { requirePermission } from "@/application/policies/authorization";
 import { db } from "@/db/client.server";
@@ -15,6 +16,72 @@ import {
   programs,
   seasons,
 } from "@/db/schema";
+
+export const saveInstructorPreferencesSchema = z.object({
+  instructorId: z.uuid(),
+  preferences: z.array(instructorPreferenceSchema).max(100),
+});
+export async function getInstructorPreferences(
+  actor: Actor,
+  instructorId: string,
+) {
+  requirePermission(actor, "people:manage");
+  const [instructor] = await db
+    .select({ preferences: instructors.preferences })
+    .from(instructors)
+    .innerJoin(people, eq(people.id, instructors.personId))
+    .where(
+      and(
+        eq(people.id, instructorId),
+        eq(people.organizationId, actor.organizationId),
+        isNull(people.archivedAt),
+      ),
+    );
+  if (!instructor)
+    throw new ApplicationError("NOT_FOUND", "Instructor not found.");
+  const options = await db
+    .select({ id: programs.id, name: programs.name, seasonName: seasons.name })
+    .from(programs)
+    .innerJoin(seasons, eq(seasons.id, programs.seasonId))
+    .where(
+      and(
+        eq(seasons.organizationId, actor.organizationId),
+        isNull(seasons.archivedAt),
+      ),
+    );
+  return { ...instructor, programs: options };
+}
+export async function saveInstructorPreferences(
+  actor: Actor,
+  input: z.infer<typeof saveInstructorPreferencesSchema>,
+) {
+  const parsed = saveInstructorPreferencesSchema.parse(input);
+  const context = await getInstructorPreferences(actor, parsed.instructorId);
+  if (
+    parsed.preferences.some(
+      (item) =>
+        !context.programs.some((program) => program.id === item.programId),
+    )
+  )
+    throw new ApplicationError(
+      "VALIDATION",
+      "Choose a program in this organization.",
+    );
+  await db.transaction(async (tx) => {
+    await tx
+      .update(instructors)
+      .set({ preferences: parsed.preferences, updatedAt: new Date() })
+      .where(eq(instructors.personId, parsed.instructorId));
+    await tx.insert(auditEvents).values({
+      organizationId: actor.organizationId,
+      actorId: actor.userId,
+      entityType: "instructor",
+      entityId: parsed.instructorId,
+      action: "instructor.preferences_updated",
+      metadata: { availabilityWindows: parsed.preferences.length },
+    });
+  });
+}
 
 const optionalEmail = z
   .string()

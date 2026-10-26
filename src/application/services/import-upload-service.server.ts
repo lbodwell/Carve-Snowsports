@@ -33,7 +33,7 @@ export const storedImportUploadSchema = z.object({
   files: z
     .array(fileSchema.extend({ key: z.string().max(500) }))
     .min(1)
-    .max(3),
+    .max(4),
 });
 
 async function assertProgram(actor: Actor, programId: string) {
@@ -155,6 +155,11 @@ export async function queueStoredImport(
       listingName: listing.name,
       byOrderCsv: byOrder?.content,
       byOrderName: byOrder?.name,
+      birthdateCsv: validated.find((file) => file.sourceKind === "customer_dob")
+        ?.content,
+      birthdateName: validated.find(
+        (file) => file.sourceKind === "customer_dob",
+      )?.name,
       promptCsv: prompts?.content,
       promptName: prompts?.name,
     });

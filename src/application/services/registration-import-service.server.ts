@@ -53,6 +53,8 @@ export const previewRegistrationImportSchema = z.object({
   listingName: z.string().trim().min(1).max(255),
   byOrderCsv: optionalCsv,
   byOrderName: z.string().trim().min(1).max(255).optional(),
+  birthdateCsv: optionalCsv,
+  birthdateName: z.string().trim().min(1).max(255).optional(),
   promptCsv: optionalCsv,
   promptName: z.string().trim().min(1).max(255).optional(),
 });
@@ -111,6 +113,7 @@ function remapListing(row: CsvRecord): CsvRecord {
 
 function remapPrompt(row: CsvRecord): CsvRecord {
   return {
+    ...row,
     TransactionID: row.TransactionID ?? "",
     TransactionLineIPCode: row.TransactionLineIPCode ?? "",
     ProductDate: row.ProductDate ?? "",
@@ -130,6 +133,15 @@ function sourceFiles(input: PreviewInput) {
             kind: "by_order",
             content: input.byOrderCsv,
             name: input.byOrderName ?? "by-order.csv",
+          },
+        ]
+      : []),
+    ...(input.birthdateCsv
+      ? [
+          {
+            kind: "customer_dob",
+            content: input.birthdateCsv,
+            name: input.birthdateName ?? "birthdates.csv",
           },
         ]
       : []),
@@ -184,7 +196,10 @@ async function toPreview(
       ),
     );
   const identities = await db
-    .select({ externalId: externalIdentities.externalId })
+    .select({
+      externalId: externalIdentities.externalId,
+      entityId: externalIdentities.entityId,
+    })
     .from(externalIdentities)
     .where(
       and(
@@ -243,7 +258,26 @@ async function toPreview(
       status: fact.status,
       discipline: fact.dimensions.discipline,
       abilityLevel: fact.abilityLevel,
-      issues: fact.issues,
+      issues: [
+        ...fact.issues,
+        ...(fact.dateOfBirth &&
+        (() => {
+          const candidate = candidates.find(
+            (person) =>
+              person.id ===
+              identities.find(
+                (identity) => identity.externalId === fact.participantKey,
+              )?.entityId,
+          );
+          return (
+            candidate?.dateOfBirth && candidate.dateOfBirth !== fact.dateOfBirth
+          );
+        })()
+          ? [
+              "Export birthdate differs from the saved profile; existing birthdate will be preserved.",
+            ]
+          : []),
+      ],
     })),
   };
 }
@@ -292,6 +326,9 @@ export async function previewRegistrationImport(
     ? csvRecords(parsed.promptCsv, "Prompt").map(remapPrompt)
     : undefined;
   const preview = previewAspenwareRegistrationBatch({
+    birthdateRecords: parsed.birthdateCsv
+      ? csvRecords(parsed.birthdateCsv, "Birthdates")
+      : undefined,
     listingRecords,
     byOrderRecords,
     promptRecords,
@@ -431,10 +468,10 @@ export async function queueRegistrationImportZip(
     throw new ApplicationError("VALIDATION", "ZIP archive could not be read.");
   }
   const entries = archive.getEntries();
-  if (entries.filter((entry) => !entry.isDirectory).length > 3)
+  if (entries.filter((entry) => !entry.isDirectory).length > 4)
     throw new ApplicationError(
       "VALIDATION",
-      "The ZIP may contain at most three CSV exports.",
+      "The ZIP may contain at most four CSV exports.",
     );
   const files = entries.flatMap((entry) => {
     if (entry.isDirectory) return [];
@@ -481,6 +518,8 @@ export async function queueRegistrationImportZip(
     listingName: listing.name,
     byOrderCsv: byOrder?.content,
     byOrderName: byOrder?.name,
+    birthdateCsv: bySource.get("customer_dob")?.content,
+    birthdateName: bySource.get("customer_dob")?.name,
     promptCsv: prompts?.content,
     promptName: prompts?.name,
   });
@@ -526,7 +565,13 @@ export async function processQueuedRegistrationImport(batchId: string) {
     if (!listing) throw new Error("Customer product listing is required.");
     const byOrder = contents.find((file) => file.sourceKind === "by_order");
     const prompts = contents.find((file) => file.sourceKind === "prompts");
+    const birthdates = contents.find(
+      (file) => file.sourceKind === "customer_dob",
+    );
     const preview = previewAspenwareRegistrationBatch({
+      birthdateRecords: birthdates
+        ? csvRecords(birthdates.content, "Birthdates")
+        : undefined,
       listingRecords: csvRecords(listing.content, "Listing").map(remapListing),
       byOrderRecords: byOrder
         ? csvRecords(byOrder.content, "By-order")
@@ -1064,6 +1109,7 @@ export async function applyRegistrationImport(
           .insert(people)
           .values({
             organizationId: actor.organizationId,
+            dateOfBirth: fact.dateOfBirth ?? null,
             firstName:
               fact.studentName.split(",").slice(1).join(" ").trim() ||
               "Unknown",
@@ -1085,6 +1131,36 @@ export async function applyRegistrationImport(
           externalId: fact.participantKey,
         });
         created += 1;
+      }
+      if (fact.dateOfBirth)
+        await tx
+          .update(people)
+          .set({ dateOfBirth: fact.dateOfBirth, updatedAt: new Date() })
+          .where(and(eq(people.id, studentId), isNull(people.dateOfBirth)));
+      if (source && fact.placementNotes?.length) {
+        const [existingRegistration] = await tx
+          .select({ snapshot: registrations.sourceSnapshot })
+          .from(registrations)
+          .where(eq(registrations.id, source.registrationId));
+        const oldNotes = Array.isArray(
+          existingRegistration?.snapshot?.placementNotes,
+        )
+          ? existingRegistration.snapshot.placementNotes.filter(
+              (note): note is string => typeof note === "string",
+            )
+          : [];
+        await tx
+          .update(registrations)
+          .set({
+            sourceSnapshot: {
+              ...existingRegistration?.snapshot,
+              placementNotes: [
+                ...new Set([...oldNotes, ...fact.placementNotes]),
+              ],
+            },
+            updatedAt: new Date(),
+          })
+          .where(eq(registrations.id, source.registrationId));
       }
       if (source) {
         await tx
@@ -1126,6 +1202,7 @@ export async function applyRegistrationImport(
             productDate: fact.productDate,
             saleDate: fact.saleDate,
             sourceAge: fact.sourceAge,
+            placementNotes: fact.placementNotes ?? [],
             weekday: fact.dimensions.weekday,
             session: fact.dimensions.session,
             ageBand: fact.dimensions.ageBand,

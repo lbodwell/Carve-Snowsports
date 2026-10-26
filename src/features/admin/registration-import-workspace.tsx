@@ -104,6 +104,7 @@ export function RegistrationImportWorkspace({
   const [programId, setProgramId] = useState(programs[0]?.id ?? "");
   const [listing, setListing] = useState<SelectedFile | null>(null);
   const [byOrder, setByOrder] = useState<SelectedFile | null>(null);
+  const [birthdates, setBirthdates] = useState<SelectedFile | null>(null);
   const [prompts, setPrompts] = useState<SelectedFile | null>(null);
   const [archive, setArchive] = useState<SelectedFile | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
@@ -167,7 +168,7 @@ export function RegistrationImportWorkspace({
     try {
       const files = archive
         ? [archive]
-        : [listing, byOrder, prompts].filter(
+        : [listing, byOrder, prompts, birthdates].filter(
             (file): file is SelectedFile => file !== null,
           );
       const first = files[0]!;
@@ -225,6 +226,8 @@ export function RegistrationImportWorkspace({
                 listingName: listing.name,
                 byOrderCsv: byOrder?.content,
                 byOrderName: byOrder?.name,
+                birthdateCsv: birthdates?.content,
+                birthdateName: birthdates?.name,
                 promptCsv: prompts?.content,
                 promptName: prompts?.name,
               },
@@ -412,6 +415,7 @@ export function RegistrationImportWorkspace({
                   setListing(null);
                   setByOrder(null);
                   setPrompts(null);
+                  setBirthdates(null);
                 }
               }}
             />
@@ -445,6 +449,17 @@ export function RegistrationImportWorkspace({
                   icon={FileSpreadsheet}
                   label="Product sales prompts"
                   onFile={async (file) => setPrompts(await textFromFile(file))}
+                />
+                <FilePicker
+                  accept=".csv,text/csv"
+                  description="Optional exact birthdates and identity evidence."
+                  disabled={Boolean(archive)}
+                  fileName={birthdates?.name}
+                  icon={FileSpreadsheet}
+                  label="Customer details with DoB"
+                  onFile={async (file) =>
+                    setBirthdates(await textFromFile(file))
+                  }
                 />
               </div>
             </div>
@@ -551,7 +566,23 @@ export function RegistrationImportWorkspace({
             {preview.status === "applied" && (
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" asChild>
-                  <Link to="/admin/surveys">Review survey matches</Link>
+                  <Link
+                    to="/admin/surveys"
+                    search={{
+                      sort: "newest",
+                      q: "",
+                      page: 1,
+                      pageSize: 25,
+                      link: "all",
+                      session: "",
+                      discipline: "",
+                      level: "",
+                      from: "",
+                      until: "",
+                    }}
+                  >
+                    Review survey matches
+                  </Link>
                 </Button>
                 <Button asChild>
                   <Link to="/grouping" search={{ programId }}>

@@ -2,6 +2,7 @@ import { Link, useRouter } from "@tanstack/react-router";
 import { ArrowLeft, Pencil, Plus } from "lucide-react";
 import { useState } from "react";
 import type { FormEvent, ReactNode } from "react";
+import { RefreshButton } from "@/components/refresh-button";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -82,6 +83,7 @@ type ProgramConfigurationEditorProps = {
       endsAt: string;
       startsOn: string | null;
       endsOn: string | null;
+      allowedWeekdays?: Array<number>;
       excludedDates: Array<string>;
       cohort: string;
       displayOrder: number;
@@ -745,6 +747,7 @@ function TimeSlotSection({
     endsAt: string;
     startsOn: string | null;
     endsOn: string | null;
+    allowedWeekdays?: Array<number>;
     excludedDates: Array<string>;
     cohort: "season" | "session-1" | "session-2";
     displayOrder: number;
@@ -756,6 +759,7 @@ function TimeSlotSection({
     endsAt: string;
     startsOn: string | null;
     endsOn: string | null;
+    allowedWeekdays?: Array<number>;
     excludedDates: Array<string>;
     cohort: "season" | "session-1" | "session-2";
     displayOrder: number;
@@ -770,6 +774,7 @@ function TimeSlotSection({
   const [endsAt, setEndsAt] = useState("12:00");
   const [startsOn, setStartsOn] = useState("");
   const [endsOn, setEndsOn] = useState("");
+  const [allowedWeekdays, setAllowedWeekdays] = useState<Array<number>>([]);
   const [excludedDates, setExcludedDates] = useState("");
   const [cohort, setCohort] = useState<"season" | "session-1" | "session-2">(
     "season",
@@ -800,6 +805,7 @@ function TimeSlotSection({
     setEndsAt(item.endsAt);
     setStartsOn(item.startsOn ?? "");
     setEndsOn(item.endsOn ?? "");
+    setAllowedWeekdays(item.allowedWeekdays ?? []);
     setExcludedDates(item.excludedDates.join(", "));
     setCohort(item.cohort as typeof cohort);
     setDisplayOrder(String(item.displayOrder));
@@ -861,6 +867,7 @@ function TimeSlotSection({
                 endsAt,
                 startsOn: startsOn || null,
                 endsOn: endsOn || null,
+                allowedWeekdays,
                 excludedDates: excludedDates.split(/[\s,]+/).filter(Boolean),
                 cohort,
                 displayOrder: order,
@@ -877,6 +884,7 @@ function TimeSlotSection({
               endsAt,
               startsOn: startsOn || null,
               endsOn: endsOn || null,
+              allowedWeekdays,
               excludedDates: excludedDates.split(/[\s,]+/).filter(Boolean),
               cohort,
               displayOrder: order,
@@ -928,6 +936,32 @@ function TimeSlotSection({
             ))}
           </div>
           <Field>
+            <div className="flex flex-wrap gap-2">
+              {[
+                "Sunday",
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+              ].map((day, index) => (
+                <label key={day}>
+                  <input
+                    type="checkbox"
+                    checked={allowedWeekdays.includes(index)}
+                    onChange={(e) =>
+                      setAllowedWeekdays((previous) =>
+                        e.target.checked
+                          ? [...previous, index]
+                          : previous.filter((value) => value !== index),
+                      )
+                    }
+                  />{" "}
+                  {day}
+                </label>
+              ))}
+            </div>
             <FieldLabel htmlFor={`slot-cohort-${programId}`}>
               Seasonal cohort
             </FieldLabel>
@@ -1116,6 +1150,7 @@ function ConfigurationTable({
 
   return (
     <div className="rounded-xl border">
+      <RefreshButton />
       <Table>
         <TableHeader>
           <TableRow>

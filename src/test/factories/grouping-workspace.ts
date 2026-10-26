@@ -2,6 +2,7 @@ import type { Workspace } from "@/features/grouping/group-building-workspace";
 
 export function createGroupingWorkspaceFixture(): Workspace {
   return {
+    rebuildHistory: [],
     program: {
       id: "program",
       name: "Weekend lessons",
@@ -12,7 +13,7 @@ export function createGroupingWorkspaceFixture(): Workspace {
       { id: "program", name: "Weekend lessons", seasonName: "Winter 2027" },
     ],
     draft: { id: "draft", version: 1, status: "editing" },
-    maximumStudentsPerGroup: 6,
+
     roster: [
       {
         registrationId: "avery",
@@ -54,6 +55,7 @@ export function createGroupingWorkspaceFixture(): Workspace {
     groups: [
       {
         id: "group1",
+        displayOrdinal: 1,
         weekday: 6,
         timeSlotId: "morning",
         disciplineId: "ski",
@@ -65,6 +67,7 @@ export function createGroupingWorkspaceFixture(): Workspace {
       },
       {
         id: "group2",
+        displayOrdinal: 2,
         weekday: 0,
         timeSlotId: "morning",
         disciplineId: "ski",
@@ -81,6 +84,7 @@ export function createGroupingWorkspaceFixture(): Workspace {
         firstName: "Jordan",
         lastName: "Lee",
         disciplineIds: ["ski"],
+        preferences: [],
       },
     ],
     disciplines: [{ id: "ski", label: "Ski" }],
@@ -96,6 +100,7 @@ export function createGroupingWorkspaceFixture(): Workspace {
         startsOn: null,
         endsOn: null,
         excludedDates: [],
+        allowedWeekdays: [0, 6],
       },
     ],
     capabilities: { canEdit: true, canApprove: true, canUndo: true },

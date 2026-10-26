@@ -1,0 +1,1 @@
+ALTER TABLE "group_revisions" ADD COLUMN "description" text;

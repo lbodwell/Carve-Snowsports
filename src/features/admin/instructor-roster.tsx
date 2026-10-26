@@ -1,6 +1,8 @@
 import { Plus, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
+import { InstructorPreferencesEditor } from "./instructor-preferences-editor";
+import { RefreshButton } from "@/components/refresh-button";
 
 import { AuditHistoryPanel } from "@/features/admin/audit-history-panel";
 import {
@@ -338,6 +340,7 @@ export function InstructorRoster({
             </p>
           ) : null}
           <div className="rounded-xl border">
+            <RefreshButton />
             <Table className="min-w-[44rem]">
               <TableHeader>
                 <TableRow>
@@ -517,6 +520,12 @@ export function InstructorRoster({
             </div>
           </form>
         ) : null}
+        {editingId && (
+          <InstructorPreferencesEditor
+            key={editingId}
+            instructorId={editingId}
+          />
+        )}
         {editingId &&
           (auditHistoryLoading ? (
             <p className="text-muted-foreground text-sm">

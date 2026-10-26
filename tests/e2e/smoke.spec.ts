@@ -21,15 +21,14 @@ test("serves health and the authenticated staff workspace", async ({
 
   await expect(page).toHaveURL(/\/admin\/?$/);
   administratorCookies = await page.context().cookies();
+  if (process.env.CARVE_UI_PROOF === "1")
+    await page.screenshot({
+      path: ".tmp/planning-dashboard.png",
+      fullPage: true,
+    });
   await expect(
-    page.getByRole("heading", { name: "Season operations" }),
+    page.getByRole("heading", { name: "Planning readiness" }),
   ).toBeVisible();
-  await expect(
-    page.getByText(
-      /need a program registration\.|All roster records are registered\./,
-    ),
-  ).toBeVisible();
-
   await page.goto("/admin/students");
   await expect(page.getByRole("heading", { name: "Students" })).toBeVisible();
   await expect(page.locator("tbody tr")).toHaveCount(0);
@@ -50,7 +49,16 @@ test("serves health and the authenticated staff workspace", async ({
   await expect(saveStudent).toBeDisabled();
   await page
     .getByLabel("Placement notes", { exact: true })
-    .fill("Inline student edit verification");
+    .fill(
+      "Build confidence on turns; prefers a patient instructor and a familiar buddy.",
+    );
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Refresh", exact: true })
+    .click();
+  await expect(page.getByLabel("Placement notes", { exact: true })).toHaveValue(
+    "Build confidence on turns; prefers a patient instructor and a familiar buddy.",
+  );
   await expect(saveStudent).toBeEnabled();
   await saveStudent.click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
@@ -135,9 +143,83 @@ test("serves health and the authenticated staff workspace", async ({
   ).toBeVisible();
 
   await expect(
-    page.getByRole("heading", { name: "Group 1", exact: true }),
+    page.getByRole("heading", { name: /Ski · .*Level/ }).first(),
   ).toBeVisible();
 
+  await page
+    .getByRole("button", { name: "Preview rebuild", exact: true })
+    .click();
+  await expect(page.getByText(/instructor assignments cleared/)).toBeVisible();
+  await page
+    .getByRole("button", { name: "Replace scoped draft groups", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Undo rebuild", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "Undo rebuild", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Undo rebuild", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Preview rebuild", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "All", exact: true }).click();
+  await expect(
+    page.getByText("No linked survey", { exact: false }),
+  ).toHaveCount(0);
+  const noteCard = page
+    .getByRole("button")
+    .filter({
+      hasText:
+        "Build confidence on turns; prefers a patient instructor and a familiar buddy.",
+    })
+    .first();
+  await expect(noteCard).toBeVisible();
+  await noteCard.click();
+  await expect(
+    page.getByRole("heading", { name: "Placement notes", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Scrollable groups").first()).toHaveCSS(
+    "overflow-y",
+    "auto",
+  );
+  const laneCards = page
+    .getByLabel("Scrollable groups")
+    .first()
+    .locator('[data-slot="card"]');
+  const firstBounds = await laneCards.nth(0).boundingBox();
+  const thirdBounds = await laneCards.nth(2).boundingBox();
+  expect(thirdBounds!.y).toBeGreaterThanOrEqual(
+    firstBounds!.y + firstBounds!.height,
+  );
+  if (process.env.CARVE_UI_PROOF === "1") {
+    await page.screenshot({
+      path: ".tmp/grouping-workspace.png",
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth,
+        ),
+      )
+      .toBe(true);
+    await page.screenshot({ path: ".tmp/grouping-mobile.png", fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 720 });
+  }
+  await page.getByRole("button", { name: "Cancel selection" }).click();
+  await page.goto("/admin");
+  await expect(page.locator(".recharts-surface").first()).toBeVisible();
+  await expect(
+    page.locator(".recharts-bar-rectangle path").first(),
+  ).toBeVisible();
+  if (process.env.CARVE_UI_PROOF === "1")
+    await page.screenshot({
+      path: ".tmp/planning-dashboard.png",
+      fullPage: true,
+    });
+  await page.goto("/grouping");
   await page.getByRole("button", { name: "Submit for approval" }).click();
   await expect(page.getByText(/submitted/i)).toBeVisible();
 
@@ -148,7 +230,7 @@ test("serves health and the authenticated staff workspace", async ({
   await expect(page.getByRole("heading", { name: "Results" })).toBeVisible();
 });
 
-test("imports a new student, reviews their survey, and publishes adjusted groups", async ({
+test("imports a new student, syncs their survey, and finalizes unstaffed placements", async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -229,12 +311,6 @@ test("imports a new student, reviews their survey, and publishes adjusted groups
     });
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.goto("/admin/surveys");
-  await expect(
-    page.getByText(
-      "All responses are linked. Clear the filter to review them.",
-    ),
-  ).toBeVisible();
-  await page.getByRole("checkbox", { name: /Needs review only/ }).uncheck();
   await page.getByRole("button", { name: /Ellis Reviewfixture/ }).click();
   await expect(
     page.getByRole("heading", { name: "Linked student" }),
@@ -242,15 +318,6 @@ test("imports a new student, reviews their survey, and publishes adjusted groups
   await page
     .getByRole("combobox", { name: "Student for Ellis Reviewfixture" })
     .selectOption({ label: "Ellis Reviewfixture · 2016-01-08" });
-  await expect(
-    page.getByRole("button", { name: "Confirm student match" }),
-  ).toBeDisabled();
-  await page
-    .getByRole("checkbox", { name: /Fill missing registration discipline/ })
-    .check();
-  await page.getByLabel("Program for survey details").selectOption({
-    label: "Winter 2026 · Weekend Snowsports",
-  });
   await page.getByRole("button", { name: "Confirm student match" }).click();
   await expect(
     page.getByText("Student match confirmed.", { exact: true }),
@@ -289,15 +356,15 @@ test("imports a new student, reviews their survey, and publishes adjusted groups
       .getByRole("button", { name: /Ellis Reviewfixture/ }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Submit for approval" }).click();
-  await page.getByRole("button", { name: "Approve draft" }).click();
   await page
-    .getByRole("button", { name: "Publish groups", exact: true })
+    .getByRole("button", { name: "Finalize student placements" })
     .click();
-  await page
-    .getByRole("alertdialog")
-    .getByRole("button", { name: "Publish groups", exact: true })
-    .click();
-  await expect(page.getByText("Published", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Finalized placements and history" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Publish groups", exact: true }),
+  ).toBeDisabled();
 });
 
 test("personal survey links work with the anonymous fallback disabled", async ({
@@ -373,6 +440,7 @@ test("administrators can prepare separate seasonal cohorts with dates pending", 
     await section
       .getByRole("button", { name: "AM · 10:00–12:00", exact: true })
       .click();
+    await section.getByLabel("Saturday", { exact: true }).check();
     await section
       .getByRole("button", { name: "Add time slot", exact: true })
       .click();

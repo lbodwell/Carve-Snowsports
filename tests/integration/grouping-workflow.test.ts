@@ -7,6 +7,11 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
+  decideGroupChange,
+  getGroupLifecycle,
+  proposeGroupChange,
+} from "@/application/services/group-lifecycle-service.server";
+import {
   createTimeSlot,
   updateTimeSlot,
 } from "@/application/services/program-configuration-service.server";
@@ -19,11 +24,14 @@ import {
   getGroupingWorkspace,
   moveRegistration,
   publishGroupingDraft,
+  rebuildGroupingDraft,
   returnGroupingDraft,
   setRegistrationSchedule,
   submitGroupingDraft,
   suggestRemainingPlacements,
   undoDraftOperation,
+  undoRebuild,
+  updateDraftGroup,
 } from "@/application/services/grouping-draft-service.server";
 import {
   abilityLevels,
@@ -36,6 +44,7 @@ import {
   groupingDrafts,
   instructorQualifications,
   instructors,
+  lessonAttendance,
   lessonInstances,
   organizationMemberships,
   organizations,
@@ -149,6 +158,10 @@ describe("grouping workflow integration", () => {
         displayOrder: numericRank,
       })),
     );
+    const [level] = await db
+      .select()
+      .from(abilityLevels)
+      .where(eq(abilityLevels.programId, programId));
     await db.insert(ageBands).values([
       {
         programId,
@@ -162,6 +175,7 @@ describe("grouping workflow integration", () => {
       .insert(timeSlots)
       .values({
         programId,
+        allowedWeekdays: [0, 6],
         key: "am",
         label: "Morning",
         startsAt: "09:00",
@@ -183,7 +197,22 @@ describe("grouping workflow integration", () => {
       throw new Error("Unable to seed grouping instructor.");
     }
     instructorPersonId = instructorPerson.id;
-    await db.insert(instructors).values({ personId: instructorPerson.id });
+    await db.insert(instructors).values({
+      personId: instructorPerson.id,
+      preferences: [
+        {
+          programId,
+          cohort: "season",
+          weekday: 6,
+          startsAt: "00:00",
+          endsAt: "23:59",
+          minimumAge: null,
+          maximumAge: null,
+          minimumLevel: null,
+          maximumLevel: null,
+        },
+      ],
+    });
     await db.insert(instructorQualifications).values({
       instructorId: instructorPerson.id,
       disciplineId: configuredDisciplines[0]!.id,
@@ -212,6 +241,7 @@ describe("grouping workflow integration", () => {
           programId,
           status: "active",
           disciplineId: configuredDisciplines[0]!.id,
+          abilityLevelId: level!.id,
         })
         .returning({ id: registrations.id });
       if (registration) registrationIds.push(registration.id);
@@ -378,6 +408,31 @@ describe("grouping workflow integration", () => {
       commandId: randomUUID(),
     });
     version = undone.version;
+    const configuredLevels = await db
+      .select()
+      .from(abilityLevels)
+      .where(eq(abilityLevels.programId, programId));
+    const [placedRegistration] = await db
+      .select()
+      .from(registrations)
+      .where(eq(registrations.id, registrationIds[0]!));
+    const differentLevel = configuredLevels.find(
+      (level) => level.id !== placedRegistration!.abilityLevelId,
+    )!;
+    await expect(
+      updateDraftGroup(actor, {
+        draftId: draft.id,
+        baseVersion: version,
+        commandId: randomUUID(),
+        groupId: groupIds[0]!,
+        weekday: 0,
+        timeSlotId: slot!.id,
+        disciplineId: discipline!.id,
+        abilityLevelId: differentLevel.id,
+        ageBandId: null,
+        notes: "",
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
     await db
       .update(registrations)
       .set({
@@ -421,6 +476,13 @@ describe("grouping workflow integration", () => {
       baseVersion: submitted.version,
     });
     version = returned.version;
+    await expect(
+      undoDraftOperation(actor, {
+        draftId: draft.id,
+        baseVersion: version,
+        commandId: randomUUID(),
+      }),
+    ).rejects.toThrow("draft changed after this operation");
     expect(
       (await getGroupingWorkspace(actor, { programId })).draft?.status,
     ).toBe("editing");
@@ -444,17 +506,26 @@ describe("grouping workflow integration", () => {
           status: "active",
         })
         .returning({ id: registrations.id });
-      if (index < 4) await move(registration!.id, groupIds[0]!);
-      else
-        await expect(
-          move(registration!.id, groupIds[0]!),
-        ).rejects.toMatchObject({ code: "VALIDATION" });
+      await move(registration!.id, groupIds[0]!);
     }
     const [persisted] = await db
       .select()
       .from(groupingDrafts)
       .where(eq(groupingDrafts.id, draft.id));
     expect(persisted?.version).toBe(version);
+    const largeGroup = await db
+      .select()
+      .from(groupingDraftAssignments)
+      .where(eq(groupingDraftAssignments.draftGroupId, groupIds[0]!));
+    expect(largeGroup.length).toBeGreaterThan(6);
+    const resubmitted = await submitGroupingDraft(actor, {
+      draftId: draft.id,
+      baseVersion: version,
+    });
+    await approveGroupingDraft(actor, {
+      draftId: draft.id,
+      baseVersion: resubmitted.version,
+    });
   });
 
   test("numbered cohorts stay separate, share staff, and publish their own dated calendars", async () => {
@@ -489,15 +560,46 @@ describe("grouping workflow integration", () => {
       instructorId: instructorPersonId,
       disciplineId: discipline!.id,
     });
+    const [cohortLevel] = await db
+      .insert(abilityLevels)
+      .values({
+        programId: program!.id,
+        key: "level-1",
+        label: "Level 1",
+        numericRank: 1,
+      })
+      .returning();
+    await db
+      .update(instructors)
+      .set({
+        preferences: [1, 2].map((number) => ({
+          ...{
+            programId,
+            cohort: "season",
+            weekday: 6,
+            startsAt: "00:00",
+            endsAt: "23:59",
+            minimumAge: null,
+            maximumAge: null,
+            minimumLevel: null,
+            maximumLevel: null,
+          },
+          programId: program!.id,
+          cohort:
+            number === 1 ? ("session-1" as const) : ("session-2" as const),
+        })),
+      })
+      .where(eq(instructors.personId, instructorPersonId));
     const slots = [];
     for (const number of [1, 2] as const) {
       slots.push(
         await createTimeSlot(actor, {
           programId: program!.id,
+          allowedWeekdays: [6],
           key: `session-${number}`,
           label: `Session ${number}`,
-          startsAt: "10:00",
-          endsAt: "12:00",
+          startsAt: "13:00",
+          endsAt: "15:00",
           cohort: `session-${number}`,
           startsOn: null,
           endsOn: null,
@@ -523,6 +625,7 @@ describe("grouping workflow integration", () => {
           programId: program!.id,
           studentId: child!.id,
           disciplineId: discipline!.id,
+          abilityLevelId: cohortLevel!.id,
           status: "active" as const,
           sourceSnapshot: {
             sourceKey: `cohort-fixture-${number}`,
@@ -550,21 +653,25 @@ describe("grouping workflow integration", () => {
       .from(groupingDraftGroups)
       .where(eq(groupingDraftGroups.draftId, draft.id));
     expect(groups).toHaveLength(2);
-    expect(
-      groups.every((group) => group.leadInstructorId === instructorPersonId),
-    ).toBe(true);
-    const submitted = await submitGroupingDraft(actor, {
+    expect(groups.every((group) => group.leadInstructorId === null)).toBe(true);
+    let version = 1;
+    for (const group of groups) {
+      version = (
+        await assignDraftInstructor(actor, {
+          draftId: draft.id,
+          baseVersion: version,
+          commandId: randomUUID(),
+          groupId: group.id,
+          instructorIds: [instructorPersonId],
+          leadInstructorId: instructorPersonId,
+        })
+      ).version;
+    }
+    await submitGroupingDraft(actor, {
       draftId: draft.id,
-      baseVersion: 1,
-    });
-    await approveGroupingDraft(actor, {
-      draftId: draft.id,
-      baseVersion: submitted.version,
+      baseVersion: version,
     });
     const publication = { draftId: draft.id, idempotencyKey: randomUUID() };
-    await expect(
-      publishGroupingDraft(actor, publication),
-    ).rejects.toMatchObject({ code: "VALIDATION" });
     for (const [index, slot] of slots.entries()) {
       await updateTimeSlot(actor, {
         timeSlotId: slot.id,
@@ -577,6 +684,7 @@ describe("grouping workflow integration", () => {
         excludedDates: index === 0 ? ["2026-01-10"] : [],
         displayOrder: index,
         active: true,
+        allowedWeekdays: [6],
       });
     }
     const [changedDraft] = await db
@@ -630,5 +738,386 @@ describe("grouping workflow integration", () => {
         active: true,
       }),
     ).rejects.toMatchObject({ code: "INVALID_STATE" });
+  });
+
+  test("scoped rebuilds restore snapshots and finalized moves require versioned approval", async () => {
+    const actor = {
+      userId: adminUserId,
+      organizationId,
+      role: "admin" as const,
+    };
+    const [season] = await db
+      .insert(seasons)
+      .values({
+        organizationId,
+        name: "Lifecycle 2030",
+        startsOn: "2030-01-01",
+        endsOn: "2030-03-31",
+        status: "active",
+      })
+      .returning();
+    const [program] = await db
+      .insert(programs)
+      .values({
+        seasonId: season!.id,
+        name: "Lifecycle fixtures",
+        status: "active",
+      })
+      .returning();
+    const [discipline] = await db
+      .insert(disciplines)
+      .values({ programId: program!.id, key: "ski", label: "Ski" })
+      .returning();
+    const [band] = await db
+      .insert(ageBands)
+      .values({
+        programId: program!.id,
+        label: "Children",
+        minimumAge: 7,
+        maximumAge: 12,
+      })
+      .returning();
+    const levels = await db
+      .insert(abilityLevels)
+      .values(
+        [1, 2].map((n) => ({
+          programId: program!.id,
+          key: "level-" + n,
+          label: "Level " + n,
+          numericRank: n,
+        })),
+      )
+      .returning();
+    const [slot] = await db
+      .insert(timeSlots)
+      .values({
+        programId: program!.id,
+        key: "am",
+        label: "Morning",
+        startsAt: "09:00",
+        endsAt: "12:00",
+        allowedWeekdays: [0, 6],
+      })
+      .returning();
+    await db.insert(instructorQualifications).values({
+      instructorId: instructorPersonId,
+      disciplineId: discipline!.id,
+    });
+    await db
+      .update(instructors)
+      .set({
+        preferences: [
+          {
+            programId: program!.id,
+            cohort: "season",
+            weekday: 6,
+            startsAt: "09:00",
+            endsAt: "12:00",
+            minimumAge: null,
+            maximumAge: null,
+            minimumLevel: null,
+            maximumLevel: null,
+          },
+        ],
+      })
+      .where(eq(instructors.personId, instructorPersonId));
+    const ids: Array<string> = [];
+    for (let n = 0; n < 3; n++) {
+      const [person] = await db
+        .insert(people)
+        .values({
+          organizationId,
+          firstName: "Lifecycle" + n,
+          lastName: "Student",
+          dateOfBirth: "2020-01-01",
+        })
+        .returning();
+      await db.insert(students).values({ personId: person!.id });
+      const [registration] = await db
+        .insert(registrations)
+        .values({
+          programId: program!.id,
+          studentId: person!.id,
+          disciplineId: discipline!.id,
+          abilityLevelId: levels[n === 2 ? 1 : 0]!.id,
+          sourceSnapshot: {
+            groupingSchedule: { weekday: 6, timeSlotId: slot!.id },
+          },
+        })
+        .returning();
+      ids.push(registration!.id);
+    }
+    const draft = await createGroupingDraft(actor, {
+      programId: program!.id,
+      weekday: 6,
+      timeSlotId: slot!.id,
+    });
+    let workspace = await getGroupingWorkspace(actor, {
+      programId: program!.id,
+    });
+    expect(workspace.groups).toHaveLength(2);
+    expect(
+      workspace.groups.every((group) => group.instructorIds.length === 0),
+    ).toBe(true);
+    let version = (
+      await assignDraftInstructor(actor, {
+        draftId: draft.id,
+        baseVersion: 1,
+        commandId: randomUUID(),
+        groupId: workspace.groups[0]!.id,
+        instructorIds: [instructorPersonId],
+        leadInstructorId: instructorPersonId,
+      })
+    ).version;
+    const neighbor = await createDraftGroup(actor, {
+      draftId: draft.id,
+      baseVersion: version,
+      commandId: randomUUID(),
+      weekday: 0,
+      timeSlotId: slot!.id,
+      disciplineId: discipline!.id,
+      ageBandId: band!.id,
+      abilityLevelId: levels[0]!.id,
+    });
+    version = neighbor.version;
+    const command = {
+      draftId: draft.id,
+      baseVersion: version,
+      commandId: randomUUID(),
+      weekday: 6,
+      timeSlotId: slot!.id,
+      scope: "session" as const,
+    };
+    const preview = await rebuildGroupingDraft(actor, command);
+    expect(preview).toMatchObject({
+      oldGroups: 2,
+      newGroups: 2,
+      students: 3,
+      clearedInstructors: 1,
+      unresolved: 0,
+    });
+    await expect(
+      rebuildGroupingDraft(actor, { ...command, previewHash: "stale" }),
+    ).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+    const rebuilt = await rebuildGroupingDraft(actor, {
+      ...command,
+      previewHash: preview.previewHash,
+    });
+    workspace = await getGroupingWorkspace(actor, { programId: program!.id });
+    expect(
+      workspace.groups.find((group) => group.id === neighbor.groupId),
+    ).toBeTruthy();
+    expect(
+      workspace.groups.every((group) => group.instructorIds.length === 0),
+    ).toBe(true);
+    version = (
+      await undoRebuild(actor, {
+        draftId: draft.id,
+        baseVersion: rebuilt.version,
+        commandId: randomUUID(),
+      })
+    ).version;
+    workspace = await getGroupingWorkspace(actor, { programId: program!.id });
+    expect(
+      workspace.groups.some(
+        (group) => group.leadInstructorId === instructorPersonId,
+      ),
+    ).toBe(true);
+    const next = { ...command, baseVersion: version, commandId: randomUUID() };
+    const nextPreview = await rebuildGroupingDraft(actor, next);
+    version = (
+      await rebuildGroupingDraft(actor, {
+        ...next,
+        previewHash: nextPreview.previewHash,
+      })
+    ).version;
+    const submitted = await submitGroupingDraft(actor, {
+      draftId: draft.id,
+      baseVersion: version,
+    });
+    version = (
+      await approveGroupingDraft(actor, {
+        draftId: draft.id,
+        baseVersion: submitted.version,
+      })
+    ).version;
+    await expect(
+      undoRebuild(actor, {
+        draftId: draft.id,
+        baseVersion: version,
+        commandId: randomUUID(),
+      }),
+    ).rejects.toThrow();
+    workspace = await getGroupingWorkspace(actor, { programId: program!.id });
+    const source = workspace.assignments.find(
+      (item) => item.registrationId === ids[0],
+    )!.draftGroupId;
+    const destination = workspace.assignments.find(
+      (item) => item.registrationId === ids[2],
+    )!.draftGroupId;
+    const change = {
+      draftId: draft.id,
+      baseVersion: version,
+      commandId: randomUUID(),
+      reason: "One lesson skill assessment",
+      effectiveFrom: "2030-01-12",
+      effectiveUntil: "2030-01-12",
+      action: {
+        type: "move" as const,
+        registrationId: ids[0]!,
+        fromGroupId: source,
+        toGroupId: destination,
+      },
+    };
+    const proposed = await proposeGroupChange(
+      { ...actor, role: "coordinator" },
+      change,
+    );
+    expect(proposed.status).toBe("pending");
+    expect(
+      (
+        await getGroupLifecycle(actor, {
+          draftId: draft.id,
+          asOf: "2030-01-12",
+        })
+      ).groups.find((group) => group.id === source)!.registrationIds,
+    ).toContain(ids[0]);
+    await decideGroupChange(actor, { changeId: proposed.id, approve: true });
+    expect(
+      (
+        await getGroupLifecycle(actor, {
+          draftId: draft.id,
+          asOf: "2030-01-12",
+        })
+      ).groups.find((group) => group.id === destination)!.registrationIds,
+    ).toContain(ids[0]);
+    expect(
+      (
+        await getGroupLifecycle(actor, {
+          draftId: draft.id,
+          asOf: "2030-01-13",
+        })
+      ).groups.find((group) => group.id === source)!.registrationIds,
+    ).toContain(ids[0]);
+    await expect(
+      proposeGroupChange(actor, { ...change, commandId: randomUUID() }),
+    ).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+    await expect(
+      publishGroupingDraft(actor, {
+        draftId: draft.id,
+        idempotencyKey: randomUUID(),
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+    // Finalization is independent of staffing; publication and future changes are not.
+    const [secondInstructor] = await db
+      .insert(people)
+      .values({ organizationId, firstName: "Future", lastName: "Instructor" })
+      .returning();
+    await db.insert(instructors).values({
+      personId: secondInstructor!.id,
+      preferences: [
+        {
+          programId: program!.id,
+          cohort: "season",
+          weekday: 6,
+          startsAt: "09:00",
+          endsAt: "12:00",
+          minimumAge: null,
+          maximumAge: null,
+          minimumLevel: null,
+          maximumLevel: null,
+        },
+      ],
+    });
+    await db.insert(instructorQualifications).values({
+      instructorId: secondInstructor!.id,
+      disciplineId: discipline!.id,
+    });
+    for (const [index, groupId] of [source, destination].entries()) {
+      const current = await getGroupLifecycle(actor, { draftId: draft.id });
+      const instructorId =
+        index === 0 ? instructorPersonId : secondInstructor!.id;
+      await proposeGroupChange(actor, {
+        draftId: draft.id,
+        baseVersion: current.version,
+        commandId: randomUUID(),
+        reason: "Approved teaching assignment",
+        effectiveFrom: "2030-01-01",
+        effectiveUntil: null,
+        action: {
+          type: "staff",
+          groupId,
+          leadInstructorId: instructorId,
+          instructorIds: [instructorId],
+        },
+      });
+    }
+    await publishGroupingDraft(actor, {
+      draftId: draft.id,
+      idempotencyKey: randomUUID(),
+    });
+    const [completed] = await db
+      .select()
+      .from(lessonInstances)
+      .where(eq(lessonInstances.lessonDate, "2030-01-05"));
+    await db
+      .update(lessonInstances)
+      .set({ status: "completed", notes: "Completed lesson record" })
+      .where(eq(lessonInstances.id, completed!.id));
+    const [member] = await db
+      .select()
+      .from(groupRevisionMemberships)
+      .where(
+        eq(
+          groupRevisionMemberships.groupRevisionId,
+          completed!.groupRevisionId,
+        ),
+      );
+    await db.insert(lessonAttendance).values({
+      lessonInstanceId: completed!.id,
+      studentId: member!.studentId,
+      status: "present",
+      recordedBy: adminUserId,
+    });
+    const current = await getGroupLifecycle(actor, { draftId: draft.id });
+    await proposeGroupChange(actor, {
+      ...change,
+      baseVersion: current.version,
+      commandId: randomUUID(),
+      effectiveFrom: "2030-01-19",
+      effectiveUntil: null,
+      reason: "Ongoing level adjustment",
+    });
+    expect(
+      (
+        await db
+          .select()
+          .from(lessonInstances)
+          .where(eq(lessonInstances.id, completed!.id))
+      )[0],
+    ).toMatchObject({
+      status: "completed",
+      notes: "Completed lesson record",
+      groupRevisionId: completed!.groupRevisionId,
+    });
+    expect(
+      await db
+        .select()
+        .from(lessonAttendance)
+        .where(eq(lessonAttendance.lessonInstanceId, completed!.id)),
+    ).toHaveLength(1);
+    const afterChange = await getGroupLifecycle(actor, {
+      draftId: draft.id,
+      asOf: "2030-01-19",
+    });
+    expect(
+      afterChange.groups.find((group) => group.id === destination)!
+        .registrationIds,
+    ).toContain(ids[0]);
+    expect(
+      afterChange.changes
+        .filter((event) => event.status === "applied")
+        .every((event) => event.after?.every((group) => group.description)),
+    ).toBe(true);
   });
 });

@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, max } from "drizzle-orm";
 
 import type { Actor } from "@/application/policies/authorization";
+import { compileLifecycleLessons } from "@/application/services/group-lifecycle-service.server";
 import { ApplicationError } from "@/application/errors";
 import { requirePermission } from "@/application/policies/authorization";
 import { validateGroupingDraft } from "@/application/services/grouping-validation.server";
@@ -55,6 +56,7 @@ async function loadApprovedDraft(
       programId: groupingDrafts.programId,
       status: groupingDrafts.status,
       version: groupingDrafts.version,
+      finalizedSnapshot: groupingDrafts.finalizedSnapshot,
       publishedAt: groupingDrafts.publishedAt,
       seasonId: seasons.id,
       organizationId: seasons.organizationId,
@@ -256,6 +258,41 @@ export async function publishGroupingDraft(
         );
       }
 
+      if (draft.finalizedSnapshot) {
+        const result = await compileLifecycleLessons(tx, actor, draft.id);
+        if (!result.lessonCount)
+          throw new ApplicationError(
+            "VALIDATION",
+            "No lessons fall within the configured calendar.",
+          );
+        const publishedAt = new Date();
+        await tx
+          .update(groupingDrafts)
+          .set({
+            status: "published",
+            version: draft.version + 1,
+            publishedAt,
+            updatedAt: publishedAt,
+          })
+          .where(eq(groupingDrafts.id, draft.id));
+        await tx.insert(auditEvents).values({
+          organizationId: actor.organizationId,
+          actorId: actor.userId,
+          entityType: "grouping_draft",
+          entityId: draft.id,
+          action: "grouping.draft_published",
+          metadata: {
+            idempotencyKey: input.idempotencyKey,
+            seasonGroupIds: result.seasonGroupIds,
+            lessonInstanceCount: result.lessonCount,
+          },
+        });
+        return {
+          draftId: draft.id,
+          publishedAt,
+          seasonGroupIds: result.seasonGroupIds,
+        };
+      }
       const groups = await loadDraftGroups(tx, draft.id);
       validateDraftForPublication(groups);
       await validateGroupingDraft(tx, draft.id);

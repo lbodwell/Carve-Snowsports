@@ -4,13 +4,13 @@ import type {
   GroupingRules,
 } from "@/domain/grouping/engine";
 import type { SessionCalendar } from "@/domain/calendar/session-calendar";
+import { RECOMMENDED_STUDENTS_PER_INSTRUCTOR } from "@/domain/grouping/staffing-ratio";
 import { computeAgeOnDate } from "@/domain/calendar/student-age";
 
-export const GROUPING_RULE_SET_VERSION = 2;
+export const GROUPING_RULE_SET_VERSION = 4;
 
 export const DEFAULT_GROUPING_RULES: GroupingRules = {
-  maximumStudentsPerGroup: 6,
-  targetStudentsPerGroup: 4,
+  recommendedStudentsPerInstructor: RECOMMENDED_STUDENTS_PER_INSTRUCTOR,
   minimumInstructorsPerGroup: 1,
 };
 
@@ -82,7 +82,9 @@ export function buildEngineInput(snapshot: GroupingProgramSnapshot): {
     ageBand: registration.ageBandEngineKey ?? "unknown",
     discipline: registration.disciplineKey ?? "unknown",
     available: Boolean(
-      registration.disciplineKey && registration.ageBandEngineKey,
+      registration.disciplineKey &&
+      registration.ageBandEngineKey &&
+      registration.abilityLevelId,
     ),
     mustSeparateFrom: new Set<string>(),
     preferTogetherWith: new Set<string>(),

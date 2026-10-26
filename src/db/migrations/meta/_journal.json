@@ -120,6 +120,34 @@
       "when": 1792565092524,
       "tag": "0016_sync-survey-birthdates",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792972102332,
+      "tag": "0017_survey-enrichment",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792972962849,
+      "tag": "0018_grouping-lifecycle-preferences",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792973885052,
+      "tag": "0019_lifecycle-assistant-staff",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792974328210,
+      "tag": "0020_historical-group-descriptions",
+      "breakpoints": true
     }
   ]
 }

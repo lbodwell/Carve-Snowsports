@@ -8,6 +8,7 @@ export type SessionCalendar = {
   endsOn?: string | null;
   excludedDates?: ReadonlyArray<string>;
   cohort?: string;
+  allowedWeekdays?: ReadonlyArray<number>;
 };
 
 /** Undated slots retain the season-wide behavior; explicit cohorts use real dates. */

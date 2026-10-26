@@ -211,6 +211,9 @@ async function loadAdminWorkspace(
             .select({
               studentId: supportRecords.studentId,
               note: supportRecords.restrictedNote,
+              sourceResponseId: supportRecords.sourceResponseId,
+              sourceSubmittedAt: supportRecords.sourceSubmittedAt,
+              requiresReview: supportRecords.requiresReview,
             })
             .from(supportRecords)
             .where(
@@ -266,9 +269,18 @@ async function loadAdminWorkspace(
           : undefined,
       ),
       notes: student.notes ?? "",
-      medicalInfo:
-        supportRows.find((support) => support.studentId === student.id)?.note ??
-        "",
+      surveyMedicalNotes: supportRows.filter(
+        (support) =>
+          support.studentId === student.id && support.sourceResponseId,
+      ),
+      medicalInfo: supportRows
+        .filter(
+          (support) =>
+            support.studentId === student.id && !support.sourceResponseId,
+        )
+        .map((support) => support.note)
+        .filter(Boolean)
+        .join("\n"),
       guardianName: guardian
         ? `${guardian.firstName} ${guardian.lastName}`.trim()
         : "",
@@ -408,8 +420,13 @@ export const getStudent = createServerFn({ method: "GET" })
           .from(contactMethods)
           .where(eq(contactMethods.personId, guardianLink.guardianId))
       : [];
-    const [support] = await db
-      .select({ note: supportRecords.restrictedNote })
+    const supportNotes = await db
+      .select({
+        note: supportRecords.restrictedNote,
+        sourceResponseId: supportRecords.sourceResponseId,
+        sourceSubmittedAt: supportRecords.sourceSubmittedAt,
+        requiresReview: supportRecords.requiresReview,
+      })
       .from(supportRecords)
       .where(
         and(
@@ -507,7 +524,14 @@ export const getStudent = createServerFn({ method: "GET" })
         guardianEmail:
           guardianContacts.find((contact) => contact.kind === "email")?.value ??
           "",
-        medicalInfo: support?.note ?? "",
+        surveyMedicalNotes: supportNotes.filter(
+          (note) => note.sourceResponseId,
+        ),
+        medicalInfo: supportNotes
+          .filter((note) => !note.sourceResponseId)
+          .map((note) => note.note)
+          .filter(Boolean)
+          .join("\n"),
       }),
     };
   });

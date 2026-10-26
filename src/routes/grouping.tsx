@@ -1,6 +1,7 @@
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 
 import type { Role } from "@/application/policies/authorization";
+import { groupingViewSchema } from "@/domain/grouping/workspace-query";
 import {
   getStaffHomePath,
   hasPermission,
@@ -21,13 +22,7 @@ export const Route = createFileRoute("/grouping")({
       throw redirect({ to: getStaffHomePath(session.role as Role) });
     }
   },
-  validateSearch: (search: Record<string, unknown>) => ({
-    programId:
-      typeof search.programId === "string" &&
-      /^[0-9a-f-]{36}$/i.test(search.programId)
-        ? search.programId
-        : undefined,
-  }),
+  validateSearch: groupingViewSchema,
   loaderDeps: ({ search }) => ({ programId: search.programId }),
   loader: async ({ deps }) =>
     (await getRegistrationImportWorkspace()).length
@@ -39,12 +34,14 @@ export const Route = createFileRoute("/grouping")({
 
 function GroupingPage() {
   const workspace = Route.useLoaderData();
+  const filters = Route.useSearch();
   return (
     <AdminShell>
       {workspace ? (
         <PersistedGroupingBoard
           key={workspace.program.id}
           workspace={workspace}
+          initialFilters={filters}
         />
       ) : (
         <section className="rounded-xl border bg-white p-8">

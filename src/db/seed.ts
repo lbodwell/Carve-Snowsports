@@ -169,6 +169,7 @@ async function seed() {
         programId: program.id,
         key: "am",
         label: "Morning",
+        allowedWeekdays: [6],
         startsAt: "09:00",
         endsAt: "12:00",
         displayOrder: 1,
@@ -177,6 +178,7 @@ async function seed() {
         programId: program.id,
         key: "pm",
         label: "Afternoon",
+        allowedWeekdays: [6],
         startsAt: "13:00",
         endsAt: "16:00",
         displayOrder: 2,
@@ -232,7 +234,22 @@ async function seed() {
         .values({ organizationId: organization.id, firstName, lastName })
         .returning();
       if (!person) continue;
-      await tx.insert(instructors).values({ personId: person.id });
+      await tx.insert(instructors).values({
+        personId: person.id,
+        preferences: [
+          {
+            programId: program.id,
+            cohort: "season",
+            weekday: 6,
+            startsAt: "09:00",
+            endsAt: "16:00",
+            minimumAge: null,
+            maximumAge: null,
+            minimumLevel: null,
+            maximumLevel: null,
+          },
+        ],
+      });
       await tx.insert(contactMethods).values({
         personId: person.id,
         kind: "email",

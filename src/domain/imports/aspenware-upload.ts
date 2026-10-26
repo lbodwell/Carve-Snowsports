@@ -1,6 +1,11 @@
 import { parse } from "csv-parse/sync";
 
-export const importSourceKinds = ["listing", "by_order", "prompts"] as const;
+export const importSourceKinds = [
+  "listing",
+  "by_order",
+  "prompts",
+  "customer_dob",
+] as const;
 export type ImportSourceKind = (typeof importSourceKinds)[number];
 
 export type ValidatedImportFile = {
@@ -35,9 +40,16 @@ const headersBySource: Record<ImportSourceKind, Array<string>> = {
     "DetailRowC5",
     "DetailRowC6",
   ],
+  customer_dob: [
+    "IPCode",
+    "FirstName",
+    "LastName",
+    "BirthDate",
+    "Transactionid",
+    "ProductHeader",
+  ],
   prompts: [
     "TransactionID",
-    "TransactionLineIPCode",
     "ProductDate",
     "ProductHeaderDescription",
     "PromptName1",
@@ -47,7 +59,7 @@ const headersBySource: Record<ImportSourceKind, Array<string>> = {
 };
 
 export const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024;
-export const MAX_IMPORT_FILE_COUNT = 3;
+export const MAX_IMPORT_FILE_COUNT = 4;
 
 function parseHeader(content: string) {
   const [row] = parse(content, {
@@ -63,6 +75,14 @@ function sourceForHeaders(headers: Array<string>): ImportSourceKind | null {
   const matches = importSourceKinds.filter((source) =>
     headersBySource[source].every((header) => headers.includes(header)),
   );
+  if (
+    matches.includes("prompts") &&
+    !headers.includes("TransactionLineIPCode") &&
+    !["ProductHeaderCode", "Textbox2"].every((header) =>
+      headers.includes(header),
+    )
+  )
+    return null;
   if (matches.length !== 1) return null;
   return matches[0] ?? null;
 }
@@ -98,7 +118,7 @@ export function validateAspenwareImportFiles(
   if (files.length === 0)
     throw new Error("Select at least the listing export.");
   if (files.length > MAX_IMPORT_FILE_COUNT)
-    throw new Error("At most three Aspenware CSV exports may be imported.");
+    throw new Error("At most four Aspenware CSV exports may be imported.");
   const validated = files.map((file) =>
     validateAspenwareCsv(file.name, file.content),
   );

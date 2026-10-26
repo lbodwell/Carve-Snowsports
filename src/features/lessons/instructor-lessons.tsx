@@ -16,6 +16,7 @@ type LessonSummary = {
   status: string;
   timeSlotLabel: string;
   groupNumber: number;
+  groupLabel?: string;
   programName: string;
   seasonName: string;
 };
@@ -61,7 +62,8 @@ export function InstructorLessonSchedule({
             <CardHeader className="flex flex-row items-start justify-between gap-3">
               <div>
                 <CardTitle className="text-base">
-                  Group {String(lesson.groupNumber).padStart(2, "0")}
+                  {lesson.groupLabel ??
+                    `${lesson.programName} · ${lesson.timeSlotLabel}`}
                 </CardTitle>
                 <CardDescription>
                   {lesson.seasonName} · {lesson.programName}
@@ -98,6 +100,7 @@ export function InstructorLessonDetail({
     lessonDate: string;
     timeSlotLabel: string;
     groupNumber: number;
+    groupLabel?: string;
     programName: string;
     seasonName: string;
   };
@@ -118,7 +121,8 @@ export function InstructorLessonDetail({
           {lesson.seasonName} · {lesson.programName}
         </p>
         <h1 className="text-2xl font-semibold tracking-tight">
-          Group {String(lesson.groupNumber).padStart(2, "0")}
+          {lesson.groupLabel ??
+            `${lesson.programName} · ${lesson.timeSlotLabel}`}
         </h1>
         <p className="text-muted-foreground text-sm">
           {lesson.lessonDate} · {lesson.timeSlotLabel}

@@ -1,4 +1,15 @@
-import { and, asc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lte,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import type { Actor } from "@/application/policies/authorization";
@@ -8,6 +19,7 @@ import { projectInstructorLessonStudent } from "@/application/policies/sensitive
 import { db } from "@/db/client.server";
 import {
   abilityLevels,
+  ageBands,
   contactMethods,
   disciplines,
   groupRevisionMemberships,
@@ -69,6 +81,7 @@ async function assertInstructorLessonAccess(
       timeSlotId: lessonInstances.timeSlotId,
       timeSlotLabel: timeSlots.label,
       groupNumber: seasonGroups.groupNumber,
+      groupLabel: sql<string>`coalesce(${groupRevisions.description}, concat_ws(' · ', (select label from ${disciplines} where id = ${groupRevisions.disciplineId}), (select label from ${ageBands} where id = ${groupRevisions.ageBandId}), (select label from ${abilityLevels} where id = ${groupRevisions.abilityLevelId}), ${timeSlots.label}, (select concat(first_name, ' ', last_name) from ${people} where id = ${groupRevisions.leadInstructorId})))`,
       programName: programs.name,
       seasonName: seasons.name,
       groupRevisionId: lessonInstances.groupRevisionId,
@@ -85,7 +98,11 @@ async function assertInstructorLessonAccess(
     .where(
       and(
         eq(lessonInstances.id, lessonInstanceId),
-        eq(groupRevisions.leadInstructorId, instructorPersonId),
+        ne(lessonInstances.status, "cancelled"),
+        or(
+          eq(groupRevisions.leadInstructorId, instructorPersonId),
+          sql`${groupRevisions.instructorIds} ? ${instructorPersonId}`,
+        ),
         eq(seasonGroups.organizationId, actor.organizationId),
       ),
     );
@@ -105,6 +122,7 @@ export async function getInstructorLessonSchedule(actor: Actor) {
       status: lessonInstances.status,
       timeSlotLabel: timeSlots.label,
       groupNumber: seasonGroups.groupNumber,
+      groupLabel: sql<string>`coalesce(${groupRevisions.description}, concat_ws(' · ', (select label from ${disciplines} where id = ${groupRevisions.disciplineId}), (select label from ${ageBands} where id = ${groupRevisions.ageBandId}), (select label from ${abilityLevels} where id = ${groupRevisions.abilityLevelId}), ${timeSlots.label}, (select concat(first_name, ' ', last_name) from ${people} where id = ${groupRevisions.leadInstructorId})))`,
       programName: programs.name,
       seasonName: seasons.name,
     })
@@ -119,7 +137,11 @@ export async function getInstructorLessonSchedule(actor: Actor) {
     .innerJoin(seasons, eq(seasonGroups.seasonId, seasons.id))
     .where(
       and(
-        eq(groupRevisions.leadInstructorId, instructorPersonId),
+        ne(lessonInstances.status, "cancelled"),
+        or(
+          eq(groupRevisions.leadInstructorId, instructorPersonId),
+          sql`${groupRevisions.instructorIds} ? ${instructorPersonId}`,
+        ),
         eq(seasonGroups.organizationId, actor.organizationId),
       ),
     )
@@ -209,9 +231,15 @@ export async function getLessonInstanceRoster(
             ),
         ]);
 
-  const medicalByStudent = new Map(
-    supportRows.map((row) => [row.studentId, row.note ?? ""] as const),
-  );
+  const medicalByStudent = new Map<string, string>();
+  for (const row of supportRows)
+    if (row.note)
+      medicalByStudent.set(
+        row.studentId,
+        [medicalByStudent.get(row.studentId), row.note]
+          .filter(Boolean)
+          .join("\n\n"),
+      );
   const phoneByStudent = new Map(
     guardianPhones.map((row) => [row.studentId, row.phone] as const),
   );
@@ -222,6 +250,7 @@ export async function getLessonInstanceRoster(
       lessonDate: lesson.lessonDate,
       timeSlotLabel: lesson.timeSlotLabel,
       groupNumber: lesson.groupNumber,
+      groupLabel: lesson.groupLabel,
       programName: lesson.programName,
       seasonName: lesson.seasonName,
     },

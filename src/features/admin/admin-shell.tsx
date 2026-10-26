@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import type { Role } from "@/application/policies/authorization";
+import { RefreshButton } from "@/components/refresh-button";
 import {
   getStaffHomePath,
   navigationForRole,
@@ -187,6 +188,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
         </nav>
         <main className="min-w-0 flex-1">
           <fieldset className="contents" disabled={!isHydrated}>
+            <div className="mb-3">
+              <RefreshButton />
+            </div>
             {children}
           </fieldset>
         </main>

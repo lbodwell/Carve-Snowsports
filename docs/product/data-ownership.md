@@ -12,8 +12,10 @@
 
 Parent survey answers remain attributed intake evidence. Confirmed identity
 links are persisted separately from suggestions and are never silently rematched.
-An authorized reviewer can explicitly fill a missing birthdate and missing
-program-specific discipline/ability from a response; populated values survive.
+Every confirmed-link path automatically fills missing birthdate and uniquely applicable
+registration discipline/ability; populated values survive. Medical answers become separately
+attributed restricted support notes with response identity, submission date, and review status.
+Profile saves replace only staff-authored notes. Repeated synchronization is idempotent.
 Purchaser contacts are not automatically interpreted as guardian relationships.
 
 `registrations.source_snapshot.groupingSchedule` is a Carve-owned reviewed

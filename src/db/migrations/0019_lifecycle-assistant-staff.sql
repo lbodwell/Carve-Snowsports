@@ -1,0 +1,1 @@
+ALTER TABLE "group_revisions" ADD COLUMN "instructor_ids" jsonb DEFAULT '[]'::jsonb NOT NULL;

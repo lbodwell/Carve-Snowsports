@@ -20,8 +20,7 @@ const instructors = Array.from({ length: 50 }, (_, index) => ({
 
 const startedAt = performance.now();
 const result = generateGroupingDraft(registrations, instructors, {
-  maximumStudentsPerGroup: 8,
-  targetStudentsPerGroup: 6,
+  recommendedStudentsPerInstructor: 6,
   minimumInstructorsPerGroup: 1,
 });
 const durationMs = performance.now() - startedAt;

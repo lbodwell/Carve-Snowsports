@@ -1,4 +1,4 @@
-import { Link, useRouter } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import {
   CheckCircle2,
   ClipboardCopy,
@@ -10,10 +10,11 @@ import {
   UsersRound,
 } from "lucide-react";
 import { useState } from "react";
-import { SurveyMatchReview } from "./survey-match-review";
+import { SurveyResponseDetail } from "./survey-response-detail";
 import type { FormEvent } from "react";
 
 import type { getAdminSurveyWorkspace } from "@/server/functions/surveys";
+import { RefreshButton } from "@/components/refresh-button";
 import {
   Accordion,
   AccordionContent,
@@ -48,12 +49,10 @@ import {
 } from "@/components/ui/table";
 import {
   surveyLevels,
-  surveyLifts,
   surveySessions,
 } from "@/domain/surveys/pre-lesson-intake";
 import {
   addParentSurveyInvitation,
-  confirmParentSurveyMatch,
   generateParentSurveyInvitations,
   reconcileParentSurveyMatches,
   saveSurveyAccess,
@@ -71,9 +70,6 @@ const sessionLabels: Record<string, string> = {
 };
 const levelLabels = Object.fromEntries(
   surveyLevels.map((option) => [option.key, option.label]),
-);
-const liftLabels = Object.fromEntries(
-  surveyLifts.map((option) => [option.key, option.label]),
 );
 
 function downloadInvitationCsv(
@@ -105,6 +101,7 @@ function formatDate(value: Date | string | null) {
 
 export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
   const router = useRouter();
+  const navigate = useNavigate();
   const survey = workspace.survey;
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState(survey?.status ?? "draft");
@@ -114,7 +111,12 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [needsReviewOnly, setNeedsReviewOnly] = useState(true);
+  const needsReviewOnly = workspace.query.link === "unlinked";
+  const setNeedsReviewOnly = (value: boolean) =>
+    void navigate({
+      to: "/admin/surveys",
+      search: { ...workspace.query, page: 1, link: value ? "unlinked" : "all" },
+    });
 
   if (!survey) {
     return (
@@ -193,7 +195,8 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
         </h1>
         <p className="mt-3 max-w-3xl text-white/75">
           Issue parent-specific links and review incoming pre-lesson
-          information. Responses do not change student records.
+          information. Confirmed responses fill missing student details and add
+          attributed support notes.
         </p>
       </header>
 
@@ -365,6 +368,26 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
               Export email and link CSV
             </Button>
           </div>
+          {workspace.query.programId && (
+            <p className="mb-3 text-sm">
+              Showing responses linked to this program.{" "}
+              <Button
+                variant="link"
+                onClick={() =>
+                  navigate({
+                    to: "/admin/surveys",
+                    search: {
+                      ...workspace.query,
+                      programId: undefined,
+                      page: 1,
+                    },
+                  })
+                }
+              >
+                Show all programs
+              </Button>
+            </p>
+          )}
           <form
             className="flex max-w-xl flex-col gap-2 sm:flex-row"
             onSubmit={addInvitation}
@@ -394,6 +417,7 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
             </p>
           ) : (
             <div className="overflow-hidden rounded-xl border">
+              <RefreshButton />
               <Table>
                 <TableHeader>
                   <TableRow className="bg-[#edf4e9] hover:bg-[#edf4e9]">
@@ -450,6 +474,155 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <form
+            className="mb-4 flex flex-wrap items-end gap-3"
+            key={JSON.stringify(workspace.query)}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const data = new FormData(event.currentTarget);
+              void navigate({
+                to: "/admin/surveys",
+                search: {
+                  ...workspace.query,
+                  page: 1,
+                  q: String(data.get("q") ?? ""),
+                  link: String(data.get("link")) as
+                    "all" | "linked" | "unlinked" | "review",
+                  session: String(data.get("session")),
+                  discipline: String(data.get("discipline")) as
+                    "" | "ski" | "snowboard",
+                  level: String(data.get("level")),
+                  from: String(data.get("from")),
+                  until: String(data.get("until")),
+                  surveyId: String(data.get("surveyId")) || undefined,
+                  pageSize: Number(data.get("pageSize")),
+                  sort: String(data.get("sort")) as
+                    "newest" | "oldest" | "name",
+                },
+              });
+            }}
+          >
+            <label>
+              Sort
+              <select name="sort" defaultValue={workspace.query.sort}>
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="name">Child name</option>
+              </select>
+            </label>
+            <Input
+              name="q"
+              aria-label="Search survey responses"
+              placeholder="Child, parent email or linked student"
+              defaultValue={workspace.query.q}
+            />
+            <label>
+              Link status
+              <select name="link" defaultValue={workspace.query.link}>
+                <option value="all">All</option>
+                <option value="linked">Linked</option>
+                <option value="unlinked">Unlinked</option>
+                <option value="review">Enrichment review</option>
+              </select>
+            </label>
+            <label>
+              Session
+              <select name="session" defaultValue={workspace.query.session}>
+                <option value="">All</option>
+                {surveySessions.map((item) => (
+                  <option key={item.key} value={item.key}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Discipline
+              <select
+                name="discipline"
+                defaultValue={workspace.query.discipline}
+              >
+                <option value="">All</option>
+                <option value="ski">Ski</option>
+                <option value="snowboard">Snowboard</option>
+              </select>
+            </label>
+            <label>
+              Level
+              <select name="level" defaultValue={workspace.query.level}>
+                <option value="">All</option>
+                {surveyLevels.map((item) => (
+                  <option key={item.key} value={item.key}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              From
+              <input
+                name="from"
+                type="date"
+                defaultValue={workspace.query.from}
+              />
+            </label>
+            <label>
+              Through
+              <input
+                name="until"
+                type="date"
+                defaultValue={workspace.query.until}
+              />
+            </label>
+            <label>
+              Page size
+              <select name="pageSize" defaultValue={workspace.query.pageSize}>
+                {[25, 50, 100].map((size) => (
+                  <option key={size}>{size}</option>
+                ))}
+              </select>
+            </label>
+            <Button type="submit">Search</Button>
+          </form>
+          <div className="mb-4 flex items-center gap-3">
+            <span>
+              {workspace.responseTotal} matching responses · Page{" "}
+              {workspace.query.page}
+            </span>
+            <Button
+              variant="outline"
+              disabled={workspace.query.page <= 1}
+              onClick={() =>
+                navigate({
+                  to: "/admin/surveys",
+                  search: {
+                    ...workspace.query,
+                    page: workspace.query.page - 1,
+                  },
+                })
+              }
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              disabled={
+                workspace.query.page * workspace.query.pageSize >=
+                workspace.responseTotal
+              }
+              onClick={() =>
+                navigate({
+                  to: "/admin/surveys",
+                  search: {
+                    ...workspace.query,
+                    page: workspace.query.page + 1,
+                  },
+                })
+              }
+            >
+              Next
+            </Button>
+          </div>
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -473,11 +646,11 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
                   "matching",
                   () => reconcileParentSurveyMatches(),
                   (result) =>
-                    `Matching refreshed. ${result.birthdatesFilled} missing birthdates filled. Uncertain responses still need your review.${result.birthdateConflicts ? ` ${result.birthdateConflicts} students have conflicting linked survey birthdates; review their linked responses before recording a birthdate.` : ""}`,
+                    `Matching refreshed. ${result.birthdatesFilled} birthdates, ${result.registrationsFilled} registrations and ${result.medicalNotesAdded} medical notes filled. Uncertain responses still need your review.${result.birthdateConflicts ? ` ${result.birthdateConflicts} students have conflicting linked survey birthdates; review their linked responses before recording a birthdate.` : ""}`,
                 )
               }
             >
-              Check matches again
+              Re-link and sync
             </Button>
           </div>
           {needsReviewOnly &&
@@ -550,28 +723,7 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
                               {sessionLabels[answers.session]}
                             </p>
                           </div>
-                          <div>
-                            <p className="font-medium">Comfortable lifts</p>
-                            <p className="text-muted-foreground">
-                              {answers.lifts
-                                .map((lift) => liftLabels[lift])
-                                .join(", ")}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="font-medium">Medical concerns</p>
-                            <p className="text-muted-foreground whitespace-pre-wrap">
-                              {answers.medicalConcerns || "None provided"}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="font-medium">
-                              Additional information
-                            </p>
-                            <p className="text-muted-foreground whitespace-pre-wrap">
-                              {answers.additionalInformation || "None provided"}
-                            </p>
-                          </div>
+                          <SurveyResponseDetail responseId={response.id} />
                           <div>
                             <p className="font-medium">Submitted</p>
                             <p className="text-muted-foreground">
@@ -600,32 +752,6 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
                             </div>
                           ) : null}
                         </div>
-                        <SurveyMatchReview
-                          key={`${response.id}:${response.confirmedStudentId}`}
-                          students={workspace.students}
-                          programs={workspace.programs}
-                          response={response}
-                          busy={busy !== null}
-                          onConfirm={(
-                            studentId,
-                            fillMissingBirthDate,
-                            programId,
-                          ) =>
-                            void run(
-                              "match",
-                              () =>
-                                confirmParentSurveyMatch({
-                                  data: {
-                                    responseId: response.id,
-                                    studentId,
-                                    fillMissingBirthDate,
-                                    programId,
-                                  },
-                                }),
-                              "Student match confirmed.",
-                            )
-                          }
-                        />
                       </AccordionContent>
                     </AccordionItem>
                   );

@@ -1,13 +1,14 @@
 import { eq, inArray } from "drizzle-orm";
 import type { db } from "@/db/client.server";
+import { instructorAvailability } from "@/domain/grouping/instructor-preferences";
 import { ApplicationError } from "@/application/errors";
-import { DEFAULT_GROUPING_RULES } from "@/application/services/grouping-snapshot.server";
 import {
   disciplines,
   groupingDraftAssignments,
   groupingDraftGroups,
   groupingDraftInstructors,
   groupingDrafts,
+  instructors as instructorProfiles,
   instructorQualifications,
   people,
   registrations,
@@ -75,6 +76,17 @@ export async function validateGroupingDraft(
       eq(disciplines.id, instructorQualifications.disciplineId),
     )
     .where(eq(disciplines.programId, draft.programId));
+  const availability = await tx
+    .select()
+    .from(instructorProfiles)
+    .where(
+      inArray(
+        instructorProfiles.personId,
+        staff.length
+          ? staff.map((item) => item.instructorId)
+          : ["00000000-0000-0000-0000-000000000000"],
+      ),
+    );
   const fail = (message: string): never => {
     throw new ApplicationError("VALIDATION", message);
   };
@@ -85,11 +97,9 @@ export async function validateGroupingDraft(
       (item) => item.id === group.timeSlotId && item.active,
     );
     if (!slot) fail("A group uses an inactive or unavailable lesson time.");
+    if (!slot!.allowedWeekdays.includes(group.weekday))
+      fail("This lesson time is inactive on the selected day.");
     const members = assignments.filter((row) => row.groupId === group.id);
-    if (members.length > DEFAULT_GROUPING_RULES.maximumStudentsPerGroup)
-      fail(
-        `A group exceeds the ${DEFAULT_GROUPING_RULES.maximumStudentsPerGroup}-student limit.`,
-      );
     for (const member of members) {
       if (
         member.status !== "active" ||
@@ -140,6 +150,14 @@ export async function validateGroupingDraft(
     )
       fail("The lead instructor must be on the group’s instructor list.");
     for (const instructor of instructors) {
+      if (
+        !instructorAvailability(
+          availability.find((item) => item.personId === instructor.instructorId)
+            ?.preferences ?? [],
+          { ...slot!, programId: draft.programId, weekday: group.weekday },
+        ).eligible
+      )
+        fail("An instructor has no recorded availability for this session.");
       if (
         !qualifications.some(
           (row) =>
