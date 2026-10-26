@@ -10,6 +10,10 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import type { Actor } from "@/application/policies/authorization";
 import {
+  reviewSurveySupport,
+  updateStudent,
+} from "@/application/services/student-roster-service.server";
+import {
   confirmSurveyMatch,
   refreshSurveyMatches,
 } from "@/application/services/survey-matching-service.server";
@@ -24,12 +28,15 @@ import {
   addSurveyInvitation,
   generateSurveyInvitations,
   getPublicSurvey,
+  getSurveyResponseDetail,
   getSurveyWorkspace,
   submitPublicSurvey,
   updateSurveyAccess,
 } from "@/application/services/survey-service.server";
 import {
+  abilityLevels,
   contactMethods,
+  disciplines,
   importBatches,
   organizations,
   people,
@@ -38,9 +45,11 @@ import {
   seasons,
   studentGuardians,
   students,
+  supportRecords,
   surveyInvitations,
   surveyResponses,
   surveys,
+  timeSlots,
   users,
 } from "@/db/schema";
 
@@ -681,5 +690,193 @@ describe("public parent surveys", () => {
       abilityLevel: "Level 3",
       issues: [],
     });
+  });
+
+  test("already linked synchronization fills scoped registration fields and preserves attributed medical notes", async () => {
+    const [discipline] = await database
+      .insert(disciplines)
+      .values({ programId, key: "ski", label: "Ski" })
+      .onConflictDoUpdate({
+        target: [disciplines.programId, disciplines.key],
+        set: { active: true },
+      })
+      .returning();
+    const [level] = await database
+      .insert(abilityLevels)
+      .values({ programId, key: "level-3", label: "Level 3", numericRank: 3 })
+      .onConflictDoUpdate({
+        target: [abilityLevels.programId, abilityLevels.key],
+        set: { active: true },
+      })
+      .returning();
+    const [slot] = await database
+      .insert(timeSlots)
+      .values({
+        programId,
+        key: "enrichment-am",
+        label: "Morning",
+        startsAt: "10:00",
+        endsAt: "12:00",
+        allowedWeekdays: [6],
+      })
+      .returning();
+    const [person] = await database
+      .insert(people)
+      .values({
+        organizationId: actor.organizationId,
+        firstName: "Sync",
+        lastName: "Fixture",
+      })
+      .returning();
+    await database.insert(students).values({ personId: person!.id });
+    const [registration] = await database
+      .insert(registrations)
+      .values({
+        programId,
+        studentId: person!.id,
+        sourceSnapshot: {
+          groupingSchedule: { weekday: 6, timeSlotId: slot!.id },
+        },
+      })
+      .returning();
+    const [response] = await database
+      .insert(surveyResponses)
+      .values({
+        surveyId,
+        childFirstName: "Sync",
+        childLastName: "Fixture",
+        childDateOfBirth: "2017-01-08",
+        confirmedStudentId: person!.id,
+        matchStatus: "unique",
+        answers: {
+          ...answers,
+          childFirstName: "Sync",
+          childLastName: "Fixture",
+        },
+      })
+      .returning();
+    await database.insert(supportRecords).values({
+      studentId: person!.id,
+      category: "special_condition",
+      restrictedNote: "Staff authored note",
+    });
+    await refreshSurveyMatches(actor);
+    await refreshSurveyMatches(actor);
+    const [saved] = await database
+      .select()
+      .from(registrations)
+      .where(eq(registrations.id, registration!.id));
+    expect(saved).toMatchObject({
+      disciplineId: discipline!.id,
+      abilityLevelId: level!.id,
+    });
+    expect(
+      (
+        await database.select().from(people).where(eq(people.id, person!.id))
+      )[0]!.dateOfBirth,
+    ).toBe("2017-01-08");
+    let notes = await database
+      .select()
+      .from(supportRecords)
+      .where(eq(supportRecords.studentId, person!.id));
+    expect(notes).toHaveLength(2);
+    expect(
+      notes.find((note) => note.sourceResponseId === response!.id),
+    ).toMatchObject({
+      restrictedNote: answers.medicalConcerns,
+      requiresReview: true,
+    });
+    await reviewSurveySupport(actor, {
+      studentId: person!.id,
+      responseId: response!.id,
+      requiresReview: false,
+    });
+    await updateStudent(actor, {
+      studentId: person!.id,
+      registrationId: registration!.id,
+      firstName: "Sync",
+      lastName: "Fixture",
+      dateOfBirth: "2017-01-08",
+      disciplineId: discipline!.id,
+      abilityLevelId: level!.id,
+      guardianName: "",
+      guardianPhone: "",
+      guardianEmail: "",
+      medicalInfo: "Revised staff note",
+      notes: "Placement note",
+    });
+    await refreshSurveyMatches(actor);
+    notes = await database
+      .select()
+      .from(supportRecords)
+      .where(eq(supportRecords.studentId, person!.id));
+    expect(notes).toHaveLength(2);
+    expect(
+      notes.find((note) => note.sourceResponseId === response!.id),
+    ).toMatchObject({
+      restrictedNote: answers.medicalConcerns,
+      requiresReview: false,
+    });
+    expect(notes.find((note) => !note.sourceResponseId)!.restrictedNote).toBe(
+      "Revised staff note",
+    );
+    await expect(
+      reviewSurveySupport(instructorActor, {
+        studentId: person!.id,
+        responseId: response!.id,
+        requiresReview: false,
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  test("response pagination spans every result, preserves stable ordering, and loads medical answers only in detail", async () => {
+    const [survey] = await database
+      .insert(surveys)
+      .values({
+        organizationId: actor.organizationId,
+        slug: "pagination-fixture",
+        title: "Pagination fixture",
+        definitionKey: "pre_lesson_intake",
+        definitionVersion: 1,
+        status: "open",
+      })
+      .returning();
+    await database.insert(surveyResponses).values(
+      Array.from({ length: 56 }, (_, index) => ({
+        surveyId: survey!.id,
+        childFirstName: "Page" + index,
+        childLastName: "Fixture",
+        childDateOfBirth: answers.childDateOfBirth,
+        submittedAt: new Date("2030-01-01T12:00:00Z"),
+        answers: {
+          ...answers,
+          childFirstName: "Page" + index,
+          childLastName: "Fixture",
+        },
+      })),
+    );
+    const pages = await Promise.all(
+      [1, 2, 3].map((page) =>
+        getSurveyWorkspace(actor, { surveyId: survey!.id, page, pageSize: 25 }),
+      ),
+    );
+    expect(pages.map((page) => page.responses.length)).toEqual([25, 25, 6]);
+    expect(
+      new Set(
+        pages.flatMap((page) => page.responses.map((response) => response.id)),
+      ).size,
+    ).toBe(56);
+    expect(pages[0]!.responseTotal).toBe(56);
+    expect(pages[0]!.responses[0]!.answers).not.toHaveProperty(
+      "medicalConcerns",
+    );
+    expect(
+      (await getSurveyWorkspace(actor, { surveyId: survey!.id, q: "Page55" }))
+        .responses,
+    ).toHaveLength(1);
+    expect(
+      (await getSurveyResponseDetail(actor, pages[0]!.responses[0]!.id)).answers
+        .medicalConcerns,
+    ).toBe(answers.medicalConcerns);
   });
 });

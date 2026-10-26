@@ -36,6 +36,59 @@ const studentProfileFields = {
   notes: z.string().trim().max(5000).default(""),
 } as const;
 
+export const reviewSurveySupportSchema = z.object({
+  studentId: z.uuid(),
+  responseId: z.uuid(),
+  requiresReview: z.boolean(),
+});
+export async function reviewSurveySupport(
+  actor: Actor,
+  input: z.infer<typeof reviewSurveySupportSchema>,
+) {
+  requirePermission(actor, "people:manage");
+  const parsed = reviewSurveySupportSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const [student] = await tx
+      .select({ id: people.id })
+      .from(people)
+      .where(
+        and(
+          eq(people.id, parsed.studentId),
+          eq(people.organizationId, actor.organizationId),
+          isNull(people.archivedAt),
+        ),
+      );
+    if (!student) throw new ApplicationError("NOT_FOUND", "Student not found.");
+    const [note] = await tx
+      .update(supportRecords)
+      .set({ requiresReview: parsed.requiresReview, updatedAt: new Date() })
+      .where(
+        and(
+          eq(supportRecords.studentId, student.id),
+          eq(supportRecords.sourceResponseId, parsed.responseId),
+          eq(supportRecords.active, true),
+        ),
+      )
+      .returning({ id: supportRecords.id });
+    if (!note)
+      throw new ApplicationError("NOT_FOUND", "Survey support note not found.");
+    await tx.insert(auditEvents).values({
+      organizationId: actor.organizationId,
+      actorId: actor.userId,
+      entityType: "support_record",
+      entityId: note.id,
+      action: "survey.support_reviewed",
+      metadata: {
+        studentId: student.id,
+        responseId: parsed.responseId,
+        requiresReview: parsed.requiresReview,
+        category: "medical",
+      },
+    });
+    return { requiresReview: parsed.requiresReview };
+  });
+}
+
 export const createStudentRegistrationSchema = z.object({
   programId: z.uuid().optional(),
   firstName: z.string().trim().min(1, "First name is required.").max(100),
@@ -539,7 +592,12 @@ export async function updateStudent(actor: Actor, input: UpdateStudentInput) {
     }
     await tx
       .delete(supportRecords)
-      .where(eq(supportRecords.studentId, student.id));
+      .where(
+        and(
+          eq(supportRecords.studentId, student.id),
+          isNull(supportRecords.sourceResponseId),
+        ),
+      );
     if (parsed.medicalInfo) {
       await tx.insert(supportRecords).values({
         studentId: student.id,

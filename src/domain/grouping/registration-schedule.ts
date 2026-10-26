@@ -62,6 +62,7 @@ export function resolveRegistrationSchedule(
     id: string;
     label: string;
     cohort?: string;
+    allowedWeekdays?: ReadonlyArray<number>;
     startsAt?: string;
     endsAt?: string;
   }>,
@@ -77,7 +78,9 @@ export function resolveRegistrationSchedule(
     slots.some(
       (slot) =>
         slot.id === explicit.timeSlotId &&
-        (slot.cohort ?? "season") === importedCohort(source),
+        (slot.cohort ?? "season") === importedCohort(source) &&
+        (slot.allowedWeekdays === undefined ||
+          slot.allowedWeekdays.includes(explicit.weekday!)),
     )
   ) {
     return { weekday: explicit.weekday!, timeSlotId: explicit.timeSlotId! };
@@ -117,7 +120,11 @@ export function resolveRegistrationSchedule(
             slot.endsAt?.slice(0, 5) === weekendHours[1],
         )
       : [];
-  const candidates = matches.length ? matches : clockMatches;
+  const candidates = (matches.length ? matches : clockMatches).filter(
+    (slot) =>
+      slot.allowedWeekdays === undefined ||
+      slot.allowedWeekdays.includes(weekday),
+  );
   return weekday >= 0 && candidates.length === 1
     ? { weekday, timeSlotId: candidates[0]!.id }
     : null;

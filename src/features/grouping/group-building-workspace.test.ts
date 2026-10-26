@@ -17,12 +17,16 @@ const actions = vi.hoisted(() => ({
   invalidate: vi.fn().mockResolvedValue(undefined),
   create: vi.fn().mockResolvedValue({ id: "draft" }),
 }));
+vi.mock("./group-lifecycle-panel", () => ({ GroupLifecyclePanel: () => null }));
 vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ invalidate: actions.invalidate }),
   useNavigate: () => vi.fn(),
   Link: ({ children }: { children: unknown }) => children,
 }));
 vi.mock("@/server/functions/grouping-draft", () => ({
+  rebuildDraft: vi.fn(),
+  undoDraftRebuild: vi.fn(),
+  splitGroup: vi.fn(),
   moveRegistration: actions.move,
   createGroupingDraft: actions.create,
   approveGroupingDraft: vi.fn(),
@@ -46,7 +50,7 @@ afterEach(() => {
 describe("administrator group workspace", () => {
   it("does not call a Sunday student unplaced while viewing Saturday", () => {
     render(createElement(PersistedGroupingBoard, { workspace: fixture() }));
-    expect(screen.getByText("No students in this view.")).toBeTruthy();
+    expect(screen.getByText(/Everyone is placed/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Rowan Patel/ })).toBeNull();
     expect(
       screen.getByText("0 students need placement · 1 groups need a lead"),
@@ -55,10 +59,44 @@ describe("administrator group workspace", () => {
   it("moves a student directly between groups with the original group attached", async () => {
     const workspace = fixture();
     workspace.groups[1]!.weekday = 6;
+    workspace.groups[1]!.instructorIds = ["jordan"];
+    workspace.groups[1]!.leadInstructorId = "jordan";
+    const assignments = workspace.assignments.map((row) => ({
+      ...row,
+      draftId: "draft",
+      overrideReason: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }));
+    for (let index = 0; index < 6; index++) {
+      workspace.roster.push({
+        ...workspace.roster[1]!,
+        registrationId: `extra-${index}`,
+        firstName: `Extra${index}`,
+      });
+      assignments.push({
+        registrationId: `extra-${index}`,
+        draftGroupId: "group2",
+        draftId: "draft",
+        overrideReason: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+    workspace.assignments = assignments;
     render(createElement(PersistedGroupingBoard, { workspace }));
-    fireEvent.click(screen.getByRole("button", { name: /Avery Chen/ }));
+    expect(
+      screen.getByText(/Group too big for assigned staffing/),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    fireEvent.click(
+      within(screen.getByRole("region", { name: "Student pool" })).getByRole(
+        "button",
+        { name: /Avery Chen/ },
+      ),
+    );
     const destination = screen
-      .getByText("Group 2")
+      .getByText("Ski · Age band needed · Level 3 · Jordan Lee · B")
       .closest<HTMLElement>('[data-slot="card"]')!;
     fireEvent.click(
       within(destination).getByRole("button", { name: "Place student here" }),
@@ -97,7 +135,7 @@ describe("administrator group workspace", () => {
         data: {
           programId: "program",
           mode: "suggested",
-          weekday: 6,
+          weekday: 0,
           timeSlotId: "morning",
         },
       }),

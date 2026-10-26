@@ -1,21 +1,23 @@
 import { createFileRoute } from "@tanstack/react-router";
-
+import { z } from "zod";
 import { AdminShell } from "@/features/admin/admin-shell";
-import { AdminWorkspace } from "@/features/admin/admin-workspace";
-import { getAdminWorkspace } from "@/server/functions/admin-roster";
+import { PlanningDashboard } from "@/features/admin/planning-dashboard";
+import { getPlanningDashboard } from "@/server/functions/planning-dashboard";
 
 export const Route = createFileRoute("/admin/")({
-  loader: () => getAdminWorkspace(),
-  component: AdminOverviewPage,
-  head: () => ({ meta: [{ title: "Season operations · Carve" }] }),
+  validateSearch: z.object({
+    programId: z.uuid().optional(),
+    seasonId: z.uuid().optional(),
+  }),
+  loaderDeps: ({ search }) => search,
+  loader: ({ deps }) => getPlanningDashboard({ data: deps }),
+  component: Page,
+  head: () => ({ meta: [{ title: "Planning readiness · Carve" }] }),
 });
-
-function AdminOverviewPage() {
-  const workspace = Route.useLoaderData();
-
+function Page() {
   return (
     <AdminShell>
-      <AdminWorkspace workspace={workspace} />
+      <PlanningDashboard data={Route.useLoaderData()} />
     </AdminShell>
   );
 }

@@ -14,6 +14,10 @@ import {
   saveInstructor,
 } from "@/server/functions/instructors";
 
+vi.mock("./instructor-preferences-editor", () => ({
+  InstructorPreferencesEditor: () => null,
+}));
+
 vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ invalidate: vi.fn() }),
 }));

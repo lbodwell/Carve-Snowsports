@@ -32,7 +32,7 @@ function registration(
 }
 
 describe("generateGroupingDraft", () => {
-  it("keeps different abilities together with peers when staff are available", () => {
+  it("keeps ability levels separate without assigning instructors", () => {
     const input = [
       registration("advanced", { abilityRank: 6 }),
       registration("beginner", { abilityRank: 1 }),
@@ -42,8 +42,7 @@ describe("generateGroupingDraft", () => {
       { ...instructors[0]!, id: "second-instructor", capacity: 1 },
     ];
     const rules = {
-      maximumStudentsPerGroup: 6,
-      targetStudentsPerGroup: 4,
+      recommendedStudentsPerInstructor: 4,
       minimumInstructorsPerGroup: 1,
     };
     const result = generateGroupingDraft(input, staff, rules);
@@ -51,12 +50,13 @@ describe("generateGroupingDraft", () => {
     expect(result).toEqual(
       generateGroupingDraft([...input].reverse(), [...staff].reverse(), rules),
     );
-    expect(new Set(result.groups.map((group) => group.instructorId)).size).toBe(
-      2,
+    expect(result.groups.every((group) => group.instructorId === null)).toBe(
+      true,
     );
+    expect(generateGroupingDraft(input, [], rules)).toEqual(result);
   });
-  it("uses the target size without inventing extra simultaneous instructors", () => {
-    const input = Array.from({ length: 8 }, (_, index) =>
+  it("keeps all 13 compatible students together without assigning instructors", () => {
+    const input = Array.from({ length: 13 }, (_, index) =>
       registration(`student-${index}`),
     );
     const staff = [
@@ -64,20 +64,18 @@ describe("generateGroupingDraft", () => {
       { ...instructors[0]!, id: "second-instructor", capacity: 1 },
     ];
     const result = generateGroupingDraft(input, staff, {
-      maximumStudentsPerGroup: 6,
-      targetStudentsPerGroup: 4,
+      recommendedStudentsPerInstructor: 4,
       minimumInstructorsPerGroup: 1,
     });
     expect(
       result.groups.map((group) => group.registrationIds.length).sort(),
-    ).toEqual([4, 4]);
+    ).toEqual([13]);
     expect(result.unplaced).toEqual([]);
   });
-  it("is deterministic and never exceeds capacity", () => {
+  it("is deterministic without size-based splitting", () => {
     const input = [registration("student-a"), registration("student-b")];
     const rules = {
-      maximumStudentsPerGroup: 2,
-      targetStudentsPerGroup: 2,
+      recommendedStudentsPerInstructor: 2,
       minimumInstructorsPerGroup: 1,
     };
 
@@ -98,8 +96,7 @@ describe("generateGroupingDraft", () => {
       [registration("student-a", { available: false })],
       instructors,
       {
-        maximumStudentsPerGroup: 2,
-        targetStudentsPerGroup: 2,
+        recommendedStudentsPerInstructor: 2,
         minimumInstructorsPerGroup: 1,
       },
     );
@@ -118,8 +115,7 @@ describe("generateGroupingDraft", () => {
       ],
       instructors,
       {
-        maximumStudentsPerGroup: 3,
-        targetStudentsPerGroup: 2,
+        recommendedStudentsPerInstructor: 2,
         minimumInstructorsPerGroup: 1,
       },
     );

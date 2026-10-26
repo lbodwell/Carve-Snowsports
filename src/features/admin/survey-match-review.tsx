@@ -12,7 +12,6 @@ type Student = {
 
 export function SurveyMatchReview({
   students,
-  programs,
   response,
   busy,
   onConfirm,
@@ -37,8 +36,6 @@ export function SurveyMatchReview({
   const [selectedId, setSelectedId] = useState(
     response.confirmedStudentId ?? response.suggestedStudentId ?? "",
   );
-  const [fillMissing, setFillMissing] = useState(false);
-  const [programId, setProgramId] = useState(programs[0]?.id ?? "");
   const selected = students.find((student) => student.studentId === selectedId);
   const sorted = [...students].sort((left, right) => {
     const score = (student: Student) =>
@@ -86,7 +83,6 @@ export function SurveyMatchReview({
           disabled={busy}
           onChange={(event) => {
             setSelectedId(event.target.value);
-            setFillMissing(false);
           }}
         >
           <option value="">Choose a student</option>
@@ -118,50 +114,22 @@ export function SurveyMatchReview({
         Existing birthdates are preserved; conflicting linked answers need
         review.
       </p>
-      {selected && (
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={fillMissing}
-            onChange={(event) => setFillMissing(event.target.checked)}
-          />
-          Fill missing registration discipline and ability from this survey.
-          Existing values are preserved.
-        </label>
-      )}
-      {fillMissing && (
-        <label className="grid gap-1 text-sm">
-          Apply missing registration details in
-          <select
-            aria-label="Program for survey details"
-            className="rounded-md border bg-white p-2"
-            value={programId}
-            onChange={(event) => setProgramId(event.target.value)}
-          >
-            <option value="">Choose a program</option>
-            {programs.map((program) => (
-              <option key={program.id} value={program.id}>
-                {program.seasonName} · {program.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+      <p className="text-muted-foreground text-sm">
+        Confirmed links automatically fill missing profile and matching
+        registration information, and retain attributed medical notes. Conflicts
+        remain for review.
+      </p>
       <Button
         className="w-fit"
         disabled={
           busy ||
           !selectedId ||
-          (fillMissing && !programId) ||
-          (selectedId === response.confirmedStudentId && !fillMissing)
-        }
-        onClick={() =>
-          onConfirm(
-            selectedId,
-            fillMissing,
-            fillMissing && programId ? programId : undefined,
+          Boolean(
+            response.confirmedStudentId &&
+            selectedId !== response.confirmedStudentId,
           )
         }
+        onClick={() => onConfirm(selectedId, false)}
       >
         Confirm student match
       </Button>

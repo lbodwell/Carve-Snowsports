@@ -7,10 +7,18 @@ import {
   createStudentRegistrationSchema,
   registerStudent as registerStudentInService,
   registerStudentSchema,
+  reviewSurveySupport as reviewSurveySupportInService,
+  reviewSurveySupportSchema,
   updateStudent as updateStudentInService,
   updateStudentSchema,
 } from "@/application/services/student-roster-service.server";
 import { resolveActor } from "@/server/auth/resolve-actor.server";
+
+export const reviewSurveySupport = createServerFn({ method: "POST" })
+  .validator(reviewSurveySupportSchema)
+  .handler(async ({ data }) =>
+    reviewSurveySupportInService(await resolveActor(), data),
+  );
 
 export const createStudent = createServerFn({ method: "POST" })
   .validator(createStudentRegistrationSchema)

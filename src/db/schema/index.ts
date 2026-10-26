@@ -15,6 +15,11 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type {
+  GroupChangeAction,
+  LifecycleGroup,
+} from "@/domain/grouping/group-lifecycle";
+import type { InstructorPreference } from "@/domain/grouping/instructor-preferences";
 
 const createdAt = timestamp("created_at", { withTimezone: true })
   .defaultNow()
@@ -313,6 +318,10 @@ export const timeSlots = pgTable(
       .$type<Array<string>>()
       .default([])
       .notNull(),
+    allowedWeekdays: jsonb("allowed_weekdays")
+      .$type<Array<number>>()
+      .default([])
+      .notNull(),
     cohort: varchar("cohort", { length: 20 }).default("season").notNull(),
     displayOrder: integer("display_order").default(0).notNull(),
     active: boolean("active").default(true).notNull(),
@@ -369,6 +378,10 @@ export const instructors = pgTable("instructors", {
   personId: uuid("person_id")
     .primaryKey()
     .references(() => people.id, { onDelete: "cascade" }),
+  preferences: jsonb("preferences")
+    .$type<Array<InstructorPreference>>()
+    .default([])
+    .notNull(),
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   notes: text("notes"),
   createdAt,
@@ -426,6 +439,8 @@ export const supportRecords = pgTable(
     category: varchar("category", { length: 32 }).notNull(),
     requiresReview: boolean("requires_review").default(true).notNull(),
     restrictedNote: text("restricted_note"),
+    sourceResponseId: uuid("source_response_id").unique(),
+    sourceSubmittedAt: timestamp("source_submitted_at", { withTimezone: true }),
     active: boolean("active").default(true).notNull(),
     createdAt,
     updatedAt,
@@ -613,6 +628,10 @@ export const surveyResponses = pgTable(
     childFirstName: varchar("child_first_name", { length: 100 }).notNull(),
     childLastName: varchar("child_last_name", { length: 100 }).notNull(),
     childDateOfBirth: date("child_date_of_birth").notNull(),
+    enrichmentIssues: jsonb("enrichment_issues")
+      .$type<Array<string>>()
+      .default([])
+      .notNull(),
     matchStatus: varchar("match_status", { length: 32 })
       .default("unmatched")
       .notNull(),
@@ -658,6 +677,8 @@ export const seasonGroups = pgTable(
     programId: uuid("program_id")
       .notNull()
       .references(() => programs.id, { onDelete: "cascade" }),
+    sourceDraftGroupId: uuid("source_draft_group_id").unique(),
+    parentGroupId: uuid("parent_group_id"),
     groupNumber: integer("group_number").notNull(),
     status: varchar("status", { length: 32 }).default("published").notNull(),
     createdAt,
@@ -698,6 +719,11 @@ export const groupRevisions = pgTable(
         onDelete: "restrict",
       },
     ),
+    instructorIds: jsonb("instructor_ids")
+      .$type<Array<string>>()
+      .default([])
+      .notNull(),
+    description: text("description"),
     notes: text("notes"),
     effectiveFrom: date("effective_from").notNull(),
     effectiveUntil: date("effective_until"),
@@ -834,6 +860,8 @@ export const groupingDrafts = pgTable(
     version: integer("version").default(1).notNull(),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
+    finalizedSnapshot:
+      jsonb("finalized_snapshot").$type<Array<LifecycleGroup>>(),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     createdBy: text("created_by")
       .notNull()
@@ -853,6 +881,7 @@ export const groupingDraftGroups = pgTable(
   "grouping_draft_groups",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    displayOrdinal: integer("display_ordinal").generatedByDefaultAsIdentity(),
     draftId: uuid("draft_id")
       .notNull()
       .references(() => groupingDrafts.id, { onDelete: "cascade" }),
@@ -1090,5 +1119,37 @@ export const registrationParties = pgTable(
   },
   (table) => [
     primaryKey({ columns: [table.registrationId, table.personId, table.role] }),
+  ],
+);
+
+export const groupChangeRequests = pgTable(
+  "group_change_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    commandId: uuid("command_id").notNull().unique(),
+    draftId: uuid("draft_id")
+      .notNull()
+      .references(() => groupingDrafts.id),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id),
+    actorId: text("actor_id")
+      .notNull()
+      .references(() => users.id),
+    approvedBy: text("approved_by").references(() => users.id),
+    baseVersion: integer("base_version").notNull(),
+    resultingVersion: integer("resulting_version"),
+    status: varchar("status", { length: 32 }).notNull().default("pending"),
+    reason: text("reason").notNull(),
+    effectiveFrom: date("effective_from").notNull(),
+    effectiveUntil: date("effective_until"),
+    action: jsonb("action").$type<GroupChangeAction>().notNull(),
+    before: jsonb("before").$type<Array<LifecycleGroup>>(),
+    after: jsonb("after").$type<Array<LifecycleGroup>>(),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    index("group_changes_draft_status").on(table.draftId, table.status),
   ],
 );

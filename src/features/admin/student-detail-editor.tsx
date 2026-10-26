@@ -3,6 +3,7 @@ import { Archive, ArrowLeft, Save } from "lucide-react";
 import { useState } from "react";
 import type { FormEvent } from "react";
 import type { RegistrationScheduleSummary } from "@/domain/imports/registration-schedule-summary";
+import { RefreshButton } from "@/components/refresh-button";
 import { RegistrationScheduleDetails } from "@/features/admin/registration-schedule-details";
 
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +38,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
   archiveStudent,
+  reviewSurveySupport,
   updateStudent,
 } from "@/server/functions/student-roster";
 
@@ -53,6 +55,12 @@ type StudentDetail = {
   guardianPhone: string;
   guardianEmail: string;
   medicalInfo: string;
+  surveyMedicalNotes?: Array<{
+    note: string | null;
+    sourceResponseId: string | null;
+    sourceSubmittedAt: Date | null;
+    requiresReview: boolean;
+  }>;
   notes: string;
   signups?: Array<{
     id: string;
@@ -88,6 +96,8 @@ export function StudentDetailEditor({
   embedded = false,
   onBusyChange,
 }: StudentDetailEditorProps) {
+  const [reviewed, setReviewed] = useState<Array<string>>([]);
+  const [reviewing, setReviewing] = useState(false);
   const [firstName, setFirstName] = useState(student.firstName);
   const [lastName, setLastName] = useState(student.lastName);
   const [dateOfBirth, setDateOfBirth] = useState(student.dateOfBirth ?? "");
@@ -190,6 +200,7 @@ export function StudentDetailEditor({
 
   return (
     <div className="flex flex-col gap-6">
+      <RefreshButton />
       {!embedded && (
         <header className="flex flex-col gap-3">
           <Link
@@ -376,6 +387,61 @@ export function StudentDetailEditor({
               />
             </Field>
           </div>
+          {student.surveyMedicalNotes?.map((note) => (
+            <article
+              key={note.sourceResponseId}
+              className="rounded-lg border p-3"
+            >
+              <h3 className="font-medium">
+                Survey medical note ·{" "}
+                {note.sourceSubmittedAt
+                  ? new Date(note.sourceSubmittedAt).toLocaleDateString()
+                  : "Date unavailable"}
+              </h3>
+              <p className="whitespace-pre-wrap">{note.note}</p>
+              {note.requiresReview &&
+              !reviewed.includes(note.sourceResponseId ?? "") ? (
+                <>
+                  <p className="text-sm text-amber-700">Needs review</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={reviewing}
+                    onClick={async () => {
+                      if (!note.sourceResponseId) return;
+                      setReviewing(true);
+                      try {
+                        await reviewSurveySupport({
+                          data: {
+                            studentId: student.id,
+                            responseId: note.sourceResponseId,
+                            requiresReview: false,
+                          },
+                        });
+                        setReviewed((value) => [
+                          ...value,
+                          note.sourceResponseId!,
+                        ]);
+                      } catch (reviewError) {
+                        setError(
+                          reviewError instanceof Error
+                            ? reviewError.message
+                            : "Review could not be saved.",
+                        );
+                      } finally {
+                        setReviewing(false);
+                      }
+                    }}
+                  >
+                    Mark reviewed
+                  </Button>
+                </>
+              ) : (
+                <p className="text-muted-foreground text-sm">Reviewed</p>
+              )}
+            </article>
+          ))}
           <Field>
             <FieldLabel htmlFor="edit-medical-info">
               Medical/support information

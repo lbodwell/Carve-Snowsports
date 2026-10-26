@@ -1,15 +1,20 @@
 import { createServerFn } from "@tanstack/react-start";
+import { surveyResponseQuerySchema } from "@/domain/surveys/response-query";
 
 import {
   addSurveyInvitation,
   addSurveyInvitationSchema,
   generateSurveyInvitations,
   getPublicSurvey,
+  getSurveyMetadata,
+  getSurveyResponseDetail,
+  getSurveyResponsePage,
   getSurveyWorkspace,
   publicSurveyRequestSchema,
   submitPublicSurvey,
   submitPublicSurveySchema,
   surveyIdSchema,
+  surveyResponseIdSchema,
   updateSurveyAccess,
   updateSurveyAccessSchema,
 } from "@/application/services/survey-service.server";
@@ -37,7 +42,9 @@ export const submitSurveyResponse = createServerFn({ method: "POST" })
 
 export const getAdminSurveyWorkspace = createServerFn({
   method: "GET",
-}).handler(async () => getSurveyWorkspace(await resolveActor()));
+})
+  .validator(surveyResponseQuerySchema.optional())
+  .handler(async ({ data }) => getSurveyWorkspace(await resolveActor(), data));
 
 export const addParentSurveyInvitation = createServerFn({ method: "POST" })
   .validator(addSurveyInvitationSchema)
@@ -54,3 +61,20 @@ export const generateParentSurveyInvitations = createServerFn({
 export const saveSurveyAccess = createServerFn({ method: "POST" })
   .validator(updateSurveyAccessSchema)
   .handler(async ({ data }) => updateSurveyAccess(await resolveActor(), data));
+
+export const getParentSurveyResponseDetail = createServerFn({ method: "GET" })
+  .validator(surveyResponseIdSchema)
+  .handler(async ({ data }) =>
+    getSurveyResponseDetail(await resolveActor(), data.responseId),
+  );
+
+export const getAdminSurveyMetadata = createServerFn({ method: "GET" })
+  .validator(surveyResponseQuerySchema.optional())
+  .handler(async ({ data }) =>
+    getSurveyMetadata(await resolveActor(), data?.surveyId),
+  );
+export const getAdminSurveyResponses = createServerFn({ method: "GET" })
+  .validator(surveyResponseQuerySchema.optional())
+  .handler(async ({ data }) =>
+    getSurveyResponsePage(await resolveActor(), data),
+  );

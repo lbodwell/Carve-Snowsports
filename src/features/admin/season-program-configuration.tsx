@@ -1,6 +1,7 @@
 import { Link, useRouter } from "@tanstack/react-router";
 import { CalendarRange, Pencil, Plus, Settings2 } from "lucide-react";
 import { useState } from "react";
+import { RefreshButton } from "@/components/refresh-button";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -467,6 +468,7 @@ export function SeasonProgramConfiguration({
                 </p>
               ) : (
                 <div className="rounded-xl border">
+                  <RefreshButton />
                   <Table>
                     <TableHeader>
                       <TableRow>

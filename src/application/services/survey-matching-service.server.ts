@@ -16,16 +16,295 @@ import {
   seasons,
   studentGuardians,
   students,
+  supportRecords,
   surveyResponses,
   surveys,
+  timeSlots,
 } from "@/db/schema";
+import { surveyMatchesRegistrationSession } from "@/domain/surveys/enrichment-context";
 import { matchSurveyStudent } from "@/domain/surveys/student-matching";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+// Retained export name for existing callers; every confirmed-link path now
+// reconciles all supported fields, including responses linked in earlier runs.
+export async function fillConfirmedSurveyBirthdates(
+  tx: Transaction,
+  organizationId: string,
+  actorId: string | null,
+  studentId?: string,
+) {
+  const birthdates = await fillBirthdates(
+    tx,
+    organizationId,
+    actorId,
+    studentId,
+  );
+  const responses = await tx
+    .select({ response: surveyResponses, birthdate: people.dateOfBirth })
+    .from(surveyResponses)
+    .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
+    .innerJoin(people, eq(people.id, surveyResponses.confirmedStudentId))
+    .where(
+      and(
+        eq(surveys.organizationId, organizationId),
+        eq(people.organizationId, organizationId),
+        isNull(people.archivedAt),
+        studentId ? eq(people.id, studentId) : undefined,
+      ),
+    );
+  const enrollments = await tx
+    .select({ registration: registrations })
+    .from(registrations)
+    .innerJoin(people, eq(people.id, registrations.studentId))
+    .innerJoin(programs, eq(programs.id, registrations.programId))
+    .innerJoin(seasons, eq(seasons.id, programs.seasonId))
+    .where(
+      and(
+        eq(people.organizationId, organizationId),
+        eq(seasons.organizationId, organizationId),
+        isNull(seasons.archivedAt),
+        isNull(people.archivedAt),
+        isNull(registrations.archivedAt),
+        eq(registrations.status, "active"),
+        studentId ? eq(people.id, studentId) : undefined,
+      ),
+    )
+    .for("update", { of: registrations });
+  const issues = new Map(
+    responses.map(({ response, birthdate }) => [
+      response.id,
+      birthdate && birthdate !== response.childDateOfBirth
+        ? ["Birthdate conflicts with the student record."]
+        : ([] as Array<string>),
+    ]),
+  );
+  const configurations = new Map<
+    string,
+    {
+      slots: Array<typeof timeSlots.$inferSelect>;
+      disciplines: Array<typeof disciplines.$inferSelect>;
+      levels: Array<typeof abilityLevels.$inferSelect>;
+    }
+  >();
+  for (const programId of new Set(
+    enrollments.map((item) => item.registration.programId),
+  )) {
+    const [slots, disciplineRows, levels] = await Promise.all([
+      tx
+        .select()
+        .from(timeSlots)
+        .where(
+          and(eq(timeSlots.programId, programId), eq(timeSlots.active, true)),
+        ),
+      tx
+        .select()
+        .from(disciplines)
+        .where(
+          and(
+            eq(disciplines.programId, programId),
+            eq(disciplines.active, true),
+          ),
+        ),
+      tx
+        .select()
+        .from(abilityLevels)
+        .where(
+          and(
+            eq(abilityLevels.programId, programId),
+            eq(abilityLevels.active, true),
+          ),
+        ),
+    ]);
+    configurations.set(programId, {
+      slots,
+      disciplines: disciplineRows,
+      levels,
+    });
+  }
+  const eligibleRegistrations = new Map<string, Array<string>>();
+  for (const { response } of responses) {
+    if (
+      new Set(
+        responses
+          .filter(
+            (item) =>
+              item.response.confirmedStudentId === response.confirmedStudentId,
+          )
+          .map((item) => item.response.childDateOfBirth),
+      ).size > 1
+    )
+      issues.get(response.id)!.push("Linked responses disagree on birthdate.");
+    const candidates = enrollments
+      .filter(({ registration }) => {
+        const config = configurations.get(registration.programId)!;
+        const discipline = config.disciplines.find(
+          (item) => item.key === response.answers.discipline,
+        );
+        return (
+          registration.studentId === response.confirmedStudentId &&
+          discipline &&
+          (!registration.disciplineId ||
+            registration.disciplineId === discipline.id) &&
+          surveyMatchesRegistrationSession(
+            String(response.answers.session),
+            registration.sourceSnapshot,
+            config.slots,
+          )
+        );
+      })
+      .map((item) => item.registration.id);
+    eligibleRegistrations.set(response.id, candidates);
+    if (candidates.length !== 1)
+      issues
+        .get(response.id)!
+        .push(
+          candidates.length
+            ? "Multiple registrations match this survey session; review program and enrollment context."
+            : "No registration uniquely matches the survey session and discipline.",
+        );
+  }
+  const enrichmentReferences: Array<{
+    registrationId?: string;
+    supportRecordId?: string;
+    responseIds: Array<string>;
+    categories: Array<string>;
+  }> = [];
+  let registrationsFilled = 0;
+  let medicalNotesAdded = 0;
+  for (const { response } of responses) {
+    const medical =
+      typeof response.answers.medicalConcerns === "string"
+        ? response.answers.medicalConcerns.trim()
+        : "";
+    if (medical) {
+      const inserted = await tx
+        .insert(supportRecords)
+        .values({
+          studentId: response.confirmedStudentId!,
+          category: "special_condition",
+          restrictedNote: medical,
+          requiresReview: true,
+          sourceResponseId: response.id,
+          sourceSubmittedAt: response.submittedAt,
+        })
+        .onConflictDoNothing()
+        .returning({ id: supportRecords.id });
+      medicalNotesAdded += inserted.length;
+      for (const note of inserted)
+        enrichmentReferences.push({
+          supportRecordId: note.id,
+          responseIds: [response.id],
+          categories: ["special_condition"],
+        });
+    }
+  }
+  for (const { registration } of enrollments) {
+    const linked = responses.filter(
+      ({ response }) => response.confirmedStudentId === registration.studentId,
+    );
+    if (!linked.length) continue;
+    const config = configurations.get(registration.programId)!;
+    const disciplinesForProgram = config.disciplines,
+      levels = config.levels;
+    const applicable = linked.filter(({ response }) => {
+      const candidates = eligibleRegistrations.get(response.id)!;
+      return candidates.length === 1 && candidates[0] === registration.id;
+    });
+    const evidence = applicable.flatMap(({ response }) => {
+      const discipline = disciplinesForProgram.find(
+        (item) => item.key === response.answers.discipline,
+      );
+      const level = levels.find((item) => item.key === response.answers.level);
+      if (
+        !discipline ||
+        !level ||
+        (registration.disciplineId &&
+          registration.disciplineId !== discipline.id)
+      ) {
+        issues
+          .get(response.id)!
+          .push(
+            "The survey discipline or ability is not configured in the applicable program.",
+          );
+        return [];
+      }
+      return [{ response, discipline, level }];
+    });
+    if (!evidence.length) continue;
+    const disagree =
+      new Set(evidence.map((item) => `${item.discipline.id}:${item.level.id}`))
+        .size > 1;
+    if (
+      disagree ||
+      (registration.abilityLevelId &&
+        evidence.some((item) => item.level.id !== registration.abilityLevelId))
+    ) {
+      for (const item of evidence)
+        issues
+          .get(item.response.id)!
+          .push("Ability evidence conflicts for an applicable registration.");
+      continue;
+    }
+    const first = evidence[0]!;
+    if (!registration.disciplineId || !registration.abilityLevelId) {
+      await tx
+        .update(registrations)
+        .set({
+          disciplineId: registration.disciplineId ?? first.discipline.id,
+          abilityLevelId: registration.abilityLevelId ?? first.level.id,
+          updatedAt: new Date(),
+        })
+        .where(eq(registrations.id, registration.id));
+      registrationsFilled++;
+      enrichmentReferences.push({
+        registrationId: registration.id,
+        responseIds: evidence.map((item) => item.response.id),
+        categories: [
+          ...(!registration.disciplineId ? ["discipline"] : []),
+          ...(!registration.abilityLevelId ? ["ability_level"] : []),
+        ],
+      });
+    }
+  }
+  for (const { response } of responses) {
+    const notes = issues.get(response.id)!;
+    if (
+      !enrollments.some(
+        ({ registration }) =>
+          registration.studentId === response.confirmedStudentId,
+      )
+    )
+      notes.push("No active registration is available for ability enrichment.");
+    await tx
+      .update(surveyResponses)
+      .set({ enrichmentIssues: notes })
+      .where(eq(surveyResponses.id, response.id));
+  }
+  if (registrationsFilled || medicalNotesAdded)
+    await tx.insert(auditEvents).values({
+      organizationId,
+      actorId,
+      entityType: "survey_matching",
+      entityId: studentId ?? organizationId,
+      action: "survey.enriched",
+      metadata: {
+        registrationsFilled,
+        medicalNotesAdded,
+        references: enrichmentReferences,
+      },
+    });
+  return {
+    ...birthdates,
+    registrationsFilled,
+    medicalNotesAdded,
+    reviewNeeded: [...issues.values()].filter((items) => items.length).length,
+  };
+}
+
 // Only confirmed identities and agreeing responses may fill a blank profile.
 // Existing profile values remain authoritative, including concurrent edits.
-export async function fillConfirmedSurveyBirthdates(
+async function fillBirthdates(
   tx: Transaction,
   organizationId: string,
   actorId: string | null,
@@ -206,6 +485,7 @@ export async function confirmSurveyMatch(
     const [response] = await tx
       .select({
         id: surveyResponses.id,
+        confirmedStudentId: surveyResponses.confirmedStudentId,
         dateOfBirth: surveyResponses.childDateOfBirth,
         answers: surveyResponses.answers,
       })
@@ -234,6 +514,14 @@ export async function confirmSurveyMatch(
         "NOT_FOUND",
         "The response or student is no longer available.",
       );
+    if (
+      response.confirmedStudentId &&
+      response.confirmedStudentId !== student.id
+    )
+      throw new ApplicationError(
+        "VALIDATION",
+        "This response is already confirmed for another student. Existing confirmed links cannot be silently reassigned.",
+      );
     await tx
       .update(surveyResponses)
       .set({
@@ -249,73 +537,6 @@ export async function confirmSurveyMatch(
       actor.userId,
       student.id,
     );
-    if (parsed.fillMissingBirthDate) {
-      if (parsed.programId) {
-        const [program] = await tx
-          .select({ id: programs.id })
-          .from(programs)
-          .innerJoin(seasons, eq(seasons.id, programs.seasonId))
-          .where(
-            and(
-              eq(programs.id, parsed.programId),
-              eq(seasons.organizationId, actor.organizationId),
-              isNull(seasons.archivedAt),
-            ),
-          );
-        if (!program)
-          throw new ApplicationError("NOT_FOUND", "Program not found.");
-        const [discipline] = await tx
-          .select({ id: disciplines.id })
-          .from(disciplines)
-          .where(
-            and(
-              eq(disciplines.programId, program.id),
-              eq(disciplines.key, String(response.answers.discipline)),
-              eq(disciplines.active, true),
-            ),
-          );
-        const [level] = await tx
-          .select({ id: abilityLevels.id })
-          .from(abilityLevels)
-          .where(
-            and(
-              eq(abilityLevels.programId, program.id),
-              eq(abilityLevels.key, String(response.answers.level)),
-              eq(abilityLevels.active, true),
-            ),
-          );
-        const enrollments = await tx
-          .select()
-          .from(registrations)
-          .where(
-            and(
-              eq(registrations.studentId, student.id),
-              eq(registrations.programId, program.id),
-              eq(registrations.status, "active"),
-              isNull(registrations.archivedAt),
-            ),
-          )
-          .for("update");
-        for (const enrollment of enrollments) {
-          if (
-            !discipline ||
-            (enrollment.disciplineId &&
-              enrollment.disciplineId !== discipline.id)
-          )
-            continue;
-          await tx
-            .update(registrations)
-            .set({
-              disciplineId: sql`coalesce(${registrations.disciplineId}, ${discipline.id}::uuid)`,
-              abilityLevelId: level
-                ? sql`coalesce(${registrations.abilityLevelId}, ${level.id}::uuid)`
-                : enrollment.abilityLevelId,
-              updatedAt: new Date(),
-            })
-            .where(eq(registrations.id, enrollment.id));
-        }
-      }
-    }
     await tx.insert(auditEvents).values({
       organizationId: actor.organizationId,
       actorId: actor.userId,

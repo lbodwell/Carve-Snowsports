@@ -16,8 +16,7 @@ export type GroupingInstructor = {
 };
 
 export type GroupingRules = {
-  maximumStudentsPerGroup: number;
-  targetStudentsPerGroup: number;
+  recommendedStudentsPerInstructor: number;
   minimumInstructorsPerGroup: number;
 };
 
@@ -26,6 +25,7 @@ export type ProposedGroup = {
   discipline: string;
   ageBand: string;
   instructorId: string | null;
+  abilityRank?: number;
   registrationIds: Array<string>;
   score: number;
   explanations: Array<string>;
@@ -39,7 +39,7 @@ export type UnplacedRegistration = {
 export type GroupingResult = {
   groups: Array<ProposedGroup>;
   unplaced: Array<UnplacedRegistration>;
-  engineVersion: "v2";
+  engineVersion: "v4";
 };
 
 function groupKey(registration: GroupingRegistration) {
@@ -81,25 +81,20 @@ function hasSeparationConflict(
 
 export function generateGroupingDraft(
   registrations: ReadonlyArray<GroupingRegistration>,
-  instructors: ReadonlyArray<GroupingInstructor>,
+  _instructors: ReadonlyArray<GroupingInstructor>,
   rules: GroupingRules,
 ): GroupingResult {
-  if (rules.maximumStudentsPerGroup < 1 || rules.targetStudentsPerGroup < 1) {
-    throw new Error("Group capacity values must be positive.");
-  }
-  if (rules.minimumInstructorsPerGroup !== 1) {
+  if (
+    !Number.isInteger(rules.recommendedStudentsPerInstructor) ||
+    rules.recommendedStudentsPerInstructor < 1
+  ) {
     throw new Error(
-      "Grouping engine v2 supports exactly one instructor per group.",
+      "The recommended staffing ratio must be a positive integer.",
     );
   }
-
   const byId = new Map(
     registrations.map((registration) => [registration.id, registration]),
   );
-  const eligibleInstructors = instructors
-    .filter((instructor) => instructor.available)
-    .sort((left, right) => left.id.localeCompare(right.id));
-  const instructorGroupCounts = new Map<string, number>();
   const groups: Array<ProposedGroup> = [];
   const unplaced: Array<UnplacedRegistration> = [];
   const sortedRegistrations = [...registrations].sort((left, right) => {
@@ -128,7 +123,7 @@ export function generateGroupingDraft(
       .filter(
         (group) =>
           `${group.discipline}:${group.ageBand}` === groupKey(registration) &&
-          group.registrationIds.length < rules.maximumStudentsPerGroup &&
+          group.abilityRank === registration.abilityRank &&
           !hasSeparationConflict(group, registration, byId),
       )
       .map((group) => ({
@@ -141,22 +136,7 @@ export function generateGroupingDraft(
           left.group.id.localeCompare(right.group.id),
       );
     const candidate = compatibleGroups[0]?.group;
-    const instructor = eligibleInstructors.find(
-      (item) =>
-        item.disciplines.has(registration.discipline) &&
-        (instructorGroupCounts.get(item.id) ?? 0) < item.capacity,
-    );
-    const existingRanks =
-      candidate?.registrationIds.map((id) => byId.get(id)!.abilityRank) ?? [];
-    const preferNewGroup =
-      instructor &&
-      candidate &&
-      (candidate.registrationIds.length >= rules.targetStudentsPerGroup ||
-        existingRanks.every(
-          (rank) => Math.abs(rank - registration.abilityRank) >= 2,
-        ));
-
-    if (candidate && !preferNewGroup) {
+    if (candidate) {
       candidate.registrationIds.push(registration.id);
       candidate.score += compatibleGroups[0]?.score ?? 0;
       candidate.explanations.push(
@@ -165,24 +145,12 @@ export function generateGroupingDraft(
       continue;
     }
 
-    if (!instructor) {
-      unplaced.push({
-        registrationId: registration.id,
-        reason:
-          "No available qualified instructor can start a compatible group.",
-      });
-      continue;
-    }
-
-    instructorGroupCounts.set(
-      instructor.id,
-      (instructorGroupCounts.get(instructor.id) ?? 0) + 1,
-    );
     groups.push({
       id: `draft-${groups.length + 1}`,
       discipline: registration.discipline,
       ageBand: registration.ageBand,
-      instructorId: instructor.id,
+      instructorId: null,
+      abilityRank: registration.abilityRank,
       registrationIds: [registration.id],
       score: 0,
       explanations: [
@@ -196,12 +164,10 @@ export function generateGroupingDraft(
       ...group,
       explanations: [
         ...group.explanations,
-        group.registrationIds.length < rules.targetStudentsPerGroup
-          ? "Group is below the target size and needs coordinator review."
-          : "Group meets the target size.",
+        `No lead instructor assigned. Recommended staffing: one instructor per ${rules.recommendedStudentsPerInstructor} students.`,
       ],
     })),
     unplaced,
-    engineVersion: "v2",
+    engineVersion: "v4",
   };
 }

@@ -120,6 +120,10 @@ describe("lesson authorization integration", () => {
       numericRank: 2,
       displayOrder: 2,
     });
+    const [level] = await db
+      .select()
+      .from(abilityLevels)
+      .where(eq(abilityLevels.programId, programId));
     await db.insert(ageBands).values({
       programId,
       label: "Ages 7–12",
@@ -129,6 +133,7 @@ describe("lesson authorization integration", () => {
     });
     await db.insert(timeSlots).values({
       programId,
+      allowedWeekdays: [0, 6],
       key: "am",
       label: "Morning",
       startsAt: "09:00",
@@ -189,6 +194,19 @@ describe("lesson authorization integration", () => {
       {
         personId: assignedPerson.id,
         userId: assignedInstructorUserId,
+        preferences: [
+          {
+            programId,
+            cohort: "season",
+            weekday: 6,
+            startsAt: "00:00",
+            endsAt: "23:59",
+            minimumAge: null,
+            maximumAge: null,
+            minimumLevel: null,
+            maximumLevel: null,
+          },
+        ],
       },
       {
         personId: otherPerson.id,
@@ -219,6 +237,7 @@ describe("lesson authorization integration", () => {
     await db.insert(students).values({ personId: studentPerson.id });
     await db.insert(registrations).values({
       studentId: studentPerson.id,
+      abilityLevelId: level!.id,
       programId,
       status: "active",
       disciplineId: configuredDisciplines[0]!.id,

@@ -1,6 +1,11 @@
+import {
+  collectImportBirthdates,
+  normalizePromptIdentities,
+} from "./aspenware-enrichment";
+
 export type CsvRecord = Record<string, string>;
 
-export const ASPENWARE_ADAPTER_VERSION = "2026-27@2";
+export const ASPENWARE_ADAPTER_VERSION = "2026-27@3";
 
 export const aspenwareListingHeaders = [
   "DetailRowC0",
@@ -34,6 +39,7 @@ export type AspenwareBatchInput = {
   listingRecords: Array<CsvRecord>;
   byOrderRecords?: Array<CsvRecord>;
   promptRecords?: Array<CsvRecord>;
+  birthdateRecords?: Array<CsvRecord>;
 };
 
 export type AspenwareImportFact = {
@@ -49,6 +55,8 @@ export type AspenwareImportFact = {
   status: "active" | "returned";
   dimensions: ProductDimensions;
   sourceAge: number | null;
+  dateOfBirth?: string | null;
+  placementNotes?: Array<string>;
   abilityLevel: string | null;
   purchaser: {
     externalId: string;
@@ -65,6 +73,7 @@ export type AspenwareBatchPreview = {
     listing: number;
     byOrder: number | null;
     prompts: number | null;
+    birthdates: number | null;
   };
   summary: {
     grossSales: number;
@@ -90,6 +99,7 @@ export type ListingRegistration = {
 
 export type PromptRegistration = {
   rowNumbers: Array<number>;
+  placementNotes: Array<string>;
   transactionId: string;
   lineId: string;
   participantKey: string;
@@ -312,6 +322,12 @@ export function parsePromptRegistrations(
         existing.issues.push("Prompt rows disagree on sale details.");
       }
       existing.rowNumbers.push(rowNumber);
+      if (
+        promptName === "Lesson Comment" &&
+        response &&
+        !existing.placementNotes.includes(response)
+      )
+        existing.placementNotes.push(response);
       if (promptName === "Ability Level") {
         if (existing.abilityLevel && existing.abilityLevel !== response)
           existing.issues.push("Multiple ability-level answers.");
@@ -322,6 +338,8 @@ export function parsePromptRegistrations(
 
     grouped.set(key, {
       rowNumbers: [rowNumber],
+      placementNotes:
+        promptName === "Lesson Comment" && response ? [response] : [],
       transactionId,
       lineId,
       participantKey: required(record, "TransactionLineIPCode", rowNumber),
@@ -481,14 +499,24 @@ export function previewAspenwareRegistrationBatch(
   requireHeaders(input.listingRecords, aspenwareListingHeaders, "Listing");
   if (input.byOrderRecords)
     requireHeaders(input.byOrderRecords, aspenwareByOrderHeaders, "By-order");
-  if (input.promptRecords)
-    requireHeaders(input.promptRecords, aspenwarePromptHeaders, "Prompt");
+  const normalizedPrompts = normalizePromptIdentities(
+    input.promptRecords ?? [],
+    input.listingRecords,
+    input.birthdateRecords,
+  );
+  const birthdates = collectImportBirthdates(input.birthdateRecords ?? []);
+  if (normalizedPrompts.records.length)
+    requireHeaders(normalizedPrompts.records, aspenwarePromptHeaders, "Prompt");
 
   const analysis = analyzeAspenwareExports(input.listingRecords, []);
   const returnedSaleIndexes = new Set(
     analysis.returnPairs.map((pair) => pair.saleRowNumber - 2),
   );
-  const issues = [...analysis.warnings];
+  const issues = [
+    ...analysis.warnings,
+    ...normalizedPrompts.issues,
+    ...birthdates.issues,
+  ];
   // The purchaser report identifies the child by name, not by customer IP.
   // Include the sale date so repeat purchases cannot borrow purchaser context.
   const purchaserMatchKey = (
@@ -538,7 +566,9 @@ export function previewAspenwareRegistrationBatch(
 
   const promptByKey = new Map<string, PromptRegistration>();
   if (input.promptRecords) {
-    for (const registration of parsePromptRegistrations(input.promptRecords)) {
+    for (const registration of parsePromptRegistrations(
+      normalizedPrompts.records,
+    )) {
       const key = listingMatchKey(
         registration.participantKey,
         registration.product,
@@ -624,6 +654,8 @@ export function previewAspenwareRegistrationBatch(
         dimensions: listing.dimensions,
         sourceAge: parseOptionalAge(cell(sourceRow, "textbox10")),
         abilityLevel: prompt?.abilityLevel ?? null,
+        dateOfBirth: birthdates.dates.get(listing.participantKey) ?? null,
+        placementNotes: prompt?.placementNotes ?? [],
         purchaser: byOrder
           ? {
               externalId: cell(byOrder, "DetailRowC0"),
@@ -663,6 +695,7 @@ export function previewAspenwareRegistrationBatch(
       listing: input.listingRecords.length,
       byOrder: input.byOrderRecords?.length ?? null,
       prompts: input.promptRecords?.length ?? null,
+      birthdates: input.birthdateRecords?.length ?? null,
     },
     summary: {
       grossSales,

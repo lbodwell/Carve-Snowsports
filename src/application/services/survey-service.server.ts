@@ -1,10 +1,22 @@
 import { randomBytes } from "node:crypto";
 
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import type { Actor } from "@/application/policies/authorization";
 import type { StudentMatchCandidate } from "@/domain/surveys/survey-definition";
+import { surveyResponseQuerySchema } from "@/domain/surveys/response-query";
 import { ApplicationError } from "@/application/errors";
 import { requirePermission } from "@/application/policies/authorization";
 import { db } from "@/db/client.server";
@@ -43,6 +55,40 @@ export const submitPublicSurveySchema = publicSurveyRequestSchema.extend({
 });
 
 export const surveyIdSchema = z.object({ surveyId: z.uuid() });
+export const surveyResponseIdSchema = z.object({ responseId: z.uuid() });
+export async function getSurveyResponseDetail(
+  actor: Actor,
+  responseId: string,
+) {
+  requirePermission(actor, "people:manage");
+  const [response] = await db
+    .select({
+      answers: surveyResponses.answers,
+      enrichmentIssues: surveyResponses.enrichmentIssues,
+      childFirstName: surveyResponses.childFirstName,
+      childLastName: surveyResponses.childLastName,
+      childDateOfBirth: surveyResponses.childDateOfBirth,
+      confirmedStudentId: surveyResponses.confirmedStudentId,
+      suggestedStudentId: surveyResponses.suggestedStudentId,
+    })
+    .from(surveyResponses)
+    .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
+    .where(
+      and(
+        eq(surveyResponses.id, responseId),
+        eq(surveys.organizationId, actor.organizationId),
+      ),
+    );
+  if (!response)
+    throw new ApplicationError("NOT_FOUND", "Survey response not found.");
+  return {
+    ...response,
+    students: (await surveyMatchCandidates(db, actor.organizationId)).map(
+      ({ guardianEmails: _emails, ...student }) => student,
+    ),
+    answers: preLessonIntakeAnswersSchema.parse(response.answers),
+  };
+}
 
 export const addSurveyInvitationSchema = surveyIdSchema.extend({
   email: z.email(),
@@ -289,15 +335,23 @@ async function getOrganizationSurvey(actor: Actor, surveyId: string) {
   return survey;
 }
 
-export async function getSurveyWorkspace(actor: Actor) {
+export async function getSurveyResponsePage(actor: Actor, input: unknown = {}) {
+  const query = surveyResponseQuerySchema.parse(input);
   requirePermission(actor, "people:manage");
   const [survey] = await db
     .select()
     .from(surveys)
-    .where(eq(surveys.organizationId, actor.organizationId))
+    .where(
+      and(
+        eq(surveys.organizationId, actor.organizationId),
+        query.surveyId ? eq(surveys.id, query.surveyId) : undefined,
+      ),
+    )
     .orderBy(asc(surveys.createdAt));
   if (!survey) {
     return {
+      query,
+      responseTotal: 0,
       survey: null,
       invitations: [],
       responses: [],
@@ -306,85 +360,166 @@ export async function getSurveyWorkspace(actor: Actor) {
     };
   }
 
-  const [invitations, responses] = await Promise.all([
-    db
-      .select({
-        id: surveyInvitations.id,
-        email: surveyInvitations.email,
-        token: surveyInvitations.token,
-        lastOpenedAt: surveyInvitations.lastOpenedAt,
-        createdAt: surveyInvitations.createdAt,
-      })
-      .from(surveyInvitations)
-      .where(eq(surveyInvitations.surveyId, survey.id))
-      .orderBy(asc(surveyInvitations.email)),
-    db
-      .select({
-        id: surveyResponses.id,
-        invitationId: surveyResponses.invitationId,
-        answers: surveyResponses.answers,
-        childFirstName: surveyResponses.childFirstName,
-        childLastName: surveyResponses.childLastName,
-        childDateOfBirth: surveyResponses.childDateOfBirth,
-        matchStatus: surveyResponses.matchStatus,
-        suggestedStudentId: surveyResponses.suggestedStudentId,
-        confirmedStudentId: surveyResponses.confirmedStudentId,
-        suggestedFirstName: people.firstName,
-        suggestedLastName: people.lastName,
-        submittedAt: surveyResponses.submittedAt,
-      })
-      .from(surveyResponses)
-      .leftJoin(people, eq(people.id, surveyResponses.suggestedStudentId))
-      .where(eq(surveyResponses.surveyId, survey.id))
-      .orderBy(desc(surveyResponses.submittedAt)),
-  ]);
-
-  const responseCountByInvitation = new Map<string, number>();
-  for (const response of responses) {
-    if (!response.invitationId) continue;
-    responseCountByInvitation.set(
-      response.invitationId,
-      (responseCountByInvitation.get(response.invitationId) ?? 0) + 1,
-    );
-  }
-
+  const filters = and(
+    eq(surveyResponses.surveyId, survey.id),
+    query.programId
+      ? sql`exists (select 1 from ${registrations} r join ${programs} p on p.id = r.program_id join ${seasons} s on s.id = p.season_id where r.student_id = ${surveyResponses.confirmedStudentId} and r.program_id = ${query.programId} and s.organization_id = ${actor.organizationId} and r.status = 'active' and r.archived_at is null)`
+      : undefined,
+    query.q
+      ? or(
+          ilike(surveyResponses.childFirstName, "%" + query.q + "%"),
+          ilike(surveyResponses.childLastName, "%" + query.q + "%"),
+          sql`concat(${surveyResponses.childFirstName}, ' ', ${surveyResponses.childLastName}) ilike ${"%" + query.q + "%"}`,
+          sql`${surveyResponses.answers}->>'parentEmail' ilike ${"%" + query.q + "%"}`,
+          sql`concat(${people.firstName}, ' ', ${people.lastName}) ilike ${"%" + query.q + "%"}`,
+        )
+      : undefined,
+    query.link === "linked"
+      ? isNotNull(surveyResponses.confirmedStudentId)
+      : query.link === "unlinked"
+        ? isNull(surveyResponses.confirmedStudentId)
+        : query.link === "review"
+          ? sql`jsonb_array_length(${surveyResponses.enrichmentIssues}) > 0`
+          : undefined,
+    query.session
+      ? sql`${surveyResponses.answers}->>'session' = ${query.session}`
+      : undefined,
+    query.discipline
+      ? sql`${surveyResponses.answers}->>'discipline' = ${query.discipline}`
+      : undefined,
+    query.level
+      ? sql`${surveyResponses.answers}->>'level' = ${query.level}`
+      : undefined,
+    query.from
+      ? sql`${surveyResponses.submittedAt} >= ${query.from}::date`
+      : undefined,
+    query.until
+      ? sql`${surveyResponses.submittedAt} < ${query.until}::date + interval '1 day'`
+      : undefined,
+  );
+  const [total] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(surveyResponses)
+    .leftJoin(people, eq(people.id, surveyResponses.confirmedStudentId))
+    .where(filters);
+  const responses = await db
+    .select({
+      id: surveyResponses.id,
+      invitationId: surveyResponses.invitationId,
+      answers: sql<
+        Record<string, unknown>
+      >`jsonb_build_object('parentEmail', ${surveyResponses.answers}->>'parentEmail', 'discipline', ${surveyResponses.answers}->>'discipline', 'session', ${surveyResponses.answers}->>'session', 'level', ${surveyResponses.answers}->>'level')`,
+      enrichmentIssues: surveyResponses.enrichmentIssues,
+      childFirstName: surveyResponses.childFirstName,
+      childLastName: surveyResponses.childLastName,
+      childDateOfBirth: surveyResponses.childDateOfBirth,
+      matchStatus: surveyResponses.matchStatus,
+      suggestedStudentId: surveyResponses.suggestedStudentId,
+      confirmedStudentId: surveyResponses.confirmedStudentId,
+      suggestedFirstName: people.firstName,
+      suggestedLastName: people.lastName,
+      submittedAt: surveyResponses.submittedAt,
+    })
+    .from(surveyResponses)
+    .leftJoin(people, eq(people.id, surveyResponses.confirmedStudentId))
+    .where(filters)
+    .orderBy(
+      ...(query.sort === "name"
+        ? [
+            asc(surveyResponses.childLastName),
+            asc(surveyResponses.childFirstName),
+            desc(surveyResponses.id),
+          ]
+        : query.sort === "oldest"
+          ? [asc(surveyResponses.submittedAt), asc(surveyResponses.id)]
+          : [desc(surveyResponses.submittedAt), desc(surveyResponses.id)]),
+    )
+    .limit(query.pageSize)
+    .offset((query.page - 1) * query.pageSize);
   return {
-    students: (await surveyMatchCandidates(db, actor.organizationId)).map(
-      ({ guardianEmails: _emails, ...student }) => student,
-    ),
-    programs: await db
-      .select({
-        id: programs.id,
-        name: programs.name,
-        seasonName: seasons.name,
-      })
-      .from(programs)
-      .innerJoin(seasons, eq(seasons.id, programs.seasonId))
-      .where(
-        and(
-          eq(seasons.organizationId, actor.organizationId),
-          isNull(seasons.archivedAt),
-        ),
-      )
-      .orderBy(desc(seasons.startsOn)),
+    query,
+    responseTotal: total?.count ?? 0,
+    responses: responses.map((response) => ({
+      ...response,
+      answers: z
+        .object({
+          parentEmail: preLessonIntakeAnswersSchema.shape.parentEmail,
+          discipline: preLessonIntakeAnswersSchema.shape.discipline,
+          session: preLessonIntakeAnswersSchema.shape.session,
+          level: preLessonIntakeAnswersSchema.shape.level,
+        })
+        .parse(response.answers),
+    })),
+  };
+}
+
+export async function getSurveyMetadata(actor: Actor, surveyId?: string) {
+  requirePermission(actor, "people:manage");
+  const surveyChoices = await db
+    .select()
+    .from(surveys)
+    .where(eq(surveys.organizationId, actor.organizationId))
+    .orderBy(asc(surveys.createdAt));
+  const survey = surveyId
+    ? surveyChoices.find((item) => item.id === surveyId)
+    : surveyChoices[0];
+  if (!survey)
+    return {
+      survey: null,
+      surveyChoices: surveyChoices.map((item) => ({
+        id: item.id,
+        title: item.title,
+      })),
+      invitations: [],
+    };
+  const invitations = await db
+    .select({
+      id: surveyInvitations.id,
+      email: surveyInvitations.email,
+      token: surveyInvitations.token,
+      lastOpenedAt: surveyInvitations.lastOpenedAt,
+      createdAt: surveyInvitations.createdAt,
+    })
+    .from(surveyInvitations)
+    .where(eq(surveyInvitations.surveyId, survey.id))
+    .orderBy(asc(surveyInvitations.email));
+  const counts = await db
+    .select({
+      invitationId: surveyResponses.invitationId,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(surveyResponses)
+    .where(eq(surveyResponses.surveyId, survey.id))
+    .groupBy(surveyResponses.invitationId);
+  return {
+    surveyChoices: surveyChoices.map((item) => ({
+      id: item.id,
+      title: item.title,
+    })),
     survey: {
       id: survey.id,
       slug: survey.slug,
       title: survey.title,
       status: survey.status,
       allowAnonymous: survey.allowAnonymous,
-      anonymousUrl: `${env.APP_ORIGIN}/surveys/${survey.slug}`,
+      anonymousUrl: env.APP_ORIGIN + "/surveys/" + survey.slug,
     },
     invitations: invitations.map((invitation) => ({
       ...invitation,
-      responseCount: responseCountByInvitation.get(invitation.id) ?? 0,
-      url: `${env.APP_ORIGIN}/surveys/${survey.slug}/${invitation.token}`,
-    })),
-    responses: responses.map((response) => ({
-      ...response,
-      answers: preLessonIntakeAnswersSchema.parse(response.answers),
+      responseCount:
+        counts.find((item) => item.invitationId === invitation.id)?.count ?? 0,
+      url: env.APP_ORIGIN + "/surveys/" + survey.slug + "/" + invitation.token,
     })),
   };
+}
+
+export async function getSurveyWorkspace(actor: Actor, input: unknown = {}) {
+  const query = surveyResponseQuerySchema.parse(input);
+  const [metadata, page] = await Promise.all([
+    getSurveyMetadata(actor, query.surveyId),
+    getSurveyResponsePage(actor, query),
+  ]);
+  return { ...page, ...metadata };
 }
 
 function createInvitationToken() {

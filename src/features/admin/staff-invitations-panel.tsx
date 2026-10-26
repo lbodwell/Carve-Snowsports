@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import type { Role } from "@/application/policies/authorization";
+import { RefreshButton } from "@/components/refresh-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -111,6 +112,7 @@ export function StaffInvitationsPanel({
               </p>
             ) : (
               <div className="rounded-xl border">
+                <RefreshButton />
                 <Table className="min-w-[36rem]">
                   <TableHeader>
                     <TableRow>

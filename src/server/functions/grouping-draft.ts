@@ -17,15 +17,20 @@ import {
   moveRegistrationSchema,
   publishGroupingDraft as publishGroupingDraftInService,
   publishGroupingDraftSchema,
+  rebuildDraftSchema,
+  rebuildGroupingDraft,
   registrationScheduleSchema,
   returnGroupingDraft as returnGroupingDraftInService,
   setRegistrationSchedule,
+  splitDraftGroup,
+  splitDraftGroupSchema,
   submitGroupingDraft as submitGroupingDraftInService,
   submitGroupingDraftSchema,
   suggestRemainingPlacements,
   suggestRemainingSchema,
   undoDraftOperation as undoDraftOperationInService,
   undoDraftOperationSchema,
+  undoRebuild,
   updateDraftGroup as updateDraftGroupInService,
   updateDraftGroupSchema,
 } from "@/application/services/grouping-draft-service.server";
@@ -115,3 +120,16 @@ export const publishGroupingDraft = createServerFn({ method: "POST" })
   .handler(async ({ data }) =>
     publishGroupingDraftInService(await resolveActor(), data),
   );
+
+export const rebuildDraft = createServerFn({ method: "POST" })
+  .validator(rebuildDraftSchema)
+  .handler(async ({ data }) =>
+    rebuildGroupingDraft(await resolveActor(), data),
+  );
+export const undoDraftRebuild = createServerFn({ method: "POST" })
+  .validator(undoDraftOperationSchema)
+  .handler(async ({ data }) => undoRebuild(await resolveActor(), data));
+
+export const splitGroup = createServerFn({ method: "POST" })
+  .validator(splitDraftGroupSchema)
+  .handler(async ({ data }) => splitDraftGroup(await resolveActor(), data));

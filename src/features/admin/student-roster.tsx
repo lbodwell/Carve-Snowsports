@@ -2,6 +2,7 @@ import { Link, useRouter } from "@tanstack/react-router";
 import { Search, UserPlus, UsersRound, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { RegistrationScheduleSummary } from "@/domain/imports/registration-schedule-summary";
+import { RefreshButton } from "@/components/refresh-button";
 import {
   RosterDetailsDialog,
   RosterPagination,
@@ -49,6 +50,12 @@ type StudentRow = {
   disciplineId: string | null;
   abilityLevelId: string | null;
   medicalInfo: string;
+  surveyMedicalNotes?: Array<{
+    note: string | null;
+    sourceResponseId: string | null;
+    sourceSubmittedAt: Date | null;
+    requiresReview: boolean;
+  }>;
   guardianName: string;
   guardianPhone: string;
   guardianEmail: string;
@@ -505,6 +512,7 @@ export function StudentRoster({
                 </div>
               ) : (
                 <div className="rounded-xl border">
+                  <RefreshButton />
                   <Table className="min-w-[40rem]">
                     <TableHeader>
                       <TableRow>

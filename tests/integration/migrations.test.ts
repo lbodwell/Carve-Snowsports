@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
+import migrationJournal from "../../src/db/migrations/meta/_journal.json";
 import {
   MIGRATION_LOCK,
   runReleaseMigrations,
@@ -98,16 +99,23 @@ describe("database migrations", () => {
       SELECT count(*) FROM drizzle.__drizzle_migrations
     `;
 
-    expect(migrationCount?.count).toBe("17");
+    expect(migrationCount?.count).toBe(String(migrationJournal.entries.length));
   });
 
   test("release checks verify existing history and reapplying is a no-op", async () => {
     await expect(
       runReleaseMigrations({ env: releaseEnv, checkOnly: true }),
-    ).resolves.toMatchObject({ pending: 0, total: 17, checkedOnly: true });
+    ).resolves.toMatchObject({
+      pending: 0,
+      total: migrationJournal.entries.length,
+      checkedOnly: true,
+    });
     await expect(
       runReleaseMigrations({ env: releaseEnv }),
-    ).resolves.toMatchObject({ pending: 0, total: 17 });
+    ).resolves.toMatchObject({
+      pending: 0,
+      total: migrationJournal.entries.length,
+    });
   });
 
   test("overlapping migration runners cannot enter the database together", async () => {
@@ -177,7 +185,7 @@ describe("database migrations", () => {
       expect(table?.name).toBeNull();
       const [count] =
         await testSql`select count(*)::int as count from drizzle.__drizzle_migrations`;
-      expect(count?.count).toBe(17);
+      expect(count?.count).toBe(migrationJournal.entries.length);
     } finally {
       await rm(fixture, { recursive: true, force: true });
     }
