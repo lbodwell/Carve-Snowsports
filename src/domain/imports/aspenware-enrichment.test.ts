@@ -22,6 +22,32 @@ const prompt = {
   TransactionID: "sale-1",
 };
 describe("customer-name report normalization", () => {
+  it("skips refunds before requiring child identity or DoB corroboration", () => {
+    const result = normalizePromptIdentities(
+      [
+        { ...prompt, TransactionID: "refund", TotalPrice: "($100.00)" },
+        {
+          ...prompt,
+          TransactionID: "zero-refund",
+          TotalPrice: "0",
+          Textbox10: "-1.00",
+        },
+        prompt,
+      ],
+      [listing],
+      [
+        {
+          IPCode: "child-1",
+          FirstName: "Casey",
+          LastName: "Example",
+          Transactionid: "sale-1",
+        },
+      ],
+    );
+    expect(result.records).toHaveLength(1);
+    expect(result.rowNumbers).toEqual([4]);
+    expect(result.issues).toEqual([]);
+  });
   it("resolves a unique matching registration without a DoB file", () => {
     expect(
       normalizePromptIdentities([prompt], [listing]).records[0]

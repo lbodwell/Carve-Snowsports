@@ -123,6 +123,39 @@ describe("administrator group workspace", () => {
       1,
     );
   });
+  it("prompts for a level exception before moving a student", async () => {
+    const workspace = fixture();
+    workspace.groups[1]!.weekday = 6;
+    workspace.groups[1]!.abilityLevelId = "different-level";
+    render(createElement(PersistedGroupingBoard, { workspace }));
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    fireEvent.click(
+      within(screen.getByRole("region", { name: "Student pool" })).getByRole(
+        "button",
+        { name: /Avery Chen/ },
+      ),
+    );
+    fireEvent.click(
+      screen
+        .getAllByRole("button", { name: "Place student here" })
+        .find((button) => !(button as HTMLButtonElement).disabled)!,
+    );
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
+    expect(actions.move).not.toHaveBeenCalled();
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Placement reason" }),
+      { target: { value: "Reviewed by coordinator" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Move student" }));
+    await waitFor(() =>
+      expect(actions.move).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          overrideReason: "Reviewed by coordinator",
+          groupId: "group2",
+        }),
+      }),
+    );
+  });
   it("creates suggested groups with the selected session", async () => {
     const workspace = fixture();
     workspace.draft = null;

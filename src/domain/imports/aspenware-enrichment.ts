@@ -4,6 +4,14 @@ const normalized = (value = "") =>
   value.trim().replace(/\s+/g, " ").toLowerCase();
 const amount = (value = "") => Math.abs(Number(value.replace(/[$,()\s]/g, "")));
 
+/** Refund answers describe a reversal, not a second enrollment or new ability evidence. */
+export function isRefundPrompt(row: CsvRecord) {
+  const price = row.TotalPrice ?? "";
+  const value = Number(price.replace(/[$,()\s]/g, ""));
+  const signedPrice = /^\s*\(/.test(price) ? -Math.abs(value) : value;
+  return signedPrice < 0 || Number(row.Textbox10) < 0;
+}
+
 export function importBirthdate(value: string): string | null {
   const match = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (!match) return null;
@@ -23,8 +31,13 @@ export function normalizePromptIdentities(
   birthdates: Array<CsvRecord> = [],
 ) {
   const issues: Array<string> = [];
+  const rowNumbers: Array<number> = [];
   const records = prompts.flatMap((row, index) => {
-    if (row.TransactionLineIPCode?.trim()) return [row];
+    if (isRefundPrompt(row)) return [];
+    if (row.TransactionLineIPCode?.trim()) {
+      rowNumbers.push(index + 2);
+      return [row];
+    }
     const name = normalized(
       `${row.ProductHeaderCode ?? ""}, ${row.Textbox2 ?? ""}`,
     );
@@ -58,9 +71,10 @@ export function normalizePromptIdentities(
       );
       return [];
     }
+    rowNumbers.push(index + 2);
     return [{ ...row, TransactionLineIPCode: matched[0]!.DetailRowC0! }];
   });
-  return { records, issues };
+  return { records, issues, rowNumbers };
 }
 
 export function collectImportBirthdates(records: Array<CsvRecord>) {

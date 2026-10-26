@@ -14,6 +14,7 @@ import { SurveyResponseDetail } from "./survey-response-detail";
 import type { FormEvent } from "react";
 
 import type { getAdminSurveyWorkspace } from "@/server/functions/surveys";
+import { TablePagination } from "@/components/table-pagination";
 import { RefreshButton } from "@/components/refresh-button";
 import {
   Accordion,
@@ -115,6 +116,7 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
   const setNeedsReviewOnly = (value: boolean) =>
     void navigate({
       to: "/admin/surveys",
+      resetScroll: false,
       search: { ...workspace.query, page: 1, link: value ? "unlinked" : "all" },
     });
 
@@ -376,6 +378,7 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
                 onClick={() =>
                   navigate({
                     to: "/admin/surveys",
+                    resetScroll: false,
                     search: {
                       ...workspace.query,
                       programId: undefined,
@@ -417,7 +420,9 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
             </p>
           ) : (
             <div className="overflow-hidden rounded-xl border">
-              <RefreshButton />
+              <div className="flex justify-end border-b px-4 py-3">
+                <RefreshButton />
+              </div>
               <Table>
                 <TableHeader>
                   <TableRow className="bg-[#edf4e9] hover:bg-[#edf4e9]">
@@ -464,7 +469,10 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
 
       <Card className="rounded-2xl border-t-4 border-t-[#d88a00] shadow-sm">
         <CardHeader>
-          <CardTitle className="text-lg">Responses</CardTitle>
+          <div className="flex items-center justify-between gap-4">
+            <CardTitle className="text-lg">Responses</CardTitle>
+            <RefreshButton />
+          </div>
           <CardDescription>
             Unique first and last name matches link automatically, including
             students without a birthdate. Duplicate names and conflicting
@@ -475,13 +483,14 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
         </CardHeader>
         <CardContent>
           <form
-            className="mb-4 flex flex-wrap items-end gap-3"
+            className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4 [&_input[type=date]]:h-9 [&_input[type=date]]:rounded-lg [&_input[type=date]]:border [&_label]:grid [&_label]:min-w-0 [&_label]:gap-1.5 [&_label]:text-xs [&_select]:h-9 [&_select]:w-full [&_select]:min-w-0 [&_select]:rounded-lg [&_select]:border [&_select]:bg-white [&_select]:px-2"
             key={JSON.stringify(workspace.query)}
             onSubmit={(event) => {
               event.preventDefault();
               const data = new FormData(event.currentTarget);
               void navigate({
                 to: "/admin/surveys",
+                resetScroll: false,
                 search: {
                   ...workspace.query,
                   page: 1,
@@ -494,8 +503,8 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
                   level: String(data.get("level")),
                   from: String(data.get("from")),
                   until: String(data.get("until")),
-                  surveyId: String(data.get("surveyId")) || undefined,
-                  pageSize: Number(data.get("pageSize")),
+                  surveyId: workspace.query.surveyId,
+                  pageSize: workspace.query.pageSize,
                   sort: String(data.get("sort")) as
                     "newest" | "oldest" | "name",
                 },
@@ -510,12 +519,15 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
                 <option value="name">Child name</option>
               </select>
             </label>
-            <Input
-              name="q"
-              aria-label="Search survey responses"
-              placeholder="Child, parent email or linked student"
-              defaultValue={workspace.query.q}
-            />
+            <label>
+              Search responses
+              <Input
+                name="q"
+                aria-label="Search survey responses"
+                placeholder="Child, parent email or linked student"
+                defaultValue={workspace.query.q}
+              />
+            </label>
             <label>
               Link status
               <select name="link" defaultValue={workspace.query.link}>
@@ -574,55 +586,8 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
                 defaultValue={workspace.query.until}
               />
             </label>
-            <label>
-              Page size
-              <select name="pageSize" defaultValue={workspace.query.pageSize}>
-                {[25, 50, 100].map((size) => (
-                  <option key={size}>{size}</option>
-                ))}
-              </select>
-            </label>
             <Button type="submit">Search</Button>
           </form>
-          <div className="mb-4 flex items-center gap-3">
-            <span>
-              {workspace.responseTotal} matching responses · Page{" "}
-              {workspace.query.page}
-            </span>
-            <Button
-              variant="outline"
-              disabled={workspace.query.page <= 1}
-              onClick={() =>
-                navigate({
-                  to: "/admin/surveys",
-                  search: {
-                    ...workspace.query,
-                    page: workspace.query.page - 1,
-                  },
-                })
-              }
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              disabled={
-                workspace.query.page * workspace.query.pageSize >=
-                workspace.responseTotal
-              }
-              onClick={() =>
-                navigate({
-                  to: "/admin/surveys",
-                  search: {
-                    ...workspace.query,
-                    page: workspace.query.page + 1,
-                  },
-                })
-              }
-            >
-              Next
-            </Button>
-          </div>
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -758,6 +723,25 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
                 })}
             </Accordion>
           )}
+          <TablePagination
+            page={workspace.query.page}
+            pageSize={workspace.query.pageSize}
+            total={workspace.responseTotal}
+            onPage={(page) =>
+              void navigate({
+                to: "/admin/surveys",
+                resetScroll: false,
+                search: { ...workspace.query, page },
+              })
+            }
+            onPageSize={(pageSize) =>
+              void navigate({
+                to: "/admin/surveys",
+                resetScroll: false,
+                search: { ...workspace.query, page: 1, pageSize },
+              })
+            }
+          />
         </CardContent>
       </Card>
     </div>

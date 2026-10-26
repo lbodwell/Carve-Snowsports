@@ -7,16 +7,21 @@ import {
   Plus,
   Settings2,
   Sparkles,
+  Trash2,
   Undo2,
   UsersRound,
 } from "lucide-react";
 import { GroupLifecyclePanel } from "./group-lifecycle-panel";
-import {
-  GroupConfiguration,
-  InstructorConfiguration,
-} from "./grouping-editors";
+import { GroupConfiguration } from "./grouping-editors";
 import type { GroupingView } from "@/domain/grouping/workspace-query";
 import type { getGroupingWorkspace } from "@/server/functions/grouping-draft";
+import { Textarea } from "@/components/ui/textarea";
+import { displayTime } from "@/domain/calendar/display-time";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
 import { staffingGuidance } from "@/domain/grouping/staffing-ratio";
 import { descriptiveGroupLabel } from "@/domain/grouping/group-label";
 import { instructorAvailability } from "@/domain/grouping/instructor-preferences";
@@ -88,18 +93,25 @@ export function PersistedGroupingBoard({
   const navigate = useNavigate();
   const [extraFilters, setExtraFilters] = useState(initialFilters);
   const activeDays = [
-    ...new Set(workspace.timeSlots.flatMap((slot) => slot.allowedWeekdays)),
-  ].sort();
+    ...new Set([
+      4,
+      5,
+      6,
+      0,
+      ...workspace.timeSlots.flatMap((slot) => slot.allowedWeekdays),
+    ]),
+  ];
   const [weekday, setWeekday] = useState(
     initialFilters.weekday ??
       workspace.groups[0]?.weekday ??
-      activeDays[0] ??
+      workspace.timeSlots.flatMap((slot) => slot.allowedWeekdays).sort()[0] ??
       6,
   );
   const [timeSlotId, setTimeSlotId] = useState(
     initialFilters.timeSlotId ??
       workspace.groups[0]?.timeSlotId ??
-      workspace.timeSlots[0]?.id ??
+      workspace.timeSlots.find((slot) => slot.allowedWeekdays.includes(weekday))
+        ?.id ??
       "",
   );
   const [query, setQuery] = useState("");
@@ -109,6 +121,33 @@ export function PersistedGroupingBoard({
   const [rosterView, setRosterView] = useState<string>(
     initialFilters.view ?? "unplaced",
   );
+  const [optimisticMove, setOptimisticMove] = useState<{
+    registrationId: string;
+    groupId: string | null;
+  } | null>(null);
+  const placements = workspace.assignments
+    .filter((row) => row.registrationId !== optimisticMove?.registrationId)
+    .map((row) => ({
+      registrationId: row.registrationId,
+      draftGroupId: row.draftGroupId,
+    }));
+  if (optimisticMove?.groupId)
+    placements.push({
+      registrationId: optimisticMove.registrationId,
+      draftGroupId: optimisticMove.groupId,
+    });
+  const [movePrompt, setMovePrompt] = useState<{
+    registrationId: string;
+    fromGroupId?: string;
+    groupId: string;
+  } | null>(null);
+  const [newGroup, setNewGroup] = useState(false);
+  const [newDetails, setNewDetails] = useState({
+    disciplineId: "",
+    ageBandId: "any",
+    abilityLevelId: "any",
+  });
+  const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
   const [selected, setSelected] = useState<{
     registrationId: string;
     fromGroupId?: string;
@@ -139,8 +178,8 @@ export function PersistedGroupingBoard({
       (!extraFilters.levelId ||
         group.abilityLevelId === extraFilters.levelId) &&
       (extraFilters.groupSize === undefined ||
-        workspace.assignments.filter((row) => row.draftGroupId === group.id)
-          .length === extraFilters.groupSize) &&
+        placements.filter((row) => row.draftGroupId === group.id).length ===
+          extraFilters.groupSize) &&
       (!extraFilters.staffing ||
         Boolean(group.leadInstructorId) ===
           (extraFilters.staffing === "staffed")),
@@ -166,7 +205,7 @@ export function PersistedGroupingBoard({
     groups: groups.filter((group) => laneKey(group) === key),
   }));
   const assignedIds = new Set(
-    workspace.assignments.map((assignment) => assignment.registrationId),
+    placements.map((assignment) => assignment.registrationId),
   );
   const unplaced = workspace.roster.filter(
     (student) =>
@@ -182,7 +221,7 @@ export function PersistedGroupingBoard({
   const missingLeads = workspace.groups.filter(
     (group) =>
       !group.leadInstructorId &&
-      workspace.assignments.some((row) => row.draftGroupId === group.id),
+      placements.some((row) => row.draftGroupId === group.id),
   ).length;
   const groupName = (id: string) => {
     const group = workspace.groups.find((item) => item.id === id);
@@ -330,41 +369,69 @@ export function PersistedGroupingBoard({
       setBusy(false);
     }
   }
+  async function moveStudent(
+    registrationId: string,
+    fromGroupId: string | undefined,
+    groupId: string | null,
+    reason?: string,
+  ) {
+    if (!draft || busy || !editable) return;
+    const student = workspace.roster.find(
+      (row) => row.registrationId === registrationId,
+    );
+    const target = workspace.groups.find((row) => row.id === groupId);
+    const band = workspace.ageBands.find((row) => row.id === target?.ageBandId);
+    const age = student?.dateOfBirth
+      ? computeAgeOnDate(student.dateOfBirth, workspace.program.seasonStartsOn)
+      : null;
+    const exception =
+      target &&
+      student &&
+      ((target.abilityLevelId &&
+        student.abilityLevelId &&
+        target.abilityLevelId !== student.abilityLevelId) ||
+        (band &&
+          age !== null &&
+          (age < band.minimumAge || age > band.maximumAge)));
+    if (exception && !reason?.trim() && groupId) {
+      setOverrideReason("");
+      setMovePrompt({ registrationId, fromGroupId, groupId });
+      return;
+    }
+    setOptimisticMove({ registrationId, groupId });
+    const saved = await mutate(
+      () =>
+        moveRegistration({
+          data: {
+            draftId: draft.id,
+            baseVersion: draft.version,
+            commandId: crypto.randomUUID(),
+            registrationId,
+            fromGroupId,
+            groupId,
+            overrideReason: reason?.trim() || undefined,
+          },
+        }),
+      groupId ? "Student moved." : "Student returned to Needs placement.",
+    );
+    setOptimisticMove(null);
+    if (saved) {
+      setSelected(null);
+      setSplitSelection([]);
+      setMovePrompt(null);
+    } else await router.invalidate();
+  }
   async function place(groupId: string | null) {
-    if (!draft || !selected) return;
-    if (
-      await mutate(
-        () =>
-          moveRegistration({
-            data: {
-              draftId: draft.id,
-              baseVersion: draft.version,
-              commandId: crypto.randomUUID(),
-              registrationId: selected.registrationId,
-              fromGroupId: selected.fromGroupId,
-              overrideReason: overrideReason.trim() || undefined,
-              groupId,
-            },
-          }),
-        groupId
-          ? `Student moved to ${groupName(groupId)}.`
-          : "Student returned to Needs placement.",
-      )
-    )
-      setSelected({
-        registrationId: selected.registrationId,
-        fromGroupId: groupId ?? undefined,
-      });
+    if (selected)
+      await moveStudent(selected.registrationId, selected.fromGroupId, groupId);
   }
   function studentCard(student: Student, fromGroupId?: string) {
     const placementGroupId =
       fromGroupId ??
-      workspace.assignments.find(
+      placements.find(
         (assignment) => assignment.registrationId === student.registrationId,
       )?.draftGroupId;
-    const active =
-      selected?.registrationId === student.registrationId &&
-      selected.fromGroupId === placementGroupId;
+    const active = splitSelection.includes(student.registrationId);
     const placedElsewhere =
       !fromGroupId && assignedIds.has(student.registrationId);
     return (
@@ -372,6 +439,7 @@ export function PersistedGroupingBoard({
         key={student.registrationId}
         draggable={editable && !busy}
         onDragStart={(event) => {
+          setSplitSelection([student.registrationId]);
           setSelected({
             registrationId: student.registrationId,
             fromGroupId: placementGroupId,
@@ -389,18 +457,22 @@ export function PersistedGroupingBoard({
         aria-pressed={active}
         onClick={() => {
           setApplyToMatching(false);
-          setOverrideReason("");
+          const sameGroup = selected?.fromGroupId === placementGroupId;
+          const next = active
+            ? splitSelection.filter((id) => id !== student.registrationId)
+            : sameGroup && placementGroupId
+              ? [...splitSelection, student.registrationId]
+              : [student.registrationId];
+          setSplitSelection(next);
+          const focus = next.at(-1);
           setSelected(
-            active
-              ? null
-              : {
-                  registrationId: student.registrationId,
-                  fromGroupId: placementGroupId,
-                },
+            focus
+              ? { registrationId: focus, fromGroupId: placementGroupId }
+              : null,
           );
         }}
         className={cn(
-          "hover:border-pm-green focus-visible:outline-pm-green w-full rounded-xl border bg-white p-3 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-default",
+          "hover:border-pm-green focus-visible:outline-pm-green w-full cursor-pointer rounded-xl border bg-white p-3 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-default",
           active && "border-pm-green bg-pm-mist ring-pm-green/20 ring-2",
         )}
       >
@@ -420,16 +492,60 @@ export function PersistedGroupingBoard({
             ? `Age ${computeAgeOnDate(student.dateOfBirth, workspace.program.seasonStartsOn)}`
             : "Birthdate needed"}
         </span>
-        {(student.placementNotes || student.survey?.placementNotes) && (
-          <span className="mt-2 block rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-950">
-            <span className="font-medium">Placement note</span>
-            <span className="mt-0.5 line-clamp-2 whitespace-pre-wrap">
-              {student.placementNotes || student.survey?.placementNotes}
-            </span>
-            <span className="mt-1 block text-[10px] text-amber-800">
-              Select to read all notes
-            </span>
-          </span>
+        {(student.placementNotes ||
+          student.survey?.placementNotes ||
+          student.medicalNotes) && (
+          <HoverCard openDelay={150}>
+            <HoverCardTrigger asChild>
+              <span
+                tabIndex={0}
+                className="mt-2 block cursor-help rounded-lg border border-amber-200/60 bg-amber-50 p-2 text-xs text-amber-950"
+              >
+                {(student.placementNotes || student.survey?.placementNotes) && (
+                  <span className="line-clamp-2">
+                    <strong>Placement · </strong>
+                    {student.placementNotes || student.survey?.placementNotes}
+                  </span>
+                )}
+                {student.medicalNotes && (
+                  <span className="mt-1 line-clamp-2">
+                    <strong>Medical · </strong>
+                    {student.medicalNotes}
+                  </span>
+                )}
+                <span className="mt-1 block text-[10px] text-amber-800">
+                  Hover or focus for all notes
+                </span>
+              </span>
+            </HoverCardTrigger>
+            <HoverCardContent>
+              <p className="mb-3 font-semibold">
+                {student.firstName} {student.lastName} · Student notes
+              </p>
+              {student.placementNotes && (
+                <div className="mb-3">
+                  <strong className="text-xs">Placement</strong>
+                  <p className="whitespace-pre-wrap">
+                    {student.placementNotes}
+                  </p>
+                </div>
+              )}
+              {student.survey?.placementNotes && (
+                <div className="mb-3">
+                  <strong className="text-xs">Survey guidance</strong>
+                  <p className="whitespace-pre-wrap">
+                    {student.survey.placementNotes}
+                  </p>
+                </div>
+              )}
+              {student.medicalNotes && (
+                <div>
+                  <strong className="text-xs">Medical & support</strong>
+                  <p className="whitespace-pre-wrap">{student.medicalNotes}</p>
+                </div>
+              )}
+            </HoverCardContent>
+          </HoverCard>
         )}
         {student.survey?.hasSupportReview && (
           <span className="mt-1 block text-xs text-amber-800">
@@ -707,6 +823,12 @@ export function PersistedGroupingBoard({
           value={String(weekday)}
           onChange={(value) => {
             setWeekday(Number(value));
+            setTimeSlotId(
+              workspace.timeSlots.find((slot) =>
+                slot.allowedWeekdays.includes(Number(value)),
+              )?.id ?? "",
+            );
+            setSplitSelection([]);
             setSelected(null);
           }}
           items={weekdays
@@ -727,7 +849,7 @@ export function PersistedGroupingBoard({
             .filter((slot) => slot.allowedWeekdays.includes(weekday))
             .map((slot) => ({
               ...slot,
-              label: `${slot.cohort === "session-1" ? "Session 1 · " : slot.cohort === "session-2" ? "Session 2 · " : ""}${slot.label} (${slot.startsAt.slice(0, 5)}–${slot.endsAt.slice(0, 5)})`,
+              label: `${slot.cohort === "session-1" ? "Session 1 · " : slot.cohort === "session-2" ? "Session 2 · " : ""}${slot.label} (${displayTime(slot.startsAt)}–${displayTime(slot.endsAt)})`,
             }))}
         />
         <Picker
@@ -742,25 +864,14 @@ export function PersistedGroupingBoard({
         {editable && (
           <Button
             disabled={busy || !timeSlotId || !workspace.disciplines.length}
-            onClick={() =>
-              void mutate(() =>
-                createDraftGroup({
-                  data: {
-                    draftId: draft.id,
-                    baseVersion: draft.version,
-                    commandId: crypto.randomUUID(),
-                    weekday,
-                    timeSlotId,
-                    disciplineId:
-                      discipline === "all"
-                        ? workspace.disciplines[0]!.id
-                        : discipline,
-                    abilityLevelId: null,
-                    ageBandId: null,
-                  },
-                }),
-              )
-            }
+            onClick={() => {
+              setNewDetails({
+                disciplineId: discipline === "all" ? "" : discipline,
+                ageBandId: "any",
+                abilityLevelId: "any",
+              });
+              setNewGroup(true);
+            }}
           >
             <Plus />
             New group
@@ -807,7 +918,7 @@ export function PersistedGroupingBoard({
                 ? `${slot.startsOn} to ${slot.endsOn}`
                 : slot.cohort && slot.cohort !== "season"
                   ? "Dates pending — groups can be built now"
-                  : "Whole season"}
+                  : "Session follows the season calendar"}
               {slot.excludedDates.length
                 ? ` · ${slot.excludedDates.length} no-lesson dates`
                 : ""}
@@ -817,7 +928,7 @@ export function PersistedGroupingBoard({
               params={{ programId: workspace.program.id }}
               className="underline"
             >
-              Configure sessions
+              Edit session calendar
             </Link>
           </div>
         ) : null;
@@ -832,8 +943,8 @@ export function PersistedGroupingBoard({
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <p className="text-muted-foreground max-w-2xl text-sm">
-              We’ll suggest groups using discipline, age and ability, with
-              qualified instructors. Imported registrations use their confirmed
+              We’ll suggest groups using discipline, age and ability, with no
+              instructor assignments. Imported registrations use their confirmed
               sessions. Other students use the day and time selected above.
               Adjust every placement before approval.
             </p>
@@ -880,8 +991,8 @@ export function PersistedGroupingBoard({
           </CardContent>
         </Card>
       )}
-      <div className="grid items-start gap-5 lg:grid-cols-[minmax(18rem,0.85fr)_minmax(0,2fr)]">
-        <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-4">
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(20rem,1fr)_minmax(0,2fr)]">
+        <aside className="flex min-w-0 flex-col gap-4">
           {selectedStudent && (
             <div className="border-pm-green/30 bg-pm-mist max-h-[26rem] overflow-y-auto rounded-xl border p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -894,9 +1005,12 @@ export function PersistedGroupingBoard({
                 <Button
                   size="xs"
                   variant="ghost"
-                  onClick={() => setSelected(null)}
+                  onClick={() => {
+                    setSelected(null);
+                    setSplitSelection([]);
+                  }}
                 >
-                  Cancel selection
+                  Clear selection
                 </Button>
               </div>
               <h3 className="mt-3 text-xs font-semibold tracking-wide uppercase">
@@ -908,6 +1022,20 @@ export function PersistedGroupingBoard({
               {selectedStudent.survey?.placementNotes && (
                 <p className="text-sm whitespace-pre-wrap">
                   Survey: {selectedStudent.survey.placementNotes}
+                </p>
+              )}
+              {selectedStudent.medicalNotes && (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <h3 className="text-xs font-semibold">Medical & support</h3>
+                  <p className="text-sm whitespace-pre-wrap">
+                    {selectedStudent.medicalNotes}
+                  </p>
+                </div>
+              )}
+              {splitSelection.length > 1 && (
+                <p className="mt-3 text-sm font-medium">
+                  {splitSelection.length} students selected for splitting.
+                  Select one student to move between groups.
                 </p>
               )}
               {selectedStudent.needsSchedule && (
@@ -963,31 +1091,24 @@ export function PersistedGroupingBoard({
                   </label>
                 </div>
               )}
-              <label className="mt-3 grid gap-1 text-xs font-medium">
-                Placement reason (required for mixed levels or age exceptions)
-                <Input
-                  value={overrideReason}
-                  onChange={(event) => setOverrideReason(event.target.value)}
-                  maxLength={1000}
-                  placeholder="Explain an age-band exception or placement decision…"
-                />
-              </label>
-              {editable && selected?.fromGroupId && (
-                <Button
-                  className="mt-2"
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => void place(null)}
-                >
-                  Return to needs placement
-                </Button>
-              )}
+              {editable &&
+                splitSelection.length === 1 &&
+                selected?.fromGroupId && (
+                  <Button
+                    className="mt-2"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => void place(null)}
+                  >
+                    Return to needs placement
+                  </Button>
+                )}
             </div>
           )}
 
           <section
-            className="flex h-[34rem] flex-col overflow-hidden rounded-xl border bg-white"
+            className="flex h-[min(65vh,42rem)] min-h-80 flex-col overflow-hidden rounded-xl border bg-white"
             aria-label="Student pool"
           >
             <div className="border-b p-4">
@@ -1127,7 +1248,7 @@ export function PersistedGroupingBoard({
                   aria-label="Scrollable groups"
                 >
                   {lane.groups.map((group) => {
-                    const students = workspace.assignments
+                    const students = placements
                       .filter((row) => row.draftGroupId === group.id)
                       .flatMap((row) => {
                         const student = workspace.roster.find(
@@ -1154,6 +1275,7 @@ export function PersistedGroupingBoard({
                     const canPlace =
                       editable &&
                       selected &&
+                      splitSelection.length === 1 &&
                       selected.fromGroupId !== group.id &&
                       !selectedStudent?.needsSchedule &&
                       selectedStudent?.registrationStatus === "active" &&
@@ -1184,32 +1306,23 @@ export function PersistedGroupingBoard({
                               registrationId: string;
                               fromGroupId: string | null;
                             };
-                            void mutate(
-                              () =>
-                                moveRegistration({
-                                  data: {
-                                    ...payload,
-                                    draftId: draft.id,
-                                    baseVersion: draft.version,
-                                    commandId: crypto.randomUUID(),
-                                    groupId: group.id,
-                                    overrideReason: overrideReason || undefined,
-                                  },
-                                }),
-                              "Student moved.",
+                            void moveStudent(
+                              payload.registrationId,
+                              payload.fromGroupId ?? undefined,
+                              group.id,
                             );
                           } catch {
                             setError("Could not read the dragged student.");
                           }
                         }}
                         className={cn(
-                          "gap-0 overflow-hidden py-0",
+                          "min-w-0 gap-0 overflow-hidden py-0",
                           canPlace && "border-pm-green/50",
                         )}
                       >
                         <CardHeader className="gap-2 border-b p-3">
                           <div className="flex items-start justify-between gap-2">
-                            <div>
+                            <div className="min-w-0 flex-1">
                               <CardTitle role="heading" aria-level={3}>
                                 {groupName(group.id)}
                               </CardTitle>
@@ -1222,8 +1335,22 @@ export function PersistedGroupingBoard({
                             >
                               <Settings2 />
                             </Button>
+                            {editable && (
+                              <Button
+                                size="icon-xs"
+                                variant="ghost"
+                                className="text-muted-foreground hover:text-destructive"
+                                aria-label={"Remove " + groupName(group.id)}
+                                onClick={() => {
+                                  setDeletingGroupId(group.id);
+                                  setConfirm("delete");
+                                }}
+                              >
+                                <Trash2 />
+                              </Button>
+                            )}
                           </div>
-                          <div className="flex items-center justify-between gap-2 text-xs">
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                             <span
                               draggable={editable && Boolean(lead)}
                               onDragStart={(event) => {
@@ -1253,32 +1380,39 @@ export function PersistedGroupingBoard({
                             </span>
                           </div>
                           {editable && (
-                            <label className="text-xs">
-                              Suggested lead
-                              <select
+                            <Select
+                              value={group.leadInstructorId ?? "none"}
+                              onValueChange={(value) =>
+                                void assignLead(
+                                  group,
+                                  value === "none" ? null : value,
+                                )
+                              }
+                              disabled={busy}
+                            >
+                              <SelectTrigger
+                                className="w-full min-w-0"
                                 aria-label={
                                   "Suggested lead for " + groupName(group.id)
                                 }
-                                value={group.leadInstructorId ?? ""}
-                                onChange={(event) =>
-                                  void assignLead(
-                                    group,
-                                    event.target.value || null,
-                                  )
-                                }
                               >
-                                <option value="">No lead instructor</option>
+                                <SelectValue placeholder="Choose lead instructor" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">
+                                  Choose lead instructor
+                                </SelectItem>
                                 {instructorCandidates(group).map((item) => (
-                                  <option
+                                  <SelectItem
                                     key={item.instructor.id}
                                     value={item.instructor.id}
                                   >
                                     {item.instructor.firstName}{" "}
                                     {item.instructor.lastName} · {item.reason}
-                                  </option>
+                                  </SelectItem>
                                 ))}
-                              </select>
-                            </label>
+                              </SelectContent>
+                            </Select>
                           )}
                           {staffing.message && (
                             <p className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
@@ -1292,74 +1426,56 @@ export function PersistedGroupingBoard({
                               key={student.registrationId}
                               className="flex gap-2"
                             >
-                              {editable && (
-                                <input
-                                  type="checkbox"
-                                  aria-label={
-                                    "Select " + student.firstName + " for split"
-                                  }
-                                  checked={splitSelection.includes(
-                                    student.registrationId,
-                                  )}
-                                  onChange={(event) =>
-                                    setSplitSelection((previous) =>
-                                      event.target.checked
-                                        ? [...previous, student.registrationId]
-                                        : previous.filter(
-                                            (id) =>
-                                              id !== student.registrationId,
-                                          ),
-                                    )
-                                  }
-                                />
-                              )}
                               {studentCard(student, group.id)}
                             </div>
                           ))}
-                          {editable && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={
-                                busy ||
-                                !students.some((student) =>
-                                  splitSelection.includes(
-                                    student.registrationId,
-                                  ),
-                                )
-                              }
-                              onClick={() =>
-                                mutate(async () => {
-                                  await splitGroup({
-                                    data: {
-                                      draftId: draft.id,
-                                      baseVersion: draft.version,
-                                      commandId: crypto.randomUUID(),
-                                      groupId: group.id,
-                                      registrationIds: students
-                                        .filter((student) =>
-                                          splitSelection.includes(
-                                            student.registrationId,
+                          {editable &&
+                            students.some((student) =>
+                              splitSelection.includes(student.registrationId),
+                            ) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={
+                                  busy ||
+                                  !students.some((student) =>
+                                    splitSelection.includes(
+                                      student.registrationId,
+                                    ),
+                                  )
+                                }
+                                onClick={() =>
+                                  mutate(async () => {
+                                    await splitGroup({
+                                      data: {
+                                        draftId: draft.id,
+                                        baseVersion: draft.version,
+                                        commandId: crypto.randomUUID(),
+                                        groupId: group.id,
+                                        registrationIds: students
+                                          .filter((student) =>
+                                            splitSelection.includes(
+                                              student.registrationId,
+                                            ),
+                                          )
+                                          .map(
+                                            (student) => student.registrationId,
                                           ),
-                                        )
-                                        .map(
-                                          (student) => student.registrationId,
-                                        ),
-                                    },
-                                  });
-                                  setSplitSelection([]);
-                                }, "Selected students split into a new unstaffed group.")
-                              }
-                            >
-                              Split selected into new group
-                            </Button>
-                          )}
+                                      },
+                                    });
+                                    setSplitSelection([]);
+                                  }, "Selected students split into a new unstaffed group.")
+                                }
+                              >
+                                Split selected
+                              </Button>
+                            )}
                           {!students.length && (
                             <p className="text-muted-foreground rounded-lg border border-dashed p-5 text-center text-xs">
                               Select a student to add them here.
                             </p>
                           )}
-                          {selected && (
+                          {selected && splitSelection.length === 1 && (
                             <Button
                               size="sm"
                               variant={canPlace ? "default" : "outline"}
@@ -1388,7 +1504,22 @@ export function PersistedGroupingBoard({
                   No groups in this day and time slot.
                 </h3>
                 <p className="text-muted-foreground mt-2 text-sm">
-                  Choose another session
+                  {!timeSlotId ? (
+                    <span>
+                      No active lesson time is configured for{" "}
+                      {weekdays[weekday]}.{" "}
+                      <Link
+                        to="/admin/programs/$programId"
+                        params={{ programId: workspace.program.id }}
+                        className="underline"
+                      >
+                        Set up this day
+                      </Link>
+                      .
+                    </span>
+                  ) : (
+                    "Choose another session"
+                  )}
                   {draft
                     ? " or add a new group."
                     : " or create suggested groups above."}
@@ -1535,6 +1666,117 @@ export function PersistedGroupingBoard({
           </div>
         </footer>
       )}
+      <AlertDialog
+        open={Boolean(movePrompt)}
+        onOpenChange={(open) => {
+          if (!open && !busy) setMovePrompt(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Explain this placement</AlertDialogTitle>
+            <AlertDialogDescription>
+              This move crosses the group’s level or age band. Record the reason
+              so other coordinators can understand the decision.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            aria-label="Placement reason"
+            value={overrideReason}
+            onChange={(event) => setOverrideReason(event.target.value)}
+            placeholder="Why is this group a good fit?"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel move</AlertDialogCancel>
+            <Button
+              disabled={busy || !overrideReason.trim()}
+              onClick={() =>
+                movePrompt &&
+                void moveStudent(
+                  movePrompt.registrationId,
+                  movePrompt.fromGroupId,
+                  movePrompt.groupId,
+                  overrideReason,
+                )
+              }
+            >
+              {busy ? "Saving…" : "Move student"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={newGroup} onOpenChange={setNewGroup}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Create a group</AlertDialogTitle>
+            <AlertDialogDescription>
+              {weekdays[weekday]} · {findLabel(workspace.timeSlots, timeSlotId)}
+              . The new group starts empty and unstaffed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid gap-3">
+            <Picker
+              label="Discipline"
+              value={newDetails.disciplineId}
+              items={workspace.disciplines}
+              onChange={(disciplineId) =>
+                setNewDetails((old) => ({ ...old, disciplineId }))
+              }
+            />
+            <Picker
+              label="Age band"
+              value={newDetails.ageBandId}
+              items={[{ id: "any", label: "All ages" }, ...workspace.ageBands]}
+              onChange={(ageBandId) =>
+                setNewDetails((old) => ({ ...old, ageBandId }))
+              }
+            />
+            <Picker
+              label="Level"
+              value={newDetails.abilityLevelId}
+              items={[
+                { id: "any", label: "Mixed levels" },
+                ...workspace.abilityLevels,
+              ]}
+              onChange={(abilityLevelId) =>
+                setNewDetails((old) => ({ ...old, abilityLevelId }))
+              }
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button
+              disabled={busy || !newDetails.disciplineId || !timeSlotId}
+              onClick={() => {
+                if (!draft) return;
+                void mutate(async () => {
+                  await createDraftGroup({
+                    data: {
+                      draftId: draft.id,
+                      baseVersion: draft.version,
+                      commandId: crypto.randomUUID(),
+                      weekday,
+                      timeSlotId,
+                      disciplineId: newDetails.disciplineId,
+                      ageBandId:
+                        newDetails.ageBandId === "any"
+                          ? null
+                          : newDetails.ageBandId,
+                      abilityLevelId:
+                        newDetails.abilityLevelId === "any"
+                          ? null
+                          : newDetails.abilityLevelId,
+                    },
+                  });
+                  setNewGroup(false);
+                }, "Group created in the selected session.");
+              }}
+            >
+              Create group
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Sheet
         open={Boolean(editingGroup)}
         onOpenChange={(open) => {
@@ -1558,7 +1800,10 @@ export function PersistedGroupingBoard({
                 workspace={workspace}
                 busy={busy}
                 readOnly={!editable}
-                onDelete={() => setConfirm("delete")}
+                onDelete={() => {
+                  setDeletingGroupId(editingGroup.id);
+                  setConfirm("delete");
+                }}
                 onSave={(values) =>
                   void mutate(() =>
                     updateDraftGroup({
@@ -1570,34 +1815,9 @@ export function PersistedGroupingBoard({
                         groupId: editingGroup.id,
                       },
                     }),
-                  )
-                }
-              />
-              <InstructorConfiguration
-                key={`${editingGroup.id}:${draft.version}:staff`}
-                group={editingGroup}
-                instructors={workspace.instructors.filter(
-                  (instructor) =>
-                    !editingGroup.disciplineId ||
-                    instructor.disciplineIds.includes(
-                      editingGroup.disciplineId,
-                    ),
-                )}
-                busy={busy}
-                readOnly={!editable}
-                onSave={(instructorIds, leadInstructorId) =>
-                  void mutate(() =>
-                    assignDraftInstructor({
-                      data: {
-                        draftId: draft.id,
-                        baseVersion: draft.version,
-                        commandId: crypto.randomUUID(),
-                        groupId: editingGroup.id,
-                        instructorIds,
-                        leadInstructorId,
-                      },
-                    }),
-                  )
+                  ).then((saved) => {
+                    if (saved) setEditingGroupId(null);
+                  })
                 }
               />
             </div>
@@ -1640,14 +1860,14 @@ export function PersistedGroupingBoard({
                       }),
                     "Groups published.",
                   );
-                else if (editingGroup)
+                else if (deletingGroupId)
                   void mutate(() =>
                     deleteDraftGroup({
                       data: {
                         draftId: draft.id,
                         baseVersion: draft.version,
                         commandId: crypto.randomUUID(),
-                        groupId: editingGroup.id,
+                        groupId: deletingGroupId,
                       },
                     }),
                   ).then((saved) => {
@@ -1711,7 +1931,7 @@ function InstructorOverview({
   const slot = workspace.timeSlots.find((item) => item.id === timeSlotId);
   return (
     <section
-      className="flex h-[24rem] flex-col rounded-xl border bg-white p-4"
+      className="flex h-[min(40vh,28rem)] min-h-64 flex-col rounded-xl border bg-white p-4"
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
@@ -1765,6 +1985,22 @@ function InstructorOverview({
               >
                 <p className="font-medium">
                   {instructor.firstName} {instructor.lastName}
+                </p>
+                <p className="mt-1 font-medium">
+                  {instructor.disciplineIds
+                    .map((id) => findLabel(workspace.disciplines, id))
+                    .join(" · ") || "Qualifications needed"}
+                </p>
+                <p className="text-muted-foreground mt-1">
+                  {slot
+                    ? instructorAvailability(instructor.preferences, {
+                        programId: workspace.program.id,
+                        cohort: slot.cohort,
+                        weekday,
+                        startsAt: slot.startsAt,
+                        endsAt: slot.endsAt,
+                      }).reason
+                    : "Choose a configured session"}
                 </p>
                 <p className="text-muted-foreground mt-1">
                   {assigned.length

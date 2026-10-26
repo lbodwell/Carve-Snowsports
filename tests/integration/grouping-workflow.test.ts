@@ -278,11 +278,38 @@ describe("grouping workflow integration", () => {
 
     let draftVersion = 1;
     for (const group of groups) {
-      const assigned = await assignDraftInstructor(actor, {
+      await expect(
+        updateDraftGroup(actor, {
+          draftId: draft.id,
+          baseVersion: draftVersion,
+          commandId: randomUUID(),
+          groupId: group.id,
+          weekday: group.weekday,
+          timeSlotId: group.timeSlotId,
+          disciplineId: group.disciplineId!,
+          ageBandId: group.ageBandId,
+          abilityLevelId: group.abilityLevelId,
+          notes: "Must not persist after invalid staffing",
+          instructorIds: [],
+          leadInstructorId: instructorPersonId,
+        }),
+      ).rejects.toMatchObject({ code: "VALIDATION" });
+      const [unchanged] = await db
+        .select()
+        .from(groupingDraftGroups)
+        .where(eq(groupingDraftGroups.id, group.id));
+      expect(unchanged!.notes).toBe(group.notes);
+      const assigned = await updateDraftGroup(actor, {
         draftId: draft.id,
         baseVersion: draftVersion,
         commandId: randomUUID(),
         groupId: group.id,
+        weekday: group.weekday,
+        timeSlotId: group.timeSlotId,
+        disciplineId: group.disciplineId!,
+        ageBandId: group.ageBandId,
+        abilityLevelId: group.abilityLevelId,
+        notes: "Combined details and staffing save",
         instructorIds: [instructorPersonId],
         leadInstructorId: instructorPersonId,
       });

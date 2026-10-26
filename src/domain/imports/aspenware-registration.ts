@@ -1,11 +1,12 @@
 import {
   collectImportBirthdates,
+  isRefundPrompt,
   normalizePromptIdentities,
 } from "./aspenware-enrichment";
 
 export type CsvRecord = Record<string, string>;
 
-export const ASPENWARE_ADAPTER_VERSION = "2026-27@3";
+export const ASPENWARE_ADAPTER_VERSION = "2026-27@4";
 
 export const aspenwareListingHeaders = [
   "DetailRowC0",
@@ -290,11 +291,13 @@ export function parseCustomerProductListing(
 
 export function parsePromptRegistrations(
   records: Array<CsvRecord>,
+  sourceRowNumbers?: ReadonlyArray<number>,
 ): Array<PromptRegistration> {
   const grouped = new Map<string, PromptRegistration>();
 
   for (const [index, record] of records.entries()) {
-    const rowNumber = index + 2;
+    const rowNumber = sourceRowNumbers?.[index] ?? index + 2;
+    if (isRefundPrompt(record)) continue;
     const transactionId = required(record, "TransactionID", rowNumber);
     const lineId = required(record, "TransactionLineIPCode", rowNumber);
     const product = required(record, "ProductHeaderDescription", rowNumber);
@@ -568,6 +571,7 @@ export function previewAspenwareRegistrationBatch(
   if (input.promptRecords) {
     for (const registration of parsePromptRegistrations(
       normalizedPrompts.records,
+      normalizedPrompts.rowNumbers,
     )) {
       const key = listingMatchKey(
         registration.participantKey,

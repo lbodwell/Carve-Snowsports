@@ -6,6 +6,11 @@ import { RosterAuditSearch } from "@/features/admin/roster-audit-search";
 import { searchRosterAuditHistory } from "@/server/functions/audit-history";
 
 const auditSearchSchema = z.object({
+  page: z.coerce.number().int().min(1).catch(1),
+  pageSize: z.coerce
+    .number()
+    .refine((n) => [10, 25, 50, 100].includes(n))
+    .catch(10),
   query: z.string().optional(),
   entityType: z.enum(["student", "instructor", "registration"]).optional(),
 });
@@ -18,7 +23,8 @@ export const Route = createFileRoute("/admin/audit")({
       data: {
         query: deps.search.query,
         entityType: deps.search.entityType ?? "all",
-        limit: 50,
+        limit: deps.search.pageSize + 1,
+        offset: (deps.search.page - 1) * deps.search.pageSize,
       },
     }),
   component: RosterAuditPage,
@@ -33,7 +39,10 @@ function RosterAuditPage() {
       <RosterAuditSearch
         initialQuery={search.query ?? ""}
         initialEntityType={search.entityType ?? "all"}
-        events={events}
+        events={events.slice(0, search.pageSize)}
+        page={search.page}
+        pageSize={search.pageSize}
+        hasNext={events.length > search.pageSize}
       />
     </AdminShell>
   );
