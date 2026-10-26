@@ -262,13 +262,11 @@ export async function saveInstructor(actor: Actor, input: InstructorInput) {
           "Instructor could not be created.",
         );
       instructorId = person.id;
-      await tx
-        .insert(instructors)
-        .values({
-          personId: instructorId,
-          notes: parsed.notes,
-          preferences: parsed.preferences ?? [],
-        });
+      await tx.insert(instructors).values({
+        personId: instructorId,
+        notes: parsed.notes,
+        preferences: parsed.preferences ?? [],
+      });
     }
 
     const contacts = [
