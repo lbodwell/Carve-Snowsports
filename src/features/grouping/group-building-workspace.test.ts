@@ -50,11 +50,75 @@ afterEach(() => {
 describe("administrator group workspace", () => {
   it("does not call a Sunday student unplaced while viewing Saturday", () => {
     render(createElement(PersistedGroupingBoard, { workspace: fixture() }));
-    expect(screen.getByText(/Everyone is placed/)).toBeTruthy();
+    expect(
+      screen.getByText(/Everyone registered for this session is placed/),
+    ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Rowan Patel/ })).toBeNull();
     expect(
       screen.getByText("0 students need placement · 1 groups need a lead"),
     ).toBeTruthy();
+  });
+  it("limits both pools to the selected session, including All students", () => {
+    const workspace = fixture();
+    workspace.roster.push({
+      ...workspace.roster[0]!,
+      registrationId: "other-cohort",
+      firstName: "Other",
+      schedule: { weekday: 6, timeSlotId: "second-session" },
+    });
+    workspace.instructors[0]!.preferences = [
+      {
+        weekday: 6,
+        teachingSlot: "am",
+        startsAt: "00:00",
+        endsAt: "23:59",
+        minimumAge: null,
+        maximumAge: null,
+        minimumLevel: null,
+        maximumLevel: null,
+      },
+    ];
+    workspace.instructors.push({
+      ...workspace.instructors[0]!,
+      id: "unavailable",
+      firstName: "Unavailable",
+      preferences: [],
+    });
+    workspace.instructors.push({
+      ...workspace.instructors[0]!,
+      id: "busy",
+      firstName: "Busy",
+    });
+    workspace.timeSlots.push({
+      ...workspace.timeSlots[0]!,
+      id: "full-day",
+      endsAt: "16:00",
+    });
+    workspace.groups = [
+      ...workspace.groups,
+      {
+        ...workspace.groups[0]!,
+        id: "busy-group",
+        timeSlotId: "full-day",
+        instructorIds: ["busy"],
+        leadInstructorId: "busy",
+      },
+    ];
+    render(createElement(PersistedGroupingBoard, { workspace }));
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    const pool = within(screen.getByRole("region", { name: "Student pool" }));
+    expect(pool.getByRole("button", { name: /Avery Chen/ })).toBeTruthy();
+    expect(
+      pool.queryByRole("button", { name: /Rowan Patel|Other Chen/ }),
+    ).toBeNull();
+    const instructors = within(
+      screen
+        .getByRole("heading", { name: "Instructors for this session" })
+        .closest("section")!,
+    );
+    expect(instructors.getByText("Jordan Lee")).toBeTruthy();
+    expect(instructors.queryByText("Unavailable Lee")).toBeNull();
+    expect(instructors.queryByText("Busy Lee")).toBeNull();
   });
   it("moves a student directly between groups with the original group attached", async () => {
     const workspace = fixture();
@@ -117,11 +181,14 @@ describe("administrator group workspace", () => {
     render(createElement(PersistedGroupingBoard, { workspace: fixture() }));
     fireEvent.click(screen.getByRole("button", { name: "All" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Find a student" }), {
-      target: { value: "rowan" },
+      target: { value: "avery" },
     });
-    expect(screen.getAllByRole("button", { name: /Rowan Patel/ })).toHaveLength(
-      1,
-    );
+    expect(
+      within(screen.getByRole("region", { name: "Student pool" })).getAllByRole(
+        "button",
+        { name: /Avery Chen/ },
+      ),
+    ).toHaveLength(1);
   });
   it("prompts for a level exception before moving a student", async () => {
     const workspace = fixture();

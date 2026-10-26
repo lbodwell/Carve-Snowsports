@@ -120,7 +120,21 @@ export function resolveRegistrationSchedule(
             slot.endsAt?.slice(0, 5) === weekendHours[1],
         )
       : [];
-  const candidates = (matches.length ? matches : clockMatches).filter(
+  const weekdayCohortMatches =
+    (weekday === 4 || weekday === 5) && importedCohort(source) !== "season"
+      ? slots.filter(
+          (slot) =>
+            slot.cohort === importedCohort(source) &&
+            slot.startsAt?.slice(0, 5) === "09:00",
+        )
+      : [];
+  const candidates = (
+    matches.length
+      ? matches
+      : weekdayCohortMatches.length
+        ? weekdayCohortMatches
+        : clockMatches
+  ).filter(
     (slot) =>
       slot.allowedWeekdays === undefined ||
       slot.allowedWeekdays.includes(weekday),

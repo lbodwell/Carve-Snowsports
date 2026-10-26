@@ -935,6 +935,29 @@ function TimeSlotSection({
               </Button>
             ))}
           </div>
+          <div
+            className="flex flex-wrap gap-2"
+            aria-label="Thursday and Friday sessions"
+          >
+            {(["session-1", "session-2"] as const).map((session, index) => (
+              <Button
+                key={session}
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setCohort(session);
+                  setStartsAt("09:00");
+                  setAllowedWeekdays([4, 5]);
+                  const nextLabel = `9:00 AM - Session ${index + 1}`;
+                  setLabel(nextLabel);
+                  if (!editingId) setKey(slugifyKey(nextLabel));
+                }}
+              >
+                Thu/Fri · 9:00 AM - Session {index + 1}
+              </Button>
+            ))}
+          </div>
           <Field>
             <div className="flex flex-wrap gap-2">
               {[

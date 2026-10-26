@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-type Slot = "am" | "pm" | "full" | "weekday" | "off";
+type Slot = "am" | "pm" | "full" | "weekday";
 const days = [
   { day: 4, label: "Thursday" },
   { day: 5, label: "Friday" },
@@ -50,21 +50,22 @@ export function InstructorPreferencesEditor({
       active = false;
     };
   }, [instructorId, attempt]);
-  const slotFor = (day: number): Slot => {
-    const matches = rows.filter((row) => row.weekday === day);
-    if (!matches.length) return "off";
-    if (day === 4 || day === 5) return "weekday";
-    const slots = matches.map((row) => row.teachingSlot ?? teachingPeriod(row));
-    return slots.includes("full") ||
-      (slots.includes("am") && slots.includes("pm"))
-      ? "full"
-      : slots.includes("am")
-        ? "am"
-        : "pm";
-  };
+  const slotsFor = (day: number): Array<Slot> => [
+    ...new Set(
+      rows
+        .filter((row) => row.weekday === day)
+        .map((row) =>
+          day === 4 || day === 5
+            ? ("weekday" as const)
+            : (row.teachingSlot ?? teachingPeriod(row)),
+        ),
+    ),
+  ];
   const ranges = {
-    minimumAge: rows[0]?.minimumAge ?? null,
-    maximumAge: rows[0]?.maximumAge ?? null,
+    minimumAge:
+      rows[0]?.minimumAge == null ? null : Math.min(12, rows[0].minimumAge),
+    maximumAge:
+      rows[0]?.maximumAge == null ? null : Math.min(12, rows[0].maximumAge),
     minimumLevel: rows[0]?.minimumLevel ?? null,
     maximumLevel: rows[0]?.maximumLevel ?? null,
   };
@@ -74,19 +75,21 @@ export function InstructorPreferencesEditor({
     range: Partial<typeof ranges> = {},
   ) {
     const next = days.flatMap((item) => {
-      const value = item.day === day ? slot! : slotFor(item.day);
-      return value === "off"
-        ? []
-        : [
-            {
-              weekday: item.day,
-              teachingSlot: value,
-              startsAt: "00:00",
-              endsAt: "23:59",
-              ...ranges,
-              ...range,
-            },
-          ];
+      const current = slotsFor(item.day);
+      const selected =
+        item.day === day && slot
+          ? current.includes(slot)
+            ? current.filter((value) => value !== slot)
+            : [...current, slot]
+          : current;
+      return selected.map((teachingSlot) => ({
+        weekday: item.day,
+        teachingSlot,
+        startsAt: "00:00",
+        endsAt: "23:59",
+        ...ranges,
+        ...range,
+      }));
     });
     setRows(next);
     onChange(next);
@@ -98,7 +101,8 @@ export function InstructorPreferencesEditor({
           <CalendarDays className="text-primary size-4" /> Weekly availability
         </h3>
         <p className="text-muted-foreground mt-1 text-xs">
-          Applies across programs and sessions. Saved with this instructor.
+          Select every lesson type they can teach. AM, PM and Full day are
+          independent. Applies across programs and sessions.
         </p>
       </div>
       {error ? (
@@ -127,10 +131,8 @@ export function InstructorPreferencesEditor({
                 {day === 4 || day === 5 ? (
                   <label className="flex cursor-pointer items-center gap-2 text-sm">
                     <Checkbox
-                      checked={slotFor(day) !== "off"}
-                      onCheckedChange={(checked) =>
-                        update(day, checked ? "weekday" : "off")
-                      }
+                      checked={slotsFor(day).includes("weekday")}
+                      onCheckedChange={() => update(day, "weekday")}
                     />
                     Available
                   </label>
@@ -142,7 +144,6 @@ export function InstructorPreferencesEditor({
                   >
                     {(
                       [
-                        ["off", "Unavailable"],
                         ["am", "AM"],
                         ["pm", "PM"],
                         ["full", "Full day"],
@@ -152,8 +153,10 @@ export function InstructorPreferencesEditor({
                         type="button"
                         key={value}
                         size="sm"
-                        variant={slotFor(day) === value ? "default" : "outline"}
-                        aria-pressed={slotFor(day) === value}
+                        variant={
+                          slotsFor(day).includes(value) ? "default" : "outline"
+                        }
+                        aria-pressed={slotsFor(day).includes(value)}
                         onClick={() => update(day, value)}
                       >
                         {title}
@@ -180,7 +183,7 @@ export function InstructorPreferencesEditor({
               const max = kind === "Age" ? "maximumAge" : "maximumLevel";
               const values =
                 kind === "Age"
-                  ? Array.from({ length: 17 }, (_, i) => i + 2)
+                  ? Array.from({ length: 11 }, (_, i) => i + 2)
                   : [1, 2, 3, 4, 5, 6];
               return (
                 <fieldset
