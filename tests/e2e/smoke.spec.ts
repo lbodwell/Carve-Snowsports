@@ -421,14 +421,9 @@ test("imports a new student, syncs their survey, and finalizes unstaffed placeme
   const unplacedEllis = page
     .locator("aside")
     .getByRole("button", { name: /Ellis Reviewfixture/ });
-  if (await unplacedEllis.isVisible()) {
-    if ((await unplacedEllis.getAttribute("aria-pressed")) !== "true")
-      await unplacedEllis.click();
-    await page
-      .getByRole("button", { name: "Place student here", exact: true })
-      .first()
-      .click();
-  }
+  // Wait for the refreshed placement projection. A snapshot visibility check
+  // can see the old pool card just before automatic placement removes it.
+  await expect(unplacedEllis).toHaveCount(0);
   await expect(
     page
       .getByRole("region", { name: "Lesson groups" })
