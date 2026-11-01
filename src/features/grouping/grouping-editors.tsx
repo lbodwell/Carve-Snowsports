@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { instructorAvailability } from "@/domain/grouping/instructor-preferences";
+import { groupInstructorEligibility } from "@/domain/grouping/instructor-eligibility";
 import { displayTime } from "@/domain/calendar/display-time";
 import { weekdayNames } from "@/domain/grouping/registration-schedule";
 
@@ -54,7 +54,38 @@ export function GroupConfiguration({
   const [query, setQuery] = useState("");
   const patch = (next: Partial<Details>) =>
     setValues((old) => ({ ...old, ...next }));
-  const slot = workspace.timeSlots.find((row) => row.id === values.timeSlotId);
+  const band = workspace.ageBands.find((row) => row.id === values.ageBandId);
+  const level = workspace.abilityLevels.find(
+    (row) => row.id === values.abilityLevelId,
+  );
+  const candidates = workspace.instructors
+    .map((instructor) => ({
+      instructor,
+      eligibility: groupInstructorEligibility(
+        instructor,
+        { ...values, id: group.id },
+        workspace.groups,
+        workspace.timeSlots,
+        workspace.program.id,
+        band,
+        level?.numericRank,
+      ),
+    }))
+    .filter(
+      ({ instructor, eligibility }) =>
+        (eligibility.eligible ||
+          values.instructorIds.includes(instructor.id)) &&
+        (instructor.firstName + " " + instructor.lastName)
+          .toLowerCase()
+          .includes(query.trim().toLowerCase()),
+    )
+    .sort(
+      (a, b) =>
+        Number(values.instructorIds.includes(b.instructor.id)) -
+          Number(values.instructorIds.includes(a.instructor.id)) ||
+        b.eligibility.score - a.eligibility.score ||
+        a.instructor.lastName.localeCompare(b.instructor.lastName),
+    );
   const field = (
     label: string,
     value: string,
@@ -139,8 +170,9 @@ export function GroupConfiguration({
         <div>
           <h3 className="text-sm font-semibold">Teaching team</h3>
           <p className="text-muted-foreground mt-1 text-xs">
-            Select eligible instructors, then choose one lead. All changes save
-            together.
+            Available, qualified instructors without overlapping assignments can
+            be selected. Age/level preference matches appear first; preferences
+            do not restrict assignment. Choose one lead, then save.
           </p>
         </div>
         <div className="relative">
@@ -154,83 +186,67 @@ export function GroupConfiguration({
           />
         </div>
         <div className="bg-muted/20 max-h-64 space-y-2 overflow-y-auto rounded-lg border p-2">
-          {workspace.instructors
-            .filter((row) =>
-              `${row.firstName} ${row.lastName}`
-                .toLowerCase()
-                .includes(query.toLowerCase()),
-            )
-            .map((instructor) => {
-              const selected = values.instructorIds.includes(instructor.id);
-              const availability = slot
-                ? instructorAvailability(instructor.preferences, {
-                    ...slot,
-                    programId: workspace.program.id,
-                    weekday: values.weekday,
-                  })
-                : { eligible: false, reason: "Choose a session" };
-              const qualified = instructor.disciplineIds.includes(
-                values.disciplineId,
-              );
-              return (
-                <div
-                  key={instructor.id}
-                  className="bg-background flex items-center justify-between gap-3 rounded-lg border p-3"
-                >
-                  <label className="flex min-w-0 cursor-pointer items-center gap-3">
-                    <Checkbox
-                      disabled={
-                        busy ||
-                        readOnly ||
-                        (!selected && (!availability.eligible || !qualified))
-                      }
-                      checked={selected}
-                      onCheckedChange={(checked) =>
-                        patch({
-                          instructorIds: checked
-                            ? [...values.instructorIds, instructor.id]
-                            : values.instructorIds.filter(
-                                (id) => id !== instructor.id,
-                              ),
-                          leadInstructorId:
-                            !checked &&
-                            values.leadInstructorId === instructor.id
-                              ? null
-                              : values.leadInstructorId,
-                        })
-                      }
-                    />
-                    <span>
-                      <span className="block text-sm font-medium">
-                        {instructor.firstName} {instructor.lastName}
-                      </span>
-                      <span className="text-muted-foreground block text-xs">
-                        {qualified
-                          ? availability.reason
-                          : "Different discipline"}
-                      </span>
+          {!candidates.length && (
+            <p className="text-muted-foreground p-3 text-sm">
+              No eligible instructors match this group and search.
+            </p>
+          )}
+          {candidates.map(({ instructor, eligibility }) => {
+            const selected = values.instructorIds.includes(instructor.id);
+            return (
+              <div
+                key={instructor.id}
+                className="bg-background flex items-center justify-between gap-3 rounded-lg border p-3"
+              >
+                <label className="flex min-w-0 cursor-pointer items-center gap-3">
+                  <Checkbox
+                    disabled={
+                      busy || readOnly || (!selected && !eligibility.eligible)
+                    }
+                    checked={selected}
+                    onCheckedChange={(checked) =>
+                      patch({
+                        instructorIds: checked
+                          ? [...values.instructorIds, instructor.id]
+                          : values.instructorIds.filter(
+                              (id) => id !== instructor.id,
+                            ),
+                        leadInstructorId:
+                          !checked && values.leadInstructorId === instructor.id
+                            ? null
+                            : values.leadInstructorId,
+                      })
+                    }
+                  />
+                  <span>
+                    <span className="block text-sm font-medium">
+                      {instructor.firstName} {instructor.lastName}
                     </span>
-                  </label>
-                  {selected && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={busy || readOnly}
-                      variant={
-                        values.leadInstructorId === instructor.id
-                          ? "default"
-                          : "outline"
-                      }
-                      onClick={() => patch({ leadInstructorId: instructor.id })}
-                    >
-                      {values.leadInstructorId === instructor.id
-                        ? "Lead"
-                        : "Make lead"}
-                    </Button>
-                  )}
-                </div>
-              );
-            })}
+                    <span className="text-muted-foreground block text-xs">
+                      {eligibility.reason}
+                    </span>
+                  </span>
+                </label>
+                {selected && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={busy || readOnly || !eligibility.eligible}
+                    variant={
+                      values.leadInstructorId === instructor.id
+                        ? "default"
+                        : "outline"
+                    }
+                    onClick={() => patch({ leadInstructorId: instructor.id })}
+                  >
+                    {values.leadInstructorId === instructor.id
+                      ? "Lead"
+                      : "Make lead"}
+                  </Button>
+                )}
+              </div>
+            );
+          })}
         </div>
       </section>
       <label className="grid gap-2 text-sm font-medium">

@@ -21,6 +21,7 @@ export const Route = createFileRoute("/grouping")({
     if (!hasPermission({ role: session.role as Role }, "grouping:edit")) {
       throw redirect({ to: getStaffHomePath(session.role as Role) });
     }
+    return { staffSession: session };
   },
   validateSearch: groupingViewSchema,
   loaderDeps: ({ search }) => ({ programId: search.programId }),
@@ -35,13 +36,15 @@ export const Route = createFileRoute("/grouping")({
 function GroupingPage() {
   const workspace = Route.useLoaderData();
   const filters = Route.useSearch();
+  const { staffSession } = Route.useRouteContext();
   return (
-    <AdminShell>
+    <AdminShell workspace>
       {workspace ? (
         <PersistedGroupingBoard
           key={workspace.program.id}
           workspace={workspace}
           initialFilters={filters}
+          preferenceScope={`${staffSession.organizationId}:${staffSession.user.id}`}
         />
       ) : (
         <section className="rounded-xl border bg-white p-8">

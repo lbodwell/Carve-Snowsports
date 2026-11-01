@@ -24,8 +24,9 @@ export function surveyMatchesRegistrationSession(
   const slot = slots.find((item) => item.id === schedule.timeSlotId);
   return Boolean(
     slot &&
-    slot.startsAt.slice(0, 5).replace(":", "") === parts[2] &&
-    slot.endsAt.slice(0, 5).replace(":", "") === parts[3] &&
+    ((parts[4]?.startsWith("session-") && [4, 5].includes(schedule.weekday)) ||
+      (slot.startsAt.slice(0, 5).replace(":", "") === parts[2] &&
+        slot.endsAt.slice(0, 5).replace(":", "") === parts[3])) &&
     slot.cohort === (parts[4]?.startsWith("session-") ? parts[4] : "season"),
   );
 }

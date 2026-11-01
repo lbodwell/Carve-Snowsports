@@ -56,6 +56,7 @@ export function PlanningDashboard({
               onChange={(event) =>
                 navigate({
                   to: "/admin",
+                  resetScroll: false,
                   search: { seasonId: event.target.value },
                 })
               }
@@ -75,6 +76,7 @@ export function PlanningDashboard({
               onChange={(event) =>
                 navigate({
                   to: "/admin",
+                  resetScroll: false,
                   search: {
                     programId: event.target.value,
                     seasonId: data.selected?.seasonId,

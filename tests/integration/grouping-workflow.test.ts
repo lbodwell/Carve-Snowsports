@@ -1,11 +1,19 @@
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import * as schema from "@/db/schema";
+import {
+  listInstructors,
+  saveInstructor,
+} from "@/application/services/instructor-service.server";
+import { instructorQualificationsForProgram } from "@/application/services/instructor-qualifications.server";
+import { validateGroupingDraft } from "@/application/services/grouping-validation.server";
 import {
   decideGroupChange,
   getGroupLifecycle,
@@ -82,7 +90,7 @@ adminUrl.pathname = "/postgres";
 
 const adminSql = postgres(adminUrl.toString(), { max: 1 });
 const testSql = postgres(testUrl.toString(), { max: 1 });
-const db = drizzle(testSql);
+const db = drizzle({ client: testSql, schema });
 
 describe("grouping workflow integration", () => {
   let organizationId: string;
@@ -1146,5 +1154,463 @@ describe("grouping workflow integration", () => {
         .filter((event) => event.status === "applied")
         .every((event) => event.after?.every((group) => group.description)),
     ).toBe(true);
+  });
+  test("repairs imported weekday and advanced weekend schedules without changing existing lessons", async () => {
+    const [originalProgram] = await db
+      .select()
+      .from(programs)
+      .where(eq(programs.id, programId));
+    const [program] = await db
+      .insert(programs)
+      .values({
+        seasonId: originalProgram!.seasonId,
+        name: "Imported schedule regression",
+      })
+      .returning();
+    const [discipline] = await db
+      .insert(disciplines)
+      .values({ programId: program!.id, key: "ski", label: "Ski" })
+      .returning();
+    const [level] = await db
+      .insert(abilityLevels)
+      .values({
+        programId: program!.id,
+        key: "level-5",
+        label: "Level 5",
+        numericRank: 5,
+      })
+      .returning();
+    await db.insert(ageBands).values({
+      programId: program!.id,
+      label: "Ages 4–6",
+      minimumAge: 4,
+      maximumAge: 6,
+    });
+    await db.insert(timeSlots).values({
+      programId: program!.id,
+      key: "session-1",
+      label: "Session 1 AM",
+      cohort: "session-1",
+      startsAt: "09:00",
+      endsAt: "12:00",
+      allowedWeekdays: [],
+    });
+    await db.insert(timeSlots).values({
+      programId: program!.id,
+      key: "advanced",
+      label: "Older children",
+      startsAt: "09:00",
+      endsAt: "12:00",
+      allowedWeekdays: [6],
+    });
+    for (const [weekday, session, ageBand, dateOfBirth] of [
+      ["Saturday", "9am", "11-13yrs", "2013-01-01"],
+      ["Sunday", "9am", "11-13yrs", "2013-01-01"],
+      ["Thursday", "Session 1", "4-6yrs", "2021-01-01"],
+      ["Friday", "Session 2", "4-6yrs", "2021-01-01"],
+    ]) {
+      const [person] = await db
+        .insert(people)
+        .values({
+          organizationId,
+          firstName: "Schedule",
+          lastName: weekday!,
+          dateOfBirth,
+        })
+        .returning();
+      await db.insert(students).values({ personId: person!.id });
+      await db.insert(registrations).values({
+        programId: program!.id,
+        studentId: person!.id,
+        disciplineId: discipline!.id,
+        abilityLevelId: level!.id,
+        sourceSnapshot: {
+          sourceKey: randomUUID(),
+          weekday,
+          session,
+          ageBand,
+        },
+      });
+    }
+    const existingLessons = await db.select().from(lessonInstances);
+    const migration = await readFile(
+      resolve("src/db/migrations/0021_survey-review-provenance.sql"),
+      "utf8",
+    );
+    const dataRepair = migration
+      .split("--> statement-breakpoint")
+      .slice(3)
+      .join("\n");
+    await testSql.unsafe(dataRepair);
+    await testSql.unsafe(dataRepair);
+    const actor = {
+      userId: adminUserId,
+      organizationId,
+      role: "admin" as const,
+    };
+    let workspace = await getGroupingWorkspace(actor, {
+      programId: program!.id,
+    });
+    expect(workspace.roster).toHaveLength(4);
+    expect(
+      workspace.roster.every(
+        (student) => student.schedule && !student.needsSchedule,
+      ),
+    ).toBe(true);
+    const weekdaySlots = workspace.timeSlots.filter(
+      (slot) => slot.cohort !== "season",
+    );
+    expect(weekdaySlots).toHaveLength(2);
+    expect(
+      weekdaySlots.every(
+        (slot) =>
+          slot.startsAt.startsWith("09:30") && slot.endsAt.startsWith("11:00"),
+      ),
+    ).toBe(true);
+    const weekendSlot = workspace.timeSlots.find(
+      (slot) => slot.cohort === "season",
+    )!;
+    expect(weekendSlot.startsAt).toMatch(/^09:00/);
+    expect(weekendSlot.endsAt).toMatch(/^12:00/);
+    await createGroupingDraft(actor, {
+      programId: program!.id,
+      mode: "suggested",
+      weekday: 6,
+      timeSlotId: weekendSlot.id,
+    });
+    workspace = await getGroupingWorkspace(actor, { programId: program!.id });
+    expect(workspace.assignments).toHaveLength(4);
+    expect(await db.select().from(lessonInstances)).toEqual(existingLessons);
+  });
+  test("independent AM, PM and full-day availability never permits overlapping assignments", async () => {
+    const actor = {
+      userId: adminUserId,
+      organizationId,
+      role: "admin" as const,
+    };
+    const [original] = await db
+      .select()
+      .from(programs)
+      .where(eq(programs.id, programId));
+    const [program] = await db
+      .insert(programs)
+      .values({
+        seasonId: original!.seasonId,
+        name: "Independent availability regression",
+      })
+      .returning();
+    const [discipline] = await db
+      .insert(disciplines)
+      .values({ programId: program!.id, key: "ski", label: "Ski" })
+      .returning();
+    const slots = await db
+      .insert(timeSlots)
+      .values([
+        {
+          programId: program!.id,
+          key: "am",
+          label: "AM",
+          startsAt: "10:00",
+          endsAt: "12:00",
+          allowedWeekdays: [6],
+        },
+        {
+          programId: program!.id,
+          key: "pm",
+          label: "PM",
+          startsAt: "13:00",
+          endsAt: "15:00",
+          allowedWeekdays: [6],
+        },
+        {
+          programId: program!.id,
+          key: "full",
+          label: "Full day",
+          startsAt: "10:00",
+          endsAt: "15:00",
+          allowedWeekdays: [6],
+        },
+      ])
+      .returning();
+    const [person] = await db
+      .insert(people)
+      .values({
+        organizationId,
+        firstName: "Available",
+        lastName: "AllPeriods",
+      })
+      .returning();
+    await db.insert(instructors).values({
+      personId: person!.id,
+      preferences: (["am", "pm", "full"] as const).map((teachingSlot) => ({
+        weekday: 6,
+        teachingSlot,
+        startsAt: "00:00",
+        endsAt: "23:59",
+        minimumAge: null,
+        maximumAge: null,
+        minimumLevel: null,
+        maximumLevel: null,
+      })),
+    });
+    await db
+      .insert(instructorQualifications)
+      .values({ instructorId: person!.id, disciplineId: discipline!.id });
+    const draft = await createGroupingDraft(actor, {
+      programId: program!.id,
+      mode: "manual",
+      weekday: 6,
+      timeSlotId: slots[0]!.id,
+    });
+    let version = 1;
+    const groups: Array<string> = [];
+    for (const slot of slots) {
+      const group = await createDraftGroup(actor, {
+        draftId: draft.id,
+        baseVersion: version,
+        commandId: randomUUID(),
+        weekday: 6,
+        timeSlotId: slot.id,
+        disciplineId: discipline!.id,
+        ageBandId: null,
+        abilityLevelId: null,
+      });
+      version = group.version;
+      groups.push(group.groupId);
+    }
+    const assign = (index: number, ids: Array<string>) =>
+      assignDraftInstructor(actor, {
+        draftId: draft.id,
+        baseVersion: version,
+        commandId: randomUUID(),
+        groupId: groups[index]!,
+        instructorIds: ids,
+        leadInstructorId: ids[0] ?? null,
+      });
+    version = (await assign(0, [person!.id])).version;
+    version = (await assign(1, [person!.id])).version;
+    await expect(assign(2, [person!.id])).rejects.toMatchObject({
+      code: "VALIDATION",
+    });
+    version = (await assign(0, [])).version;
+    await expect(assign(2, [person!.id])).rejects.toMatchObject({
+      code: "VALIDATION",
+    });
+    version = (await assign(1, [])).version;
+    version = (await assign(2, [person!.id])).version;
+    await expect(assign(0, [person!.id])).rejects.toMatchObject({
+      code: "VALIDATION",
+    });
+    expect(
+      (
+        await db
+          .select()
+          .from(instructors)
+          .where(eq(instructors.personId, person!.id))
+      )[0]!.preferences.map((item) => item.teachingSlot),
+    ).toEqual(["am", "pm", "full"]);
+  });
+  test("a Saturday AM ski instructor qualified under another program remains eligible for ski groups", async () => {
+    const actor = {
+      userId: adminUserId,
+      organizationId,
+      role: "admin" as const,
+    };
+    const [original] = await db
+      .select()
+      .from(programs)
+      .where(eq(programs.id, programId));
+    const [program] = await db
+      .insert(programs)
+      .values({
+        seasonId: original!.seasonId,
+        name: "Cross-program qualification regression",
+      })
+      .returning();
+    const [targetDiscipline] = await db
+      .insert(disciplines)
+      .values({ programId: program!.id, key: "ski", label: "Ski" })
+      .returning();
+    const [sourceDiscipline] = await db
+      .select()
+      .from(disciplines)
+      .where(eq(disciplines.programId, programId));
+    const [slot] = await db
+      .insert(timeSlots)
+      .values({
+        programId: program!.id,
+        key: "am",
+        label: "Morning",
+        startsAt: "10:00",
+        endsAt: "12:00",
+        allowedWeekdays: [6],
+      })
+      .returning();
+    const [person] = await db
+      .insert(people)
+      .values({ organizationId, firstName: "Saturday", lastName: "SkiOnly" })
+      .returning();
+    await db.insert(instructors).values({
+      personId: person!.id,
+      preferences: [
+        {
+          weekday: 6,
+          teachingSlot: "am",
+          startsAt: "00:00",
+          endsAt: "23:59",
+          minimumAge: null,
+          maximumAge: null,
+          minimumLevel: null,
+          maximumLevel: null,
+        },
+      ],
+    });
+    const ski = (
+      await db
+        .select()
+        .from(disciplines)
+        .where(eq(disciplines.programId, programId))
+    ).find((item) => item.key === "ski")!;
+    expect(sourceDiscipline).toBeTruthy();
+    await db
+      .insert(instructorQualifications)
+      .values({ instructorId: person!.id, disciplineId: ski.id });
+    const beforeDraft = await getGroupingWorkspace(actor, {
+      programId: program!.id,
+    });
+    expect(
+      beforeDraft.instructors.find((item) => item.id === person!.id)!
+        .disciplineIds,
+    ).toContain(targetDiscipline!.id);
+    const draft = await createGroupingDraft(actor, {
+      programId: program!.id,
+      mode: "manual",
+      weekday: 6,
+      timeSlotId: slot!.id,
+    });
+    const group = await createDraftGroup(actor, {
+      draftId: draft.id,
+      baseVersion: 1,
+      commandId: randomUUID(),
+      weekday: 6,
+      timeSlotId: slot!.id,
+      disciplineId: targetDiscipline!.id,
+      ageBandId: null,
+      abilityLevelId: null,
+    });
+    const assigned = await assignDraftInstructor(actor, {
+      draftId: draft.id,
+      baseVersion: group.version,
+      commandId: randomUUID(),
+      groupId: group.groupId,
+      instructorIds: [person!.id],
+      leadInstructorId: person!.id,
+    });
+    await updateDraftGroup(actor, {
+      draftId: draft.id,
+      baseVersion: assigned.version,
+      commandId: randomUUID(),
+      groupId: group.groupId,
+      weekday: 6,
+      timeSlotId: slot!.id,
+      disciplineId: targetDiscipline!.id,
+      ageBandId: null,
+      abilityLevelId: null,
+      notes: "",
+      instructorIds: [person!.id],
+      leadInstructorId: person!.id,
+    });
+    await expect(
+      db.transaction((tx) => validateGroupingDraft(tx, draft.id)),
+    ).resolves.toBeUndefined();
+    await saveInstructor(actor, {
+      instructorId: person!.id,
+      firstName: "Saturday",
+      lastName: "SkiOnly",
+      phone: "555-0100",
+      email: "",
+      notes: "",
+      disciplineKeys: ["ski"],
+    });
+    expect(
+      (await listInstructors(actor))
+        .find((item) => item.id === person!.id)!
+        .disciplines.map((item) => item.key),
+    ).toEqual(["ski"]);
+    // Matching preferences improve suggestions; mismatches never revoke eligibility.
+    const [band] = await db
+      .insert(ageBands)
+      .values({
+        programId: program!.id,
+        label: "Ages 11–13",
+        minimumAge: 11,
+        maximumAge: 13,
+      })
+      .returning();
+    const [advanced] = await db
+      .insert(abilityLevels)
+      .values({
+        programId: program!.id,
+        key: "level-5",
+        label: "Level 5",
+        numericRank: 5,
+      })
+      .returning();
+    await db
+      .update(instructors)
+      .set({
+        preferences: [
+          {
+            weekday: 6,
+            teachingSlot: "am",
+            startsAt: "00:00",
+            endsAt: "23:59",
+            minimumAge: 2,
+            maximumAge: 5,
+            minimumLevel: 1,
+            maximumLevel: 2,
+          },
+        ],
+      })
+      .where(eq(instructors.personId, person!.id));
+    await updateDraftGroup(actor, {
+      draftId: draft.id,
+      baseVersion: assigned.version + 1,
+      commandId: randomUUID(),
+      groupId: group.groupId,
+      weekday: 6,
+      timeSlotId: slot!.id,
+      disciplineId: targetDiscipline!.id,
+      ageBandId: band!.id,
+      abilityLevelId: advanced!.id,
+      notes: "",
+      instructorIds: [person!.id],
+      leadInstructorId: person!.id,
+    });
+    await expect(
+      db.transaction((tx) => validateGroupingDraft(tx, draft.id)),
+    ).resolves.toBeUndefined();
+    // A discipline belonging to another school cannot establish this school's eligibility.
+    const [foreignOrg] = await db
+      .insert(organizations)
+      .values({ name: "Foreign qualifications", timezone: "America/New_York" })
+      .returning();
+    const [foreignPerson] = await db
+      .insert(people)
+      .values({
+        organizationId: foreignOrg!.id,
+        firstName: "Foreign",
+        lastName: "Instructor",
+      })
+      .returning();
+    await db.insert(instructors).values({ personId: foreignPerson!.id });
+    await db
+      .insert(instructorQualifications)
+      .values({ instructorId: foreignPerson!.id, disciplineId: ski.id });
+    expect(
+      await instructorQualificationsForProgram(db, program!.id, [
+        foreignPerson!.id,
+      ]),
+    ).toEqual([]);
   });
 });

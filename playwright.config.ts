@@ -16,6 +16,9 @@ for (const key of [
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global-setup.ts",
+  // These workflows edit the same seeded draft and program configuration.
+  workers: 1,
   reporter: process.env.CI ? "line" : "list",
   use: {
     baseURL,

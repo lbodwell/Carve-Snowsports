@@ -27,14 +27,14 @@ export const surveySessions = [
   { key: "saturday-full-1000-1500", label: "Saturday Full (10–3)" },
   {
     key: "saturday-am-0900-1200-advanced",
-    label: "Saturday AM (9–12) — age 11+ and level 5 or 6",
+    label: "Saturday AM (9–12) — ages 11–13 and level 5 or 6",
   },
   { key: "sunday-am-1000-1200", label: "Sunday AM (10–12)" },
   { key: "sunday-pm-1300-1500", label: "Sunday PM (1–3)" },
   { key: "sunday-full-1000-1500", label: "Sunday Full (10–3)" },
   {
     key: "sunday-am-0900-1200-advanced",
-    label: "Sunday AM (9–12) — age 11+ and level 5 or 6",
+    label: "Sunday AM (9–12) — ages 11–13 and level 5 or 6",
   },
 ] as const;
 

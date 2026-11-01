@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/sheet";
 import { authClient } from "@/features/auth/auth-client";
 import { getStaffSession } from "@/server/functions/session";
+import { cn } from "@/lib/utils";
 
 const navigationIcons = {
   "/admin": LayoutDashboard,
@@ -46,7 +47,13 @@ const navigationIcons = {
   "/lessons": CalendarDays,
 } as const;
 
-export function AdminShell({ children }: { children: ReactNode }) {
+export function AdminShell({
+  children,
+  workspace = false,
+}: {
+  children: ReactNode;
+  workspace?: boolean;
+}) {
   const [isHydrated, setIsHydrated] = useState(false);
   const [session, setSession] = useState<Awaited<
     ReturnType<typeof getStaffSession>
@@ -68,9 +75,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="staff-workspace bg-pm-cream/70 min-h-svh">
-      <header className="border-pm-orange bg-pm-forest border-t-4 text-white shadow-sm">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+    <div
+      className={cn(
+        "staff-workspace bg-pm-cream/70 min-h-svh",
+        workspace && "xl:flex xl:h-dvh xl:flex-col xl:overflow-hidden",
+      )}
+    >
+      <header className="border-pm-orange bg-pm-forest shrink-0 border-t-4 text-white shadow-sm">
+        <div className="flex w-full items-center justify-between gap-4 px-4 py-2 sm:px-6">
           <div className="flex min-w-0 items-center gap-2">
             <Sheet
               open={mobileNavigationOpen}
@@ -160,10 +172,18 @@ export function AdminShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <div className="mx-auto flex max-w-[1600px] flex-col gap-6 px-4 py-6 sm:px-6 lg:flex-row lg:px-8">
+      <div
+        className={cn(
+          "flex w-full flex-col gap-4 px-4 py-5 sm:px-6 lg:flex-row",
+          workspace && "lg:gap-3 lg:px-4 xl:min-h-0 xl:flex-1 xl:py-3",
+        )}
+      >
         <nav
           aria-label="Admin navigation"
-          className="bg-background hidden h-fit shrink-0 rounded-2xl border p-2 shadow-sm lg:flex lg:w-52 lg:flex-col lg:gap-1"
+          className={cn(
+            "bg-background hidden h-fit shrink-0 rounded-xl border p-2 shadow-sm lg:sticky lg:top-5 lg:flex lg:w-44 lg:flex-col lg:gap-1",
+            workspace && "lg:static lg:w-14 lg:p-1.5",
+          )}
         >
           {navigation.map((item) => {
             const Icon =
@@ -172,20 +192,34 @@ export function AdminShell({ children }: { children: ReactNode }) {
               <Link
                 key={item.to}
                 to={item.to}
+                title={workspace ? item.label : undefined}
+                aria-label={workspace ? item.label : undefined}
                 activeOptions={{ exact: item.exact ?? false }}
-                className="text-muted-foreground hover:bg-pm-mist hover:text-pm-forest flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors"
+                className={cn(
+                  "text-muted-foreground hover:bg-pm-mist hover:text-pm-forest flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors",
+                  workspace && "lg:justify-center lg:px-0",
+                )}
                 activeProps={{
-                  className:
+                  className: cn(
                     "flex h-9 items-center gap-2 rounded-lg bg-pm-forest px-3 text-sm font-medium text-white",
+                    workspace && "lg:justify-center lg:px-0",
+                  ),
                 }}
               >
                 <Icon aria-hidden />
-                {item.label}
+                <span className={workspace ? "lg:sr-only" : undefined}>
+                  {item.label}
+                </span>
               </Link>
             );
           })}
         </nav>
-        <main className="min-w-0 flex-1">
+        <main
+          className={cn(
+            "min-w-0 flex-1",
+            workspace && "xl:flex xl:min-h-0 xl:flex-col",
+          )}
+        >
           <fieldset className="contents" disabled={!isHydrated}>
             {children}
           </fieldset>

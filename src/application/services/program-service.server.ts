@@ -106,8 +106,9 @@ async function seedDefaultProgramConfiguration(
       programId,
       key: "am",
       label: "Morning",
-      startsAt: "09:00",
+      startsAt: "10:00",
       endsAt: "12:00",
+      allowedWeekdays: [6, 0],
       displayOrder: 1,
     },
     {
@@ -115,10 +116,56 @@ async function seedDefaultProgramConfiguration(
       key: "pm",
       label: "Afternoon",
       startsAt: "13:00",
-      endsAt: "16:00",
+      endsAt: "15:00",
+      allowedWeekdays: [6, 0],
       displayOrder: 2,
     },
+    {
+      programId,
+      key: "full",
+      label: "Full day",
+      startsAt: "10:00",
+      endsAt: "15:00",
+      allowedWeekdays: [6, 0],
+      displayOrder: 3,
+    },
+    {
+      programId,
+      key: "advanced-am",
+      label: "Ages 11–13 AM",
+      startsAt: "09:00",
+      endsAt: "12:00",
+      allowedWeekdays: [6, 0],
+      displayOrder: 0,
+    },
+    {
+      programId,
+      key: "session-1-am",
+      label: "Session 1 AM",
+      cohort: "session-1",
+      startsAt: "09:30",
+      endsAt: "11:00",
+      allowedWeekdays: [4, 5],
+      displayOrder: 4,
+    },
+    {
+      programId,
+      key: "session-2-am",
+      label: "Session 2 AM",
+      cohort: "session-2",
+      startsAt: "09:30",
+      endsAt: "11:00",
+      allowedWeekdays: [4, 5],
+      displayOrder: 5,
+    },
   ]);
+  await tx.insert(ageBands).values({
+    programId,
+    label: "Ages 11–13",
+    minimumAge: 11,
+    maximumAge: 13,
+    displayOrder: 3,
+  });
 }
 
 export async function createProgram(actor: Actor, input: CreateProgramInput) {

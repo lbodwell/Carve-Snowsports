@@ -8,6 +8,13 @@ type Student = {
   firstName: string;
   lastName: string;
   dateOfBirth: string | null;
+  registrations?: Array<{
+    id: string;
+    discipline: string;
+    level: string;
+    schedule: string;
+  }>;
+  reviewEvidenceKey?: string;
 };
 
 export function SurveyMatchReview({
@@ -24,15 +31,19 @@ export function SurveyMatchReview({
     childDateOfBirth: string;
     confirmedStudentId: string | null;
     suggestedStudentId: string | null;
+    enrichmentIssues?: Array<string>;
   };
   busy: boolean;
   onConfirm: (
     studentId: string,
     fillMissingBirthDate: boolean,
     programId?: string,
+    acknowledgeConflicts?: boolean,
+    reviewEvidenceKey?: string,
   ) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [acknowledge, setAcknowledge] = useState(false);
   const [selectedId, setSelectedId] = useState(
     response.confirmedStudentId ?? response.suggestedStudentId ?? "",
   );
@@ -65,8 +76,9 @@ export function SurveyMatchReview({
           : "Match this response to a student"}
       </h3>
       <p className="text-muted-foreground text-sm">
-        A unique first and last name can link automatically when a birthdate is
-        missing. Duplicate names or conflicting birthdates need review.
+        A unique identity can link automatically when the registered session,
+        discipline and level agree. Missing birthdates can be filled;
+        conflicting evidence requires staff review.
       </p>
       <Input
         aria-label={`Search students for ${response.childFirstName} ${response.childLastName}`}
@@ -83,6 +95,7 @@ export function SurveyMatchReview({
           disabled={busy}
           onChange={(event) => {
             setSelectedId(event.target.value);
+            setAcknowledge(false);
           }}
         >
           <option value="">Choose a student</option>
@@ -114,22 +127,52 @@ export function SurveyMatchReview({
         Existing birthdates are preserved; conflicting linked answers need
         review.
       </p>
+      {selected?.registrations?.map((registration) => (
+        <p key={registration.id} className="rounded border p-2 text-sm">
+          Roster: {registration.schedule} · {registration.discipline} ·{" "}
+          {registration.level}
+        </p>
+      ))}
       <p className="text-muted-foreground text-sm">
         Confirmed links automatically fill missing profile and matching
         registration information, and retain attributed medical notes. Conflicts
         remain for review.
       </p>
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={acknowledge}
+          onChange={(event) => setAcknowledge(event.target.checked)}
+        />
+        I have reviewed the roster and survey values, confirm this is the same
+        child, and accept the differences while preserving existing roster
+        values.
+      </label>
       <Button
         className="w-fit"
         disabled={
           busy ||
           !selectedId ||
+          (Boolean(
+            response.enrichmentIssues?.length ||
+            (selected?.dateOfBirth &&
+              selected.dateOfBirth !== response.childDateOfBirth),
+          ) &&
+            !acknowledge) ||
           Boolean(
             response.confirmedStudentId &&
             selectedId !== response.confirmedStudentId,
           )
         }
-        onClick={() => onConfirm(selectedId, false)}
+        onClick={() =>
+          onConfirm(
+            selectedId,
+            false,
+            undefined,
+            acknowledge,
+            selected?.reviewEvidenceKey,
+          )
+        }
       >
         Confirm student match
       </Button>

@@ -61,7 +61,7 @@ export function RosterDetailsDialog({
         <Dialog.Content
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            restoreFocusTo.current?.focus();
+            restoreFocusTo.current?.focus({ preventScroll: true });
           }}
           className="bg-background fixed top-1/2 left-1/2 z-50 grid max-h-[90vh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-2xl border p-6 shadow-lg"
         >

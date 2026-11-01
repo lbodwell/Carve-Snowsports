@@ -91,8 +91,8 @@ describe("weekly instructor preferences", () => {
   it("rejects out-of-bounds and reversed teaching ranges", () => {
     for (const invalid of [
       { minimumAge: 1 },
-      { maximumAge: 13 },
-      { minimumAge: 13 },
+      { maximumAge: 14 },
+      { minimumAge: 14 },
       { minimumLevel: 0 },
       { maximumLevel: 7 },
       { minimumAge: 12, maximumAge: 7 },
@@ -102,5 +102,22 @@ describe("weekly instructor preferences", () => {
           .success,
       ).toBe(false);
     }
+  });
+  it("describes Any preferences as unrestricted and allows age 13", () => {
+    expect(
+      instructorAvailability(
+        [preference],
+        session,
+        { minimumAge: 11, maximumAge: 13 },
+        5,
+      ).reason,
+    ).toBe("Available · any age/level");
+    expect(instructorAvailability([preference], session).reason).toBe(
+      "Available",
+    );
+    expect(
+      instructorPreferenceSchema.safeParse({ ...preference, maximumAge: 13 })
+        .success,
+    ).toBe(true);
   });
 });

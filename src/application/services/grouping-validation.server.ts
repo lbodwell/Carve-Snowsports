@@ -1,15 +1,14 @@
 import { eq, inArray } from "drizzle-orm";
+import { instructorQualificationsForProgram } from "./instructor-qualifications.server";
 import type { db } from "@/db/client.server";
 import { instructorAvailability } from "@/domain/grouping/instructor-preferences";
 import { ApplicationError } from "@/application/errors";
 import {
-  disciplines,
   groupingDraftAssignments,
   groupingDraftGroups,
   groupingDraftInstructors,
   groupingDrafts,
   instructors as instructorProfiles,
-  instructorQualifications,
   people,
   registrations,
   timeSlots,
@@ -63,19 +62,11 @@ export async function validateGroupingDraft(
         .from(groupingDraftInstructors)
         .where(inArray(groupingDraftInstructors.draftGroupId, groupIds))
     : [];
-  const qualifications = await tx
-    .select({
-      instructorId: instructorQualifications.instructorId,
-      disciplineId: instructorQualifications.disciplineId,
-      archivedAt: people.archivedAt,
-    })
-    .from(instructorQualifications)
-    .innerJoin(people, eq(people.id, instructorQualifications.instructorId))
-    .innerJoin(
-      disciplines,
-      eq(disciplines.id, instructorQualifications.disciplineId),
-    )
-    .where(eq(disciplines.programId, draft.programId));
+  const qualifications = await instructorQualificationsForProgram(
+    tx,
+    draft.programId,
+    staff.map((item) => item.instructorId),
+  );
   const availability = await tx
     .select()
     .from(instructorProfiles)

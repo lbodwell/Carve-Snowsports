@@ -131,7 +131,7 @@ async function getProgramDisciplines(
         inArray(disciplines.key, disciplineKeys),
       ),
     );
-  if (rows.length !== disciplineKeys.length) {
+  if (new Set(rows.map((row) => row.key)).size !== disciplineKeys.length) {
     throw new ApplicationError(
       "VALIDATION",
       "One or more disciplines are not configured for the active program.",
@@ -195,9 +195,13 @@ export async function listInstructors(actor: Actor) {
       contacts.find(
         (contact) => contact.personId === row.id && contact.kind === "email",
       )?.value ?? "",
-    disciplines: qualifications
-      .filter((qualification) => qualification.instructorId === row.id)
-      .map(({ key, label }) => ({ key, label })),
+    disciplines: [
+      ...new Map(
+        qualifications
+          .filter((qualification) => qualification.instructorId === row.id)
+          .map(({ key, label }) => [key, { key, label }]),
+      ).values(),
+    ],
   }));
 }
 
