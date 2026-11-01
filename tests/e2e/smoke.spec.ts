@@ -393,17 +393,13 @@ test("imports a new student, syncs their survey, and finalizes unstaffed placeme
   ).toBeVisible();
 
   await page.goto("/grouping");
-  await page
-    .getByRole("button", { name: "Workspace tools", exact: true })
-    .click();
   const returnForChanges = page.getByRole("button", {
     name: "Return for changes",
   });
   if (await returnForChanges.isVisible()) await returnForChanges.click();
-  await page
-    .getByRole("dialog", { name: "Workspace tools" })
-    .getByRole("button", { name: "Close", exact: true })
-    .click();
+  await expect(
+    page.getByRole("button", { name: "New group", exact: true }),
+  ).toBeVisible();
   // Unmapped registrations stay out of the session pool until a matching lesson slot exists.
   await expect(
     page.locator("aside").getByRole("button", { name: /Ellis Reviewfixture/ }),
@@ -466,6 +462,10 @@ test("imports a new student, syncs their survey, and finalizes unstaffed placeme
   await expect(
     page.getByRole("heading", { name: "Finalized placements and history" }),
   ).toBeVisible();
+  await page
+    .getByRole("dialog", { name: "Workspace tools" })
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
   await expect(
     page.getByRole("button", { name: "Publish groups", exact: true }),
   ).toBeDisabled();

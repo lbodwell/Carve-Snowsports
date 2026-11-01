@@ -35,6 +35,9 @@ test("splitting is discoverable and note previews do not obstruct neighbouring s
       await create.click();
       await expect(create).toBeHidden();
     }
+    await expect(
+      page.getByRole("button", { name: "New group", exact: true }),
+    ).toBeVisible();
     const [base] = await sql<
       Array<{
         draft_id: string;
