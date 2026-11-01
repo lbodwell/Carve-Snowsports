@@ -37,7 +37,7 @@ export function verifiedPreviewDatabase(value: string | undefined) {
     decodeURIComponent(url.pathname.slice(1)) !== target.database
   )
     throw new Error(
-      "Preview must use the configured isolated Preview database.",
+      `Preview database target mismatch: expected ${target.host}/${target.database}, received ${url.hostname}/${decodeURIComponent(url.pathname.slice(1))}. Align Vercel Preview DATABASE_URL with the GitHub Preview migration target.`,
     );
   return value;
 }
