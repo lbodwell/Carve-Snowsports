@@ -359,7 +359,9 @@ export async function reconcileSurveyMatches(tx: Transaction, actor: Actor) {
     const reopen =
       response.linkSource === "automatic" &&
       assessment.unresolvedIssues.length > 0;
-    const confirm = !response.confirmedStudentId && assessment.canAutoConfirm;
+    const confirm =
+      (!response.confirmedStudentId || response.linkSource === "unknown") &&
+      assessment.canAutoConfirm;
     await tx
       .update(surveyResponses)
       .set({
@@ -381,6 +383,20 @@ export async function reconcileSurveyMatches(tx: Transaction, actor: Actor) {
       })
       .where(eq(surveyResponses.id, response.id));
     if (confirm) matched++;
+    if (confirm && response.confirmedStudentId)
+      await tx.insert(auditEvents).values({
+        organizationId: actor.organizationId,
+        actorId: actor.userId,
+        entityType: "survey_response",
+        entityId: response.id,
+        action: "survey.match_revalidated",
+        metadata: {
+          studentId: assessment.studentId,
+          previousLinkSource: response.linkSource,
+          registrationId: assessment.registration?.id,
+          evidenceKey: assessment.evidenceKey,
+        },
+      });
     if (reopen)
       await tx.insert(auditEvents).values({
         organizationId: actor.organizationId,
@@ -420,6 +436,9 @@ export const confirmSurveyMatchSchema = z.object({
   studentId: z.uuid(),
   fillMissingBirthDate: z.boolean().default(false),
   acknowledgeConflicts: z.boolean().default(false),
+  birthdateDecision: z
+    .enum(["keep-roster", "use-survey"])
+    .default("keep-roster"),
   reviewEvidenceKey: z.string().max(100000).optional(),
   programId: z.uuid().optional(),
 });
@@ -448,7 +467,7 @@ export async function confirmSurveyMatch(
       )
       .for("update", { of: surveyResponses });
     const [student] = await tx
-      .select({ id: people.id })
+      .select({ id: people.id, dateOfBirth: people.dateOfBirth })
       .from(students)
       .innerJoin(people, eq(people.id, students.personId))
       .where(
@@ -457,7 +476,8 @@ export async function confirmSurveyMatch(
           eq(people.organizationId, actor.organizationId),
           isNull(people.archivedAt),
         ),
-      );
+      )
+      .for("update", { of: people });
     if (!response || !student)
       throw new ApplicationError(
         "NOT_FOUND",
@@ -472,7 +492,7 @@ export async function confirmSurveyMatch(
         "This response is already confirmed for another student. Existing confirmed links cannot be silently reassigned.",
       );
     const context = await loadSurveyAssessmentContext(tx, actor.organizationId);
-    const assessment = assessSurveyResponse(
+    let assessment = assessSurveyResponse(
       {
         ...response,
         confirmedStudentId: student.id,
@@ -481,9 +501,7 @@ export async function confirmSurveyMatch(
       },
       context,
     );
-    const issues = [
-      ...new Set([...assessment.issues, ...response.enrichmentIssues]),
-    ];
+    const issues = assessment.issues;
     if (
       parsed.reviewEvidenceKey &&
       parsed.reviewEvidenceKey !== assessment.evidenceKey
@@ -497,6 +515,30 @@ export async function confirmSurveyMatch(
         "VALIDATION",
         "Review and acknowledge the conflicting values before confirming this match.",
       );
+    if (parsed.birthdateDecision === "use-survey") {
+      if (!parsed.acknowledgeConflicts || !parsed.reviewEvidenceKey)
+        throw new ApplicationError(
+          "VALIDATION",
+          "Review the current evidence and explicitly acknowledge the birthdate change.",
+        );
+      await tx
+        .update(people)
+        .set({ dateOfBirth: response.childDateOfBirth, updatedAt: new Date() })
+        .where(eq(people.id, student.id));
+      const candidate = context.students.find(
+        (item) => item.studentId === student.id,
+      );
+      if (candidate) candidate.dateOfBirth = response.childDateOfBirth;
+      assessment = assessSurveyResponse(
+        {
+          ...response,
+          confirmedStudentId: student.id,
+          linkSource: "staff",
+          reviewAcknowledgement: null,
+        },
+        context,
+      );
+    }
     await tx
       .update(surveyResponses)
       .set({
@@ -506,10 +548,15 @@ export async function confirmSurveyMatch(
         candidateRegistrationIds: assessment.candidateRegistrationIds,
         reviewAcknowledgement: {
           studentId: student.id,
-          issues,
+          issues: assessment.issues,
           evidenceKey: assessment.evidenceKey,
           reviewedBy: actor.userId,
           reviewedAt: new Date().toISOString(),
+          birthdateDecision: {
+            action: parsed.birthdateDecision,
+            previousDateOfBirth: student.dateOfBirth,
+            surveyDateOfBirth: response.childDateOfBirth,
+          },
         },
         matchStatus: "unique",
         updatedAt: new Date(),
@@ -521,6 +568,10 @@ export async function confirmSurveyMatch(
       actor.userId,
       student.id,
     );
+    const [updatedStudent] = await tx
+      .select({ dateOfBirth: people.dateOfBirth })
+      .from(people)
+      .where(eq(people.id, student.id));
     await tx.insert(auditEvents).values({
       organizationId: actor.organizationId,
       actorId: actor.userId,
@@ -531,6 +582,9 @@ export async function confirmSurveyMatch(
         studentId: student.id,
         fillMissingBirthDate: parsed.fillMissingBirthDate,
         acknowledgedIssues: issues,
+        birthdateDecision: parsed.birthdateDecision,
+        previousDateOfBirth: student.dateOfBirth,
+        resultingDateOfBirth: updatedStudent?.dateOfBirth ?? null,
       },
     });
   });

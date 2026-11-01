@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { normalizeName } from "@/domain/surveys/student-matching";
@@ -40,10 +40,15 @@ export function SurveyMatchReview({
     programId?: string,
     acknowledgeConflicts?: boolean,
     reviewEvidenceKey?: string,
+    birthdateDecision?: "keep-roster" | "use-survey",
   ) => void;
 }) {
   const [query, setQuery] = useState("");
+  const birthdateChoiceName = useId();
   const [acknowledge, setAcknowledge] = useState(false);
+  const [birthdateDecision, setBirthdateDecision] = useState<
+    "keep-roster" | "use-survey"
+  >("keep-roster");
   const [selectedId, setSelectedId] = useState(
     response.confirmedStudentId ?? response.suggestedStudentId ?? "",
   );
@@ -96,6 +101,7 @@ export function SurveyMatchReview({
           onChange={(event) => {
             setSelectedId(event.target.value);
             setAcknowledge(false);
+            setBirthdateDecision("keep-roster");
           }}
         >
           <option value="">Choose a student</option>
@@ -116,16 +122,35 @@ export function SurveyMatchReview({
       </label>
       {selected?.dateOfBirth &&
         selected.dateOfBirth !== response.childDateOfBirth && (
-          <p className="text-sm font-medium text-amber-800">
-            Birthdates differ: roster {selected.dateOfBirth}, survey{" "}
-            {response.childDateOfBirth}. Verify this is the same child before
-            linking. The roster birthdate will be preserved.
-          </p>
+          <fieldset className="grid gap-2 rounded border border-amber-300 p-3 text-sm">
+            <legend className="font-semibold">Birthdate decision</legend>
+            <p>
+              Birthdates differ. Verify this is the same child and choose which
+              date to use.
+            </p>
+            {(["keep-roster", "use-survey"] as const).map((decision) => (
+              <label key={decision} className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name={birthdateChoiceName}
+                  value={decision}
+                  checked={birthdateDecision === decision}
+                  onChange={() => {
+                    setBirthdateDecision(decision);
+                    setAcknowledge(false);
+                  }}
+                />
+                {decision === "keep-roster"
+                  ? `Keep roster birthdate · ${selected.dateOfBirth}`
+                  : `Use survey birthdate · ${response.childDateOfBirth}`}
+              </label>
+            ))}
+          </fieldset>
         )}
       <p className="text-muted-foreground text-sm">
         Linking a response automatically fills a missing student birthdate.
-        Existing birthdates are preserved; conflicting linked answers need
-        review.
+        Conflicting birthdates change only when staff choose the survey date
+        during review.
       </p>
       {selected?.registrations?.map((registration) => (
         <p key={registration.id} className="rounded border p-2 text-sm">
@@ -145,8 +170,8 @@ export function SurveyMatchReview({
           onChange={(event) => setAcknowledge(event.target.checked)}
         />
         I have reviewed the roster and survey values, confirm this is the same
-        child, and accept the differences while preserving existing roster
-        values.
+        child, and accept the remaining differences. Apply my birthdate decision
+        above; preserve other roster values.
       </label>
       <Button
         className="w-fit"
@@ -171,6 +196,7 @@ export function SurveyMatchReview({
             undefined,
             acknowledge,
             selected?.reviewEvidenceKey,
+            birthdateDecision,
           )
         }
       >

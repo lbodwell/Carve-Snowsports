@@ -477,8 +477,8 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
             Unique first and last name matches link automatically, including
             students without a birthdate. Duplicate names and conflicting
             birthdates need review. Uncertain responses stay here for review.
-            Linking preserves existing roster details and keeps medical answers
-            out of grouping rules.
+            Staff can choose whether to keep a conflicting roster birthdate or
+            use the survey date. Medical answers stay out of grouping rules.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -605,7 +605,7 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
                   "matching",
                   () => reconcileParentSurveyMatches(),
                   (result) =>
-                    `Matching refreshed. ${result.birthdatesFilled} birthdates, ${result.registrationsFilled} registrations and ${result.medicalNotesAdded} medical notes filled. Uncertain responses still need your review.${result.birthdateConflicts ? ` ${result.birthdateConflicts} students have conflicting linked survey birthdates; review their linked responses before recording a birthdate.` : ""}`,
+                    `Matching refreshed. ${result.matched} responses automatically linked or revalidated; ${result.reviewNeeded} still need review. ${result.birthdatesFilled} birthdates, ${result.registrationsFilled} registrations and ${result.medicalNotesAdded} medical notes filled.${result.birthdateConflicts ? ` ${result.birthdateConflicts} students have conflicting linked survey birthdates; review their linked responses before recording a birthdate.` : ""}`,
                 )
               }
             >
@@ -675,7 +675,15 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
                               {sessionLabels[answers.session]}
                             </p>
                           </div>
-                          <SurveyResponseDetail responseId={response.id} />
+                          <SurveyResponseDetail
+                            responseId={response.id}
+                            reviewRevision={JSON.stringify([
+                              response.confirmedStudentId,
+                              response.suggestedStudentId,
+                              response.matchStatus,
+                              response.enrichmentIssues,
+                            ])}
+                          />
                           <div>
                             <p className="font-medium">Submitted</p>
                             <p className="text-muted-foreground">
