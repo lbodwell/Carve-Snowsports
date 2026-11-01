@@ -1,8 +1,11 @@
 # Controlled production releases
 
 The production release workflow is active in
-`.github/workflows/production-release.yml`. Releases are manually dispatched from
-`main` and require approval through GitHub's Production environment. Vercel builds
+`.github/workflows/production-release.yml`. Every push to `main` starts the reusable
+quality suite and, on success, waits for approval through GitHub's Production
+environment. Manual dispatch from `main` remains available for retries. PR quality
+checks run through `ci.yml`; the release workflow owns main's quality run to avoid
+duplicate suites. Vercel builds
 only the application; the release job controls migrations and promotion.
 
 ## Verified release — 2026-10-21
@@ -109,7 +112,7 @@ steps describe activation for a new installation; subsequent releases use step 5
    database. Bootstrap an organization/admin separately if this is an empty
    environment; the migration workflow never seeds or creates admin credentials.
    Redeploy Preview after provisioning changes so the app receives the new values.
-5. Run **Production release** from `main`. Wait for quality checks and inspect
+5. The push starts **Production release** automatically. Wait for quality checks and inspect
    the exact commit and SQL before approving the Production environment gate.
 
 Production release runs the reusable quality workflow against local Postgres:
