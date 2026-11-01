@@ -2,6 +2,11 @@ name: Preview database migrations
 
 on:
   workflow_dispatch:
+    inputs:
+      seed_demo:
+        description: Populate synthetic Preview demo data (requires PREVIEW_DEMO_PASSWORD).
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,14 +26,10 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+      - uses: ./.github/actions/preview-migrations
         with:
-          bun-version: 1.3.9
-      - run: bun install --frozen-lockfile
-      - name: Apply reviewed main migrations to isolated Preview
-        run: bun run db:migrate:release
-        env:
-          RELEASE_ENVIRONMENT: preview
-          DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
-          RELEASE_DATABASE_HOST: ${{ vars.RELEASE_DATABASE_HOST }}
-          RELEASE_DATABASE_NAME: ${{ vars.RELEASE_DATABASE_NAME }}
+          database-url: ${{ secrets.DATABASE_URL_UNPOOLED }}
+          database-host: ${{ vars.RELEASE_DATABASE_HOST }}
+          database-name: ${{ vars.RELEASE_DATABASE_NAME }}
+          seed-demo: ${{ inputs.seed_demo }}
+          demo-password: ${{ secrets.PREVIEW_DEMO_PASSWORD }}

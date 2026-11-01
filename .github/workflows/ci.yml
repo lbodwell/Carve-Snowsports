@@ -51,3 +51,27 @@ jobs:
       - run: bun run test:integration
       - run: bunx playwright install --with-deps chromium
       - run: bun run test:e2e
+
+  preview-schema:
+    needs: quality
+    if: >-
+      github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: preview
+    concurrency:
+      group: carve-preview-migrations
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/preview-migrations
+        with:
+          database-url: ${{ secrets.DATABASE_URL_UNPOOLED }}
+          database-host: ${{ vars.RELEASE_DATABASE_HOST }}
+          database-name: ${{ vars.RELEASE_DATABASE_NAME }}
+          seed-demo: ${{ vars.PREVIEW_SEED_DEMO == 'true' }}
+          demo-password: ${{ secrets.PREVIEW_DEMO_PASSWORD }}

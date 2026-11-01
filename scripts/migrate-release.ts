@@ -5,6 +5,10 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import {
+  previewSchemaState,
+  verifiedPreviewDatabase,
+} from "../src/domain/deployment/preview-policy";
+import {
   assertMigrationHistory,
   verifiedMigrationTarget,
 } from "../src/domain/deployment/release-policy";
@@ -17,6 +21,7 @@ export async function runReleaseMigrations(options: {
   migrationsFolder?: string;
 }) {
   const target = verifiedMigrationTarget(options.env);
+  if (target.environment === "preview") verifiedPreviewDatabase(target.url);
   const migrationsFolder =
     options.migrationsFolder ??
     fileURLToPath(new URL("../src/db/migrations", import.meta.url));
@@ -48,6 +53,15 @@ export async function runReleaseMigrations(options: {
         : [];
     };
     const applied = await readApplied();
+    if (target.environment === "preview" && applied.length > committed.length) {
+      previewSchemaState(committed, applied);
+      return {
+        environment: target.environment,
+        pending: 0,
+        total: committed.length,
+        checkedOnly: Boolean(options.checkOnly),
+      };
+    }
     assertMigrationHistory(committed, applied);
     const pending = committed.length - applied.length;
     if (!options.checkOnly) {
