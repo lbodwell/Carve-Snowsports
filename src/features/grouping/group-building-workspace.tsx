@@ -476,7 +476,7 @@ export function PersistedGroupingBoard({
         aria-label={`${student.firstName} ${student.lastName}`}
         className={cn(
           "w-full rounded-xl border bg-white",
-          fromGroupId && "rounded-lg border-transparent bg-transparent",
+          fromGroupId && "rounded-lg",
           active && "border-pm-green bg-pm-mist ring-pm-green/20 ring-2",
         )}
         onPointerEnter={() =>
