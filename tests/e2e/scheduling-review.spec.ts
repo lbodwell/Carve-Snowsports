@@ -1,15 +1,11 @@
 import { expect, test } from "@playwright/test";
+import { signInAsAdmin } from "./admin-session";
 
 test("defaults the sole program, preserves roster scroll, and restores grouping selection", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 500 });
-  await page.goto("/sign-in");
-  await page.getByLabel("Email").fill("admin@carve.local");
-  await page
-    .getByLabel("Password")
-    .fill(process.env.DEV_ADMIN_PASSWORD ?? "carve-local-admin");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await signInAsAdmin(page);
   await expect(page).toHaveURL(/\/admin\/?$/);
   await page.goto("/admin/students");
   await expect(page.locator("tbody tr").first()).toBeVisible();
@@ -45,12 +41,7 @@ test("defaults the sole program, preserves roster scroll, and restores grouping 
 test("adds instructors by drag and drop while preserving the lead and filtering group details", async ({
   page,
 }) => {
-  await page.goto("/sign-in");
-  await page.getByLabel("Email").fill("admin@carve.local");
-  await page
-    .getByLabel("Password")
-    .fill(process.env.DEV_ADMIN_PASSWORD ?? "carve-local-admin");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await signInAsAdmin(page);
   await expect(page).toHaveURL(/\/admin\/?$/);
   await page.goto("/grouping");
   if (

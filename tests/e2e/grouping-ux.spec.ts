@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import postgres from "postgres";
+import { signInAsAdmin } from "./admin-session";
 
 test("splitting is discoverable and note previews do not obstruct neighbouring students", async ({
   page,
@@ -9,7 +10,10 @@ test("splitting is discoverable and note previews do not obstruct neighbouring s
   test.skip(
     !target ||
       !["localhost", "127.0.0.1"].includes(target.hostname) ||
-      target.pathname !== "/carve_test",
+      !(
+        target.pathname === "/carve_test" ||
+        (process.env.CI === "true" && target.pathname === "/carve")
+      ),
     "Requires the isolated local carve_test database.",
   );
   const sql = postgres(databaseUrl!, { max: 1 });
@@ -20,12 +24,7 @@ test("splitting is discoverable and note previews do not obstruct neighbouring s
     "Needs clear demonstrations and regular warm-up breaks. ".repeat(35);
   try {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("/sign-in");
-    await page.getByLabel("Email").fill("admin@carve.local");
-    await page
-      .getByLabel("Password")
-      .fill(process.env.DEV_ADMIN_PASSWORD ?? "carve-local-admin");
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await signInAsAdmin(page);
     await expect(page).toHaveURL(/\/admin\/?$/);
     await page.goto("/grouping");
     const create = page.getByRole("button", {

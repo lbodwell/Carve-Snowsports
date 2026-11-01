@@ -1,15 +1,11 @@
 import { expect, test } from "@playwright/test";
+import { signInAsAdmin } from "./admin-session";
 
 test("desktop workbench keeps students, groups and instructors in one viewport", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto("/sign-in");
-  await page.getByLabel("Email").fill("admin@carve.local");
-  await page
-    .getByLabel("Password")
-    .fill(process.env.DEV_ADMIN_PASSWORD ?? "carve-local-admin");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await signInAsAdmin(page);
   await expect(page).toHaveURL(/\/admin\/?$/);
   await page.goto("/grouping");
   await expect(
@@ -23,7 +19,7 @@ test("desktop workbench keeps students, groups and instructors in one viewport",
   await expect(groups).toBeVisible();
   await expect(instructors).toBeVisible();
   await expect(students).toBeVisible();
-  const studentBox = (await students.boundingBox())!;
+  const studentBox = (await students.locator("..").boundingBox())!;
   const groupBox = (await groups.boundingBox())!;
   const instructorBox = (await instructors.boundingBox())!;
   expect(studentBox.x + studentBox.width).toBeLessThan(groupBox.x);

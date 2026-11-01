@@ -947,14 +947,15 @@ function TimeSlotSection({
                 size="sm"
                 onClick={() => {
                   setCohort(session);
-                  setStartsAt("09:00");
+                  setStartsAt("09:30");
+                  setEndsAt("11:00");
                   setAllowedWeekdays([4, 5]);
-                  const nextLabel = `9:00 AM - Session ${index + 1}`;
+                  const nextLabel = `9:30 AM - Session ${index + 1}`;
                   setLabel(nextLabel);
                   if (!editingId) setKey(slugifyKey(nextLabel));
                 }}
               >
-                Thu/Fri · 9:00 AM - Session {index + 1}
+                Thu/Fri · 9:30 AM - Session {index + 1}
               </Button>
             ))}
           </div>

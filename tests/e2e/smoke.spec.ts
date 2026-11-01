@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
+import { signInAsAdmin } from "./admin-session";
 import type { BrowserContext } from "@playwright/test";
 
 const developmentAdminPassword =
@@ -257,7 +258,6 @@ test("serves health and the authenticated staff workspace", async ({
     await page.screenshot({ path: ".tmp/grouping-mobile.png", fullPage: true });
     await page.setViewportSize({ width: 1280, height: 720 });
   }
-  await page.getByRole("button", { name: "Clear selection" }).click();
   await page.goto("/admin");
   await expect(page.locator(".recharts-surface").first()).toBeVisible();
   await expect(
@@ -325,10 +325,7 @@ test("imports a new student, syncs their survey, and finalizes unstaffed placeme
     page.getByRole("heading", { name: "Thank you", exact: true }),
   ).toBeVisible();
 
-  await page.goto("/sign-in");
-  await page.getByLabel("Email").fill("admin@carve.local");
-  await page.getByLabel("Password").fill(developmentAdminPassword);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await signInAsAdmin(page);
   await expect(page).toHaveURL(/\/admin\/?$/);
   await page.goto("/admin/imports");
   const listing = [
@@ -380,21 +377,33 @@ test("imports a new student, syncs their survey, and finalizes unstaffed placeme
   await page.goto("/admin/surveys");
   await page.getByRole("button", { name: /Ellis Reviewfixture/ }).click();
   await expect(
-    page.getByRole("heading", { name: "Linked student" }),
+    page.getByRole("heading", { name: "Match this response to a student" }),
   ).toBeVisible();
   await page
     .getByRole("combobox", { name: "Student for Ellis Reviewfixture" })
-    .selectOption({ label: "Ellis Reviewfixture · 2016-01-08" });
+    .selectOption({ label: "Ellis Reviewfixture · Birthdate missing" });
+  await page
+    .getByRole("checkbox", {
+      name: /I have reviewed the roster and survey values/,
+    })
+    .check();
   await page.getByRole("button", { name: "Confirm student match" }).click();
   await expect(
     page.getByText("Student match confirmed.", { exact: true }),
   ).toBeVisible();
 
   await page.goto("/grouping");
+  await page
+    .getByRole("button", { name: "Workspace tools", exact: true })
+    .click();
   const returnForChanges = page.getByRole("button", {
     name: "Return for changes",
   });
   if (await returnForChanges.isVisible()) await returnForChanges.click();
+  await page
+    .getByRole("dialog", { name: "Workspace tools" })
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
   // Unmapped registrations stay out of the session pool until a matching lesson slot exists.
   await expect(
     page.locator("aside").getByRole("button", { name: /Ellis Reviewfixture/ }),
@@ -451,6 +460,9 @@ test("imports a new student, syncs their survey, and finalizes unstaffed placeme
   await page
     .getByRole("button", { name: "Finalize student placements" })
     .click();
+  await page
+    .getByRole("button", { name: "Workspace tools", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Finalized placements and history" }),
   ).toBeVisible();
@@ -462,10 +474,7 @@ test("imports a new student, syncs their survey, and finalizes unstaffed placeme
 test("personal survey links work with the anonymous fallback disabled", async ({
   page,
 }) => {
-  await page.goto("/sign-in");
-  await page.getByLabel("Email").fill("admin@carve.local");
-  await page.getByLabel("Password").fill(developmentAdminPassword);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await signInAsAdmin(page);
   await expect(page).toHaveURL(/\/admin\/?$/);
   await page.goto("/admin/surveys");
   await page
@@ -510,10 +519,7 @@ test("administrators can prepare separate seasonal cohorts with dates pending", 
     await page.context().addCookies(administratorCookies);
     await page.goto("/admin");
   } else {
-    await page.goto("/sign-in");
-    await page.getByLabel("Email").fill("admin@carve.local");
-    await page.getByLabel("Password").fill(developmentAdminPassword);
-    await page.getByRole("button", { name: "Sign in" }).click();
+    await signInAsAdmin(page);
   }
   await expect(page).toHaveURL(/\/admin\/?$/);
   await page.goto("/admin/seasons");
@@ -525,7 +531,7 @@ test("administrators can prepare separate seasonal cohorts with dates pending", 
     await section.getByRole("button", { name: "Add", exact: true }).click();
     await section
       .getByRole("button", {
-        name: "Thu/Fri · 9:00 AM - Session " + number,
+        name: "Thu/Fri · 9:30 AM - Session " + number,
         exact: true,
       })
       .click();
@@ -533,7 +539,7 @@ test("administrators can prepare separate seasonal cohorts with dates pending", 
       .getByRole("button", { name: "Add time slot", exact: true })
       .click();
     await expect(
-      section.getByText(`9:00 AM - Session ${number}`, { exact: true }),
+      section.getByText(`9:30 AM - Session ${number}`, { exact: true }),
     ).toBeVisible();
   }
   await expect(section.getByText("Dates pending", { exact: true })).toHaveCount(
@@ -546,27 +552,41 @@ test("administrators can prepare separate seasonal cohorts with dates pending", 
   await session.click();
   await page
     .getByRole("option", {
-      name: "9:00 AM - Session 1",
+      name: "9:30 AM - Session 1",
       exact: true,
     })
+    .click();
+  await page
+    .getByRole("button", { name: "Workspace tools", exact: true })
     .click();
   await expect(
     page.getByText("Session 1 · Dates pending — groups can be built now", {
       exact: true,
     }),
   ).toBeVisible();
+  await page
+    .getByRole("dialog", { name: "Workspace tools" })
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
   await session.click();
   await page
     .getByRole("option", {
-      name: "9:00 AM - Session 2",
+      name: "9:30 AM - Session 2",
       exact: true,
     })
+    .click();
+  await page
+    .getByRole("button", { name: "Workspace tools", exact: true })
     .click();
   await expect(
     page.getByText("Session 2 · Dates pending — groups can be built now", {
       exact: true,
     }),
   ).toBeVisible();
+  await page
+    .getByRole("dialog", { name: "Workspace tools" })
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
   if (process.env.CARVE_UI_PROOF === "1") {
     await session.click();
     await page.screenshot({
