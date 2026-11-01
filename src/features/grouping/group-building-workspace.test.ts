@@ -67,6 +67,23 @@ describe("administrator group workspace", () => {
       within(screen.getByRole("dialog")).getByText("Carry an inhaler"),
     ).toBeTruthy();
   });
+  it("keeps notes and the student together inside lesson groups", () => {
+    const workspace = fixture();
+    workspace.roster[0]!.medicalNotes = "Carry an inhaler";
+    render(createElement(PersistedGroupingBoard, { workspace }));
+    const card = screen.getByRole("group", { name: "Avery Chen" });
+    expect(card.className).not.toContain("border-transparent");
+    const student = within(card).getByRole("button", {
+      name: /Avery Chen.*Level/,
+    });
+    fireEvent.click(
+      within(card).getByRole("button", { name: "View notes for Avery Chen" }),
+    );
+    expect(student.getAttribute("aria-pressed")).toBe("false");
+    expect(
+      within(screen.getByRole("dialog")).getByText("Carry an inhaler"),
+    ).toBeTruthy();
+  });
   it("does not call a Sunday student unplaced while viewing Saturday", () => {
     render(createElement(PersistedGroupingBoard, { workspace: fixture() }));
     expect(
