@@ -47,6 +47,23 @@ when its schema is already available; otherwise its build waits and then fails.
 After opening a PR or fixing failed CI, redeploy a timed-out Preview in Vercel.
 Manual **Preview database migrations** from `main` remains available for recovery.
 
+## Synthetic demo setup
+
+The dedicated Preview database uses synthetic demo data, rather than production
+children, guardians, staff passwords, or survey answers. The fixture provides 27
+students, six instructors, both disciplines, weekend 9 a.m./10 a.m./PM/full-day
+slots, and separate Thursday/Friday 9:30–11 a.m. cohorts. Groups can be generated
+and edited normally. Its login is `admin@carve.local`, with a generated password
+stored in the Preview environment's `PREVIEW_DEMO_PASSWORD` secret.
+
+To populate an empty Preview, run **Preview database migrations** from main with
+`seed_demo` selected. Initial setup can also set the Preview environment variable
+`PREVIEW_SEED_DEMO=true` for one passing PR CI run; clear that flag afterward.
+Seeding verifies the pinned Preview endpoint, uses the migration lock, refuses
+databases containing other organizations, and requires a strong Preview-only
+password. Once the fixture exists, repeated runs preserve the roster and login.
+Seeding is never part of Vercel builds or production releases.
+
 ## Shared database limits
 
 Preview uses one shared database. New migrations must remain additive and compatible

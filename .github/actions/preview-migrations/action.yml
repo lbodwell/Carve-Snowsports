@@ -10,6 +10,12 @@ inputs:
   database-name:
     required: true
     description: Expected Preview database name.
+  seed-demo:
+    default: "false"
+    description: Explicitly populate the isolated Preview with synthetic demo fixtures.
+  demo-password:
+    default: ""
+    description: Generated Preview-only demo admin password.
 runs:
   using: composite
   steps:
@@ -26,3 +32,13 @@ runs:
         DATABASE_URL_UNPOOLED: ${{ inputs.database-url }}
         RELEASE_DATABASE_HOST: ${{ inputs.database-host }}
         RELEASE_DATABASE_NAME: ${{ inputs.database-name }}
+    - name: Populate synthetic Preview demo
+      if: inputs.seed-demo == 'true'
+      run: bun run scripts/seed-preview-demo.ts
+      shell: bash
+      env:
+        RELEASE_ENVIRONMENT: preview
+        DATABASE_URL_UNPOOLED: ${{ inputs.database-url }}
+        RELEASE_DATABASE_HOST: ${{ inputs.database-host }}
+        RELEASE_DATABASE_NAME: ${{ inputs.database-name }}
+        PREVIEW_DEMO_PASSWORD: ${{ inputs.demo-password }}

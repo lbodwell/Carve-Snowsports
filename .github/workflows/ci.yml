@@ -75,3 +75,5 @@ jobs:
           database-url: ${{ secrets.DATABASE_URL_UNPOOLED }}
           database-host: ${{ vars.RELEASE_DATABASE_HOST }}
           database-name: ${{ vars.RELEASE_DATABASE_NAME }}
+          seed-demo: ${{ vars.PREVIEW_SEED_DEMO == 'true' }}
+          demo-password: ${{ secrets.PREVIEW_DEMO_PASSWORD }}

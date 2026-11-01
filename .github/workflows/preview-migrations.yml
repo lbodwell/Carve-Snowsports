@@ -2,6 +2,11 @@ name: Preview database migrations
 
 on:
   workflow_dispatch:
+    inputs:
+      seed_demo:
+        description: Populate synthetic Preview demo data (requires PREVIEW_DEMO_PASSWORD).
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -26,3 +31,5 @@ jobs:
           database-url: ${{ secrets.DATABASE_URL_UNPOOLED }}
           database-host: ${{ vars.RELEASE_DATABASE_HOST }}
           database-name: ${{ vars.RELEASE_DATABASE_NAME }}
+          seed-demo: ${{ inputs.seed_demo }}
+          demo-password: ${{ secrets.PREVIEW_DEMO_PASSWORD }}
