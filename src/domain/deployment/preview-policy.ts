@@ -37,7 +37,7 @@ export function verifiedPreviewDatabase(value: string | undefined) {
     decodeURIComponent(url.pathname.slice(1)) !== target.database
   )
     throw new Error(
-      `Preview database target mismatch: expected ${target.host}/${target.database}, received ${url.hostname}/${decodeURIComponent(url.pathname.slice(1))}. Align Vercel Preview DATABASE_URL with the GitHub Preview migration target.`,
+      `Preview database target mismatch. Expected Preview endpoint: ${url.hostname.split(".")[0]?.replace(/-pooler$/, "") === target.host.split(".")[0]}; matches known Production endpoint: ${url.hostname.split(".")[0]?.replace(/-pooler$/, "") === "ep-sweet-truth-b844npkk"}; expected database name: ${decodeURIComponent(url.pathname.slice(1)) === target.database}. Align Vercel Preview DATABASE_URL with the GitHub Preview migration target.`,
     );
   return value;
 }

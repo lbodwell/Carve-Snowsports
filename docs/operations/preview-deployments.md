@@ -7,7 +7,8 @@ and fails with an actionable message if the schema never becomes ready. It never
 runs migrations itself. Production and local builds skip this check.
 
 For an open same-repository PR targeting `main`, `ci.yml` runs quality checks and
-then calls the existing `preview-migrations.yml` workflow. That job uses the
+then runs the same composite migration action as the existing `preview-migrations.yml`
+workflow. Both jobs use the
 `preview` environment's direct database secret and expected host/name, applies
 migrations under the existing lock, and records a GitHub check. Failed quality
 checks prevent migrations. Fork PRs do not receive the migration job. No
@@ -50,7 +51,7 @@ the shared database as part of a branch build. Fully independent incompatible
 schemas would require separate per-PR databases.
 
 GitHub serializes Preview migration jobs without canceling an active migration.
-The database advisory lock also protects manual/reusable invocations. A failed
+The database advisory lock also protects manual/CI invocations. A failed
 migration prevents the waiting build from publishing against the missing schema.
 
 References: [GitHub environment branch matching](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
