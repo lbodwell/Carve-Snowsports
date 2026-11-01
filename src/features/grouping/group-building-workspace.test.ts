@@ -51,6 +51,22 @@ afterEach(() => {
 });
 
 describe("administrator group workspace", () => {
+  it("keeps each student's notes inside their own card in the side panel", () => {
+    const workspace = fixture();
+    workspace.roster[0]!.medicalNotes = "Carry an inhaler";
+    render(createElement(PersistedGroupingBoard, { workspace }));
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    const pool = within(screen.getByRole("region", { name: "Student pool" }));
+    const card = within(pool.getByRole("group", { name: "Avery Chen" }));
+    const student = card.getByRole("button", { name: /Avery Chen.*Level/ });
+    fireEvent.click(
+      card.getByRole("button", { name: "View notes for Avery Chen" }),
+    );
+    expect(student.getAttribute("aria-pressed")).toBe("false");
+    expect(
+      within(screen.getByRole("dialog")).getByText("Carry an inhaler"),
+    ).toBeTruthy();
+  });
   it("does not call a Sunday student unplaced while viewing Saturday", () => {
     render(createElement(PersistedGroupingBoard, { workspace: fixture() }));
     expect(

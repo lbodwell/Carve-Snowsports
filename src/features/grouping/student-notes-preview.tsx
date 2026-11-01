@@ -83,7 +83,7 @@ export function StudentNotesPreview({
             }
           }}
           className={cn(
-            "focus-visible:outline-pm-green mt-1 block w-full cursor-help rounded-lg border border-amber-200/60 bg-amber-50 p-2 text-left text-xs text-amber-950 focus-visible:outline-2 focus-visible:outline-offset-2",
+            "focus-visible:outline-pm-green block w-full cursor-pointer rounded-b-[inherit] border-t border-amber-200/60 bg-amber-50 p-2 text-left text-xs text-amber-950 focus-visible:outline-2 focus-visible:outline-offset-2",
             compact && "px-1.5 py-1",
           )}
         >
