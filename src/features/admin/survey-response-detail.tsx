@@ -8,7 +8,13 @@ import {
 import { surveyLifts } from "@/domain/surveys/pre-lesson-intake";
 import { Button } from "@/components/ui/button";
 
-export function SurveyResponseDetail({ responseId }: { responseId: string }) {
+export function SurveyResponseDetail({
+  responseId,
+  reviewRevision,
+}: {
+  responseId: string;
+  reviewRevision?: string;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -20,6 +26,7 @@ export function SurveyResponseDetail({ responseId }: { responseId: string }) {
   useEffect(() => {
     let active = true;
     setError("");
+    setData(null);
     getParentSurveyResponseDetail({ data: { responseId } })
       .then((value) => {
         if (active) setData(value);
@@ -30,7 +37,7 @@ export function SurveyResponseDetail({ responseId }: { responseId: string }) {
     return () => {
       active = false;
     };
-  }, [responseId, attempt]);
+  }, [responseId, attempt, reviewRevision]);
   if (error)
     return (
       <div role="alert">
@@ -58,6 +65,7 @@ export function SurveyResponseDetail({ responseId }: { responseId: string }) {
           _programId,
           acknowledgeConflicts,
           reviewEvidenceKey,
+          birthdateDecision,
         ) => {
           setBusy(true);
           setMessage("");
@@ -69,11 +77,16 @@ export function SurveyResponseDetail({ responseId }: { responseId: string }) {
                 fillMissingBirthDate,
                 acknowledgeConflicts,
                 reviewEvidenceKey,
+                birthdateDecision,
               },
             });
             setAttempt((value) => value + 1);
             await router.invalidate();
-            setMessage("Student match confirmed.");
+            setMessage(
+              birthdateDecision === "use-survey"
+                ? "Student match confirmed. Roster birthdate updated from the survey."
+                : "Student match confirmed.",
+            );
           } catch (confirmationError) {
             setMessage(
               confirmationError instanceof Error

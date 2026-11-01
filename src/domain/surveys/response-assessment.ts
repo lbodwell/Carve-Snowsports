@@ -37,6 +37,11 @@ export type ReviewAcknowledgement = {
   evidenceKey: string;
   reviewedBy: string;
   reviewedAt: string;
+  birthdateDecision?: {
+    action: "keep-roster" | "use-survey";
+    previousDateOfBirth: string | null;
+    surveyDateOfBirth: string;
+  };
 };
 
 export function assessSurveyResponse(
@@ -91,10 +96,6 @@ export function assessSurveyResponse(
   if (student?.dateOfBirth && student.dateOfBirth !== response.childDateOfBirth)
     issues.push(
       `Birthdates differ: roster ${student.dateOfBirth}; survey ${response.childDateOfBirth}.`,
-    );
-  if (response.confirmedStudentId && response.linkSource === "unknown")
-    issues.push(
-      "The origin of this existing link is unknown; staff confirmation is required.",
     );
   const candidateStudentIds = studentId
     ? [studentId]
@@ -207,6 +208,24 @@ export function assessSurveyResponse(
           .join(", ") +
         ".",
     );
+  const identityAgrees =
+    match.status === "unique" && match.suggestedStudentId === studentId;
+  if (
+    response.confirmedStudentId &&
+    response.linkSource === "automatic" &&
+    !identityAgrees
+  )
+    issues.push(
+      "The existing automatic identity link cannot be uniquely revalidated.",
+    );
+  if (
+    response.confirmedStudentId &&
+    response.linkSource === "unknown" &&
+    (!identityAgrees || issues.length)
+  )
+    issues.push(
+      "The origin of this existing link is unknown and its current evidence needs staff review.",
+    );
   const acknowledgement = response.reviewAcknowledgement;
   const evidenceKey = JSON.stringify({
     studentId,
@@ -257,7 +276,7 @@ export function assessSurveyResponse(
     unresolvedIssues,
     evidenceKey,
     canAutoConfirm: Boolean(
-      student && registration && match.status === "unique" && !issues.length,
+      student && registration && identityAgrees && !issues.length,
     ),
   };
 }

@@ -352,7 +352,7 @@ describe("public parent surveys", () => {
     });
   });
 
-  test("rechecks earlier responses when a student arrives and preserves confirmed links", async () => {
+  test("rechecks earlier responses, reviews ambiguous automatic identities and preserves staff confirmation", async () => {
     await updateSurveyAccess(actor, {
       surveyId,
       status: "open",
@@ -400,7 +400,21 @@ describe("public parent surveys", () => {
       .select()
       .from(surveyResponses)
       .where(eq(surveyResponses.id, response!.id));
-    expect(preserved?.confirmedStudentId).toBe(person!.id);
+    expect(preserved?.confirmedStudentId).toBeNull();
+    expect(preserved?.enrichmentIssues.join()).toContain(
+      "Multiple students match this name",
+    );
+    await confirmSurveyMatch(actor, {
+      responseId: response!.id,
+      studentId: person!.id,
+      acknowledgeConflicts: true,
+    });
+    await refreshSurveyMatches(actor);
+    const [staffConfirmed] = await database
+      .select()
+      .from(surveyResponses)
+      .where(eq(surveyResponses.id, response!.id));
+    expect(staffConfirmed?.confirmedStudentId).toBe(person!.id);
   });
 
   test("links a unique name and automatically fills a missing roster birthdate", async () => {
@@ -1031,6 +1045,165 @@ describe("public parent surveys", () => {
     expect(review.responses.map((item) => item.id)).toContain(response!.id);
     expect(review.responseTotal).toBe(1);
     expect(review.reviewTotal).toBe(1);
+  });
+  test("revalidates clean historical links automatically, removes migration flags and records fresh provenance", async () => {
+    for (const source of ["unknown", "automatic", "staff"]) {
+      const [person] = await database
+        .insert(people)
+        .values({
+          organizationId: actor.organizationId,
+          firstName: "CleanHistorical",
+          lastName: source,
+          dateOfBirth: answers.childDateOfBirth,
+        })
+        .returning();
+      await database.insert(students).values({ personId: person!.id });
+      await enrollMatchingStudent(person!.id);
+      const [response] = await database
+        .insert(surveyResponses)
+        .values({
+          surveyId,
+          confirmedStudentId: person!.id,
+          linkSource: source,
+          matchStatus: "unique",
+          childFirstName: "CleanHistorical",
+          childLastName: source,
+          childDateOfBirth: answers.childDateOfBirth,
+          answers: {
+            ...answers,
+            childFirstName: "CleanHistorical",
+            childLastName: source,
+          },
+          enrichmentIssues: [
+            "Existing response requires enrollment assessment; run Re-link and sync.",
+          ],
+        })
+        .returning();
+      await refreshSurveyMatches(actor);
+      await refreshSurveyMatches(actor);
+      const [saved] = await database
+        .select()
+        .from(surveyResponses)
+        .where(eq(surveyResponses.id, response!.id));
+      expect(saved).toMatchObject({
+        confirmedStudentId: person!.id,
+        linkSource: source === "staff" ? "staff" : "automatic",
+        enrichmentIssues: [],
+      });
+      const queue = await getSurveyWorkspace(actor, {
+        link: "review",
+        q: `CleanHistorical ${source}`,
+      });
+      expect(queue.responses).toEqual([]);
+      expect(queue.responseTotal).toBe(0);
+      expect(queue.reviewTotal).toBe(0);
+      const audit = await database
+        .select()
+        .from(auditEvents)
+        .where(eq(auditEvents.entityId, response!.id));
+      expect(
+        audit.filter((event) => event.action === "survey.match_revalidated"),
+      ).toHaveLength(source === "unknown" ? 1 : 0);
+    }
+  });
+  test("staff can retain or replace a conflicting birthdate with a recorded, current decision", async () => {
+    for (const decision of ["keep-roster", "use-survey"] as const) {
+      const [person] = await database
+        .insert(people)
+        .values({
+          organizationId: actor.organizationId,
+          firstName: "BirthdateChoice",
+          lastName: decision,
+          dateOfBirth: "2016-01-08",
+        })
+        .returning();
+      await database.insert(students).values({ personId: person!.id });
+      await enrollMatchingStudent(person!.id);
+      await submitPublicSurvey({
+        slug: "pre-lesson-test",
+        website: "",
+        answers: {
+          ...answers,
+          childFirstName: "BirthdateChoice",
+          childLastName: decision,
+        },
+      });
+      const [response] = await database
+        .select()
+        .from(surveyResponses)
+        .where(
+          and(
+            eq(surveyResponses.childFirstName, "BirthdateChoice"),
+            eq(surveyResponses.childLastName, decision),
+          ),
+        );
+      expect(response!.confirmedStudentId).toBeNull();
+      const detail = await getSurveyResponseDetail(actor, response!.id);
+      const evidence = detail.students.find(
+        (item) => item.studentId === person!.id,
+      )!.reviewEvidenceKey;
+      const input = {
+        responseId: response!.id,
+        studentId: person!.id,
+        birthdateDecision: decision,
+        reviewEvidenceKey: evidence,
+      };
+      await expect(confirmSurveyMatch(actor, input)).rejects.toMatchObject({
+        code: "VALIDATION",
+      });
+      await expect(
+        confirmSurveyMatch(actor, {
+          ...input,
+          acknowledgeConflicts: true,
+          reviewEvidenceKey: "stale",
+        }),
+      ).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+      if (decision === "use-survey")
+        await expect(
+          confirmSurveyMatch(actor, {
+            ...input,
+            acknowledgeConflicts: true,
+            reviewEvidenceKey: undefined,
+          }),
+        ).rejects.toMatchObject({ code: "VALIDATION" });
+      await expect(
+        confirmSurveyMatch(instructorActor, {
+          ...input,
+          acknowledgeConflicts: true,
+        }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await confirmSurveyMatch(actor, { ...input, acknowledgeConflicts: true });
+      await refreshSurveyMatches(actor);
+      await refreshSurveyMatches(actor);
+      const [saved] = await database
+        .select()
+        .from(surveyResponses)
+        .where(eq(surveyResponses.id, response!.id));
+      expect(saved!.enrichmentIssues).toEqual([]);
+      expect(saved!.reviewAcknowledgement?.birthdateDecision).toMatchObject({
+        action: decision,
+        previousDateOfBirth: "2016-01-08",
+        surveyDateOfBirth: answers.childDateOfBirth,
+      });
+      const [child] = await database
+        .select()
+        .from(people)
+        .where(eq(people.id, person!.id));
+      expect(child!.dateOfBirth).toBe(
+        decision === "use-survey" ? answers.childDateOfBirth : "2016-01-08",
+      );
+      const audit = await database
+        .select()
+        .from(auditEvents)
+        .where(eq(auditEvents.entityId, response!.id));
+      expect(
+        audit.find((event) => event.action === "survey.match_confirmed")!
+          .metadata,
+      ).toMatchObject({
+        birthdateDecision: decision,
+        previousDateOfBirth: "2016-01-08",
+      });
+    }
   });
   test("backfills link provenance from audit history and reopens only conflicting automatic links", async () => {
     const cases = [];

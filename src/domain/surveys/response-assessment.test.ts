@@ -73,6 +73,35 @@ describe("survey identity and enrollment assessment", () => {
     expect(result.unresolvedIssues.join(" ")).toContain("Birthdates differ");
     expect(result.unresolvedIssues.join(" ")).toContain("Level conflicts");
   });
+  it("revalidates a clean historical link without requiring its old provenance", () => {
+    expect(
+      assessSurveyResponse(
+        { ...response, confirmedStudentId: "child", linkSource: "unknown" },
+        context(),
+      ),
+    ).toMatchObject({ canAutoConfirm: true, unresolvedIssues: [] });
+    const data = context();
+    data.registrations[0]!.abilityLevelId = "level-6";
+    const result = assessSurveyResponse(
+      { ...response, confirmedStudentId: "child", linkSource: "unknown" },
+      data,
+    );
+    expect(result.canAutoConfirm).toBe(false);
+    expect(result.unresolvedIssues.join()).toContain("Level conflicts");
+    expect(result.unresolvedIssues.join()).toContain("origin");
+  });
+  it("does not treat an ambiguous old identity as a completed match", () => {
+    const data = context();
+    data.students.push({ ...data.students[0]!, studentId: "other" });
+    for (const linkSource of ["unknown", "automatic"]) {
+      const result = assessSurveyResponse(
+        { ...response, confirmedStudentId: "child", linkSource },
+        data,
+      );
+      expect(result.canAutoConfirm).toBe(false);
+      expect(result.unresolvedIssues.length).toBeGreaterThan(0);
+    }
+  });
   it("keeps missing, ambiguous and wrong-session enrollments in review", () => {
     const data = context();
     data.registrations.push({ ...data.registrations[0]!, id: "duplicate" });
