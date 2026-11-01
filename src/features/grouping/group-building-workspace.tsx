@@ -472,7 +472,13 @@ export function PersistedGroupingBoard({
     return (
       <div
         key={student.registrationId}
-        className="w-full"
+        role="group"
+        aria-label={`${student.firstName} ${student.lastName}`}
+        className={cn(
+          "w-full rounded-xl border bg-white",
+          fromGroupId && "rounded-lg border-transparent bg-transparent",
+          active && "border-pm-green bg-pm-mist ring-pm-green/20 ring-2",
+        )}
         onPointerEnter={() =>
           setActiveNotesKey((current) =>
             current === notesKey ? current : null,
@@ -521,10 +527,8 @@ export function PersistedGroupingBoard({
             );
           }}
           className={cn(
-            "hover:border-pm-green focus-visible:outline-pm-green w-full cursor-pointer rounded-xl border bg-white p-2.5 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-default",
-            fromGroupId &&
-              "hover:bg-pm-mist/50 rounded-md border-transparent bg-transparent px-2 py-1.5",
-            active && "border-pm-green bg-pm-mist ring-pm-green/20 ring-2",
+            "hover:bg-pm-mist/50 focus-visible:outline-pm-green w-full cursor-pointer rounded-xl p-2.5 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-default",
+            fromGroupId && "rounded-md px-2 py-1.5",
           )}
         >
           <span className="flex items-center justify-between gap-2">

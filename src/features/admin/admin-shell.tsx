@@ -9,6 +9,8 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   UserPlus,
   UsersRound,
 } from "lucide-react";
@@ -59,9 +61,17 @@ export function AdminShell({
     ReturnType<typeof getStaffSession>
   > | null>(null);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const [navigationCollapsed, setNavigationCollapsed] = useState(false);
 
   useEffect(() => {
     setIsHydrated(true);
+    try {
+      setNavigationCollapsed(
+        window.localStorage.getItem("carve.navigationCollapsed") === "true",
+      );
+    } catch {
+      // Navigation remains usable when browser storage is unavailable.
+    }
     void getStaffSession().then(setSession);
   }, []);
 
@@ -72,6 +82,19 @@ export function AdminShell({
   async function signOut() {
     await authClient.signOut();
     window.location.assign("/sign-in");
+  }
+
+  function toggleNavigation() {
+    const collapsed = !navigationCollapsed;
+    setNavigationCollapsed(collapsed);
+    try {
+      window.localStorage.setItem(
+        "carve.navigationCollapsed",
+        String(collapsed),
+      );
+    } catch {
+      // Keep the current choice for this page when storage is unavailable.
+    }
   }
 
   return (
@@ -181,10 +204,36 @@ export function AdminShell({
         <nav
           aria-label="Admin navigation"
           className={cn(
-            "bg-background hidden h-fit shrink-0 rounded-xl border p-2 shadow-sm lg:sticky lg:top-5 lg:flex lg:w-44 lg:flex-col lg:gap-1",
-            workspace && "lg:static lg:w-14 lg:p-1.5",
+            "bg-background hidden h-fit shrink-0 rounded-xl border p-2 shadow-sm lg:sticky lg:top-5 lg:flex lg:flex-col lg:gap-1",
+            navigationCollapsed ? "lg:w-14 lg:p-1.5" : "lg:w-44",
           )}
         >
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={!isHydrated}
+            onClick={toggleNavigation}
+            aria-label={
+              navigationCollapsed ? "Expand navigation" : "Collapse navigation"
+            }
+            aria-expanded={!navigationCollapsed}
+            title={
+              navigationCollapsed ? "Expand navigation" : "Collapse navigation"
+            }
+            className={cn(
+              "mb-1 h-9 border-b text-xs",
+              navigationCollapsed
+                ? "justify-center px-0"
+                : "justify-start px-3",
+            )}
+          >
+            {navigationCollapsed ? (
+              <PanelLeftOpen aria-hidden />
+            ) : (
+              <PanelLeftClose aria-hidden />
+            )}
+            {!navigationCollapsed && <span>Collapse navigation</span>}
+          </Button>
           {navigation.map((item) => {
             const Icon =
               navigationIcons[item.to as keyof typeof navigationIcons];
@@ -192,22 +241,24 @@ export function AdminShell({
               <Link
                 key={item.to}
                 to={item.to}
-                title={workspace ? item.label : undefined}
-                aria-label={workspace ? item.label : undefined}
+                title={navigationCollapsed ? item.label : undefined}
+                aria-label={navigationCollapsed ? item.label : undefined}
                 activeOptions={{ exact: item.exact ?? false }}
                 className={cn(
                   "text-muted-foreground hover:bg-pm-mist hover:text-pm-forest flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors",
-                  workspace && "lg:justify-center lg:px-0",
+                  navigationCollapsed && "lg:justify-center lg:px-0",
                 )}
                 activeProps={{
                   className: cn(
                     "flex h-9 items-center gap-2 rounded-lg bg-pm-forest px-3 text-sm font-medium text-white",
-                    workspace && "lg:justify-center lg:px-0",
+                    navigationCollapsed && "lg:justify-center lg:px-0",
                   ),
                 }}
               >
                 <Icon aria-hidden />
-                <span className={workspace ? "lg:sr-only" : undefined}>
+                <span
+                  className={navigationCollapsed ? "lg:sr-only" : undefined}
+                >
                   {item.label}
                 </span>
               </Link>
