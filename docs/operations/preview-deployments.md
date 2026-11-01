@@ -20,6 +20,16 @@ because a different commit passed CI.
 
 ## Existing configuration
 
+Connect `carve-preview-postgres` to Preview only and `carve-snowsports-postgres`
+to Production only. The production resource previously also targeted Preview with
+"Create Database Branch For Deployment" enabled. Its deployment action injected
+a fresh production-derived branch into Preview builds, overriding the separate
+Preview connection even though the project-level Preview variables came from the
+correct store. GitHub migrated the shared Preview database while the application
+used an unmigrated branch. Removing Preview from the production resource's project
+connection fixes the override. Existing deployments retain their previous settings;
+redeploy a Preview after correcting the connection scopes.
+
 Keep `main` in the Preview environment's allowed deployment branches and add the
 branch rule `refs/pull/*/merge`. GitHub matches PR workflows against that merge ref,
 not the source branch name. Leave Production's main-only rule and approval gate
