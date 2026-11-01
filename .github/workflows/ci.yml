@@ -53,3 +53,10 @@ jobs:
       - run: bun run test:integration
       - run: bunx playwright install --with-deps chromium
       - run: bun run test:e2e
+
+  preview-schema:
+    needs: quality
+    if: >-
+      github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/preview-migrations.yml

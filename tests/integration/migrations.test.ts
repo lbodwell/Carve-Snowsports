@@ -11,7 +11,12 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 import migrationJournal from "../../src/db/migrations/meta/_journal.json";
+import {
+  readAppliedMigrations,
+  waitForMigrationHistory,
+} from "../../scripts/wait-preview-schema";
 import {
   MIGRATION_LOCK,
   runReleaseMigrations,
@@ -116,6 +121,41 @@ describe("database migrations", () => {
       pending: 0,
       total: migrationJournal.entries.length,
     });
+  });
+
+  test("Preview readiness reads the actual migrated schema and accepts older compatible previews", async () => {
+    const committed = readMigrationFiles({
+      migrationsFolder: resolve(process.cwd(), "src/db/migrations"),
+    });
+    const applied = await readAppliedMigrations(testSql);
+    expect(applied).toHaveLength(committed.length);
+    await expect(
+      waitForMigrationHistory({
+        committed,
+        readApplied: () => readAppliedMigrations(testSql),
+        timeoutMs: 0,
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      waitForMigrationHistory({
+        committed: committed.slice(0, -1),
+        readApplied: () => readAppliedMigrations(testSql),
+        timeoutMs: 0,
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      waitForMigrationHistory({
+        committed: [
+          ...committed,
+          {
+            hash: "not-applied",
+            folderMillis: committed.at(-1)!.folderMillis + 1,
+          },
+        ],
+        readApplied: () => readAppliedMigrations(testSql),
+        timeoutMs: 0,
+      }),
+    ).rejects.toThrow(/Preview schema is not ready/);
   });
 
   test("overlapping migration runners cannot enter the database together", async () => {

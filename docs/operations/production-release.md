@@ -54,8 +54,8 @@ Vercel reported no standalone deploy hooks during setup.
 ## GitHub environments and credentials
 
 Use the existing **Production** environment (GitHub environment names are case
-insensitive) and a separate **preview** environment. Restrict both to the branch
-`main`, with no tag rules. Production requires `lbodwell` to approve, disables
+insensitive) and a separate **preview** environment. Restrict Production to `main`.
+Preview allows `main` and `refs/pull/*/merge`, with no tag rules. Production requires `lbodwell` to approve, disables
 administrator bypass, and permits self-review for the current solo operator.
 These controls restrict release credentials; they do not protect the main branch
 from code changes by authorized repository writers.
@@ -72,7 +72,9 @@ The migration connection must use the matching database's direct endpoint.
 Keep `VERCEL_TOKEN` in the Production environment, not repository-level secrets:
 repository secrets would allow other eligible workflows to use it without that
 environment's approval gate. Preview does not need a Vercel token: the Git
-integration deploys Preview, and its manual migration job only connects to Neon.
+integration deploys Preview, and its migration job only connects to Neon. See
+[Preview deployments](preview-deployments.md) for the CI migration job and Vercel
+schema readiness check.
 
 | GitHub environment | Environment secrets                                     | Environment variables (not secret)               |
 | ------------------ | ------------------------------------------------------- | ------------------------------------------------ |
