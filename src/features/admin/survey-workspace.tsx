@@ -112,12 +112,12 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const needsReviewOnly = workspace.query.link === "unlinked";
+  const needsReviewOnly = workspace.query.link === "review";
   const setNeedsReviewOnly = (value: boolean) =>
     void navigate({
       to: "/admin/surveys",
       resetScroll: false,
-      search: { ...workspace.query, page: 1, link: value ? "unlinked" : "all" },
+      search: { ...workspace.query, page: 1, link: value ? "review" : "all" },
     });
 
   if (!survey) {
@@ -175,7 +175,7 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
   }
 
   return (
-    <div className="flex max-w-6xl flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-6">
       <header className="relative overflow-hidden rounded-3xl bg-[#244617] p-7 text-white shadow-lg shadow-[#244617]/10 sm:p-8">
         <span
           className="absolute inset-x-0 top-0 h-1.5 bg-[#d88a00]"
@@ -534,7 +534,7 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
                 <option value="all">All</option>
                 <option value="linked">Linked</option>
                 <option value="unlinked">Unlinked</option>
-                <option value="review">Enrichment review</option>
+                <option value="review">Needs review</option>
               </select>
             </label>
             <label>
@@ -595,13 +595,7 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
                 checked={needsReviewOnly}
                 onChange={(event) => setNeedsReviewOnly(event.target.checked)}
               />
-              Needs review only (
-              {
-                workspace.responses.filter(
-                  (response) => !response.confirmedStudentId,
-                ).length
-              }
-              )
+              Needs review only ({workspace.reviewTotal ?? 0})
             </label>
             <Button
               variant="outline"
@@ -618,15 +612,6 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
               Re-link and sync
             </Button>
           </div>
-          {needsReviewOnly &&
-            workspace.responses.length > 0 &&
-            workspace.responses.every(
-              (response) => response.confirmedStudentId,
-            ) && (
-              <p className="text-pm-green py-4 text-sm">
-                All responses are linked. Clear the filter to review them.
-              </p>
-            )}
           {workspace.responses.length === 0 ? (
             <p className="text-muted-foreground text-sm">
               No responses have been submitted.
@@ -636,7 +621,9 @@ export function SurveyWorkspace({ workspace }: { workspace: Workspace }) {
               {workspace.responses
                 .filter(
                   (response) =>
-                    !needsReviewOnly || !response.confirmedStudentId,
+                    !needsReviewOnly ||
+                    !response.confirmedStudentId ||
+                    response.enrichmentIssues.length > 0,
                 )
                 .map((response) => {
                   const answers = response.answers;

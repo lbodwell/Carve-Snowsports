@@ -52,12 +52,24 @@ export function SurveyResponseDetail({ responseId }: { responseId: string }) {
         programs={[]}
         students={data.students}
         busy={busy}
-        onConfirm={async (studentId, fillMissingBirthDate) => {
+        onConfirm={async (
+          studentId,
+          fillMissingBirthDate,
+          _programId,
+          acknowledgeConflicts,
+          reviewEvidenceKey,
+        ) => {
           setBusy(true);
           setMessage("");
           try {
             await confirmParentSurveyMatch({
-              data: { responseId, studentId, fillMissingBirthDate },
+              data: {
+                responseId,
+                studentId,
+                fillMissingBirthDate,
+                acknowledgeConflicts,
+                reviewEvidenceKey,
+              },
             });
             setAttempt((value) => value + 1);
             await router.invalidate();
@@ -73,6 +85,19 @@ export function SurveyResponseDetail({ responseId }: { responseId: string }) {
           }
         }}
       />
+      {data.registrationEvidence.map((registration) => (
+        <div key={registration.id} className="rounded border p-3 text-sm">
+          <strong>Roster registration</strong>
+          <p>
+            {registration.sourceSchedule || "Schedule not recorded"} ·{" "}
+            {registration.discipline} · {registration.level}
+          </p>
+          <p>
+            Survey: {data.answers.session} · {data.answers.discipline} ·{" "}
+            {data.answers.level}
+          </p>
+        </div>
+      ))}
       <dl className="grid gap-3 sm:grid-cols-2">
         <div>
           <dt className="font-medium">Comfortable lifts</dt>

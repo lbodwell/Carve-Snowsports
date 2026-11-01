@@ -1,27 +1,29 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import {
   ArrowRight,
   Check,
   GraduationCap,
   Plus,
+  Scissors,
   Settings2,
   Sparkles,
   Trash2,
   Undo2,
   UsersRound,
 } from "lucide-react";
+import {
+  StudentNotesContent,
+  StudentNotesPreview,
+} from "./student-notes-preview";
+import { useSessionSelection } from "./use-session-selection";
 import { GroupLifecyclePanel } from "./group-lifecycle-panel";
 import { GroupConfiguration } from "./grouping-editors";
 import type { GroupingView } from "@/domain/grouping/workspace-query";
 import type { getGroupingWorkspace } from "@/server/functions/grouping-draft";
+import { groupInstructorEligibility } from "@/domain/grouping/instructor-eligibility";
 import { Textarea } from "@/components/ui/textarea";
 import { displayTime } from "@/domain/calendar/display-time";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card";
 import { staffingGuidance } from "@/domain/grouping/staffing-ratio";
 import { descriptiveGroupLabel } from "@/domain/grouping/group-label";
 import { instructorAvailability } from "@/domain/grouping/instructor-preferences";
@@ -85,8 +87,10 @@ const findLabel = (
 export function PersistedGroupingBoard({
   workspace,
   initialFilters = {},
+  preferenceScope,
 }: {
   initialFilters?: GroupingView;
+  preferenceScope?: string;
   workspace: Workspace;
 }) {
   const router = useRouter();
@@ -94,25 +98,19 @@ export function PersistedGroupingBoard({
   const [extraFilters, setExtraFilters] = useState(initialFilters);
   const activeDays = [
     ...new Set([
-      4,
-      5,
-      6,
-      0,
       ...workspace.timeSlots.flatMap((slot) => slot.allowedWeekdays),
     ]),
   ];
-  const [weekday, setWeekday] = useState(
-    initialFilters.weekday ??
-      workspace.groups[0]?.weekday ??
-      workspace.timeSlots.flatMap((slot) => slot.allowedWeekdays).sort()[0] ??
-      6,
-  );
-  const [timeSlotId, setTimeSlotId] = useState(
-    initialFilters.timeSlotId ??
-      workspace.groups[0]?.timeSlotId ??
-      workspace.timeSlots.find((slot) => slot.allowedWeekdays.includes(weekday))
-        ?.id ??
-      "",
+  const { weekday, timeSlotId, selectSession } = useSessionSelection(
+    workspace.timeSlots,
+    initialFilters,
+    preferenceScope
+      ? "carve:grouping:" + preferenceScope + ":" + workspace.program.id
+      : null,
+    {
+      weekday: workspace.groups[0]?.weekday,
+      timeSlotId: workspace.groups[0]?.timeSlotId,
+    },
   );
   const [query, setQuery] = useState("");
   const [discipline, setDiscipline] = useState(
@@ -142,6 +140,7 @@ export function PersistedGroupingBoard({
     groupId: string;
   } | null>(null);
   const [newGroup, setNewGroup] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [newDetails, setNewDetails] = useState({
     disciplineId: "",
     ageBandId: "any",
@@ -154,6 +153,16 @@ export function PersistedGroupingBoard({
   } | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [splitSelection, setSplitSelection] = useState<Array<string>>([]);
+  const [splitModeGroupId, setSplitModeGroupId] = useState<string | null>(null);
+  const [activeNotesKey, setActiveNotesKey] = useState<string | null>(null);
+  const [notesStudent, setNotesStudent] = useState<Student | null>(null);
+  const notesTriggerRef = useRef<HTMLButtonElement | null>(null);
+  function clearStudentSelection() {
+    setSplitSelection([]);
+    setSelected(null);
+    setSplitModeGroupId(null);
+    setActiveNotesKey(null);
+  }
   const [rebuildScope, setRebuildScope] = useState<"session" | "program">(
     "session",
   );
@@ -258,10 +267,6 @@ export function PersistedGroupingBoard({
     });
   };
   const instructorCandidates = (group: Workspace["groups"][number]) => {
-    const slot = workspace.timeSlots.find(
-      (item) => item.id === group.timeSlotId,
-    );
-    if (!slot) return [];
     const band = workspace.ageBands.find((item) => item.id === group.ageBandId);
     const level = workspace.abilityLevels.find(
       (item) => item.id === group.abilityLevelId,
@@ -269,36 +274,66 @@ export function PersistedGroupingBoard({
     return workspace.instructors
       .map((instructor) => ({
         instructor,
-        ...instructorAvailability(
-          instructor.preferences,
-          { ...slot, programId: workspace.program.id, weekday: group.weekday },
+        ...groupInstructorEligibility(
+          instructor,
+          group,
+          workspace.groups,
+          workspace.timeSlots,
+          workspace.program.id,
           band,
           level?.numericRank,
         ),
       }))
-      .filter(
-        (item) =>
-          item.eligible &&
-          item.instructor.disciplineIds.includes(group.disciplineId ?? "") &&
-          !workspace.groups.some(
-            (other) =>
-              other.id !== group.id &&
-              other.weekday === group.weekday &&
-              other.instructorIds.includes(item.instructor.id) &&
-              sessionsOverlap(
-                slot,
-                workspace.timeSlots.find(
-                  (candidate) => candidate.id === other.timeSlotId,
-                )!,
-                group.weekday,
-              ),
-          ),
-      )
+      .filter((item) => item.eligible)
       .sort(
         (a, b) =>
           b.score - a.score ||
           a.instructor.lastName.localeCompare(b.instructor.lastName),
       );
+  };
+  const addInstructor = (
+    group: Workspace["groups"][number],
+    instructorId: string,
+  ) => {
+    if (
+      !draft ||
+      !editable ||
+      busy ||
+      group.instructorIds.includes(instructorId)
+    )
+      return;
+    const instructor = workspace.instructors.find(
+      (item) => item.id === instructorId,
+    );
+    const eligibility =
+      instructor &&
+      groupInstructorEligibility(
+        instructor,
+        group,
+        workspace.groups,
+        workspace.timeSlots,
+        workspace.program.id,
+      );
+    if (!eligibility?.eligible) {
+      setError(
+        eligibility?.reason ?? "Instructor unavailable in this workspace.",
+      );
+      return;
+    }
+    void mutate(
+      () =>
+        assignDraftInstructor({
+          data: {
+            draftId: draft.id,
+            baseVersion: draft.version,
+            commandId: crypto.randomUUID(),
+            groupId: group.id,
+            instructorIds: [...group.instructorIds, instructorId],
+            leadInstructorId: group.leadInstructorId ?? instructorId,
+          },
+        }),
+      "Instructor added to the teaching team.",
+    );
   };
   const assignLead = (
     group: Workspace["groups"][number],
@@ -430,153 +465,216 @@ export function PersistedGroupingBoard({
     const active = splitSelection.includes(student.registrationId);
     const placedElsewhere =
       !fromGroupId && assignedIds.has(student.registrationId);
+    const notesKey = (fromGroupId ?? "pool") + ":" + student.registrationId;
+    const selectingSplit = Boolean(
+      fromGroupId && splitModeGroupId === fromGroupId,
+    );
     return (
-      <button
+      <div
         key={student.registrationId}
-        draggable={editable && !busy}
-        onDragStart={(event) => {
-          setSplitSelection([student.registrationId]);
-          setSelected({
-            registrationId: student.registrationId,
-            fromGroupId: placementGroupId,
-          });
-          event.dataTransfer.setData(
-            "application/carve-student",
-            JSON.stringify({
-              registrationId: student.registrationId,
-              fromGroupId: placementGroupId ?? null,
-            }),
-          );
-        }}
-        type="button"
-        disabled={busy}
-        aria-pressed={active}
-        onClick={() => {
-          setApplyToMatching(false);
-          const sameGroup = selected?.fromGroupId === placementGroupId;
-          const next = active
-            ? splitSelection.filter((id) => id !== student.registrationId)
-            : sameGroup && placementGroupId
-              ? [...splitSelection, student.registrationId]
-              : [student.registrationId];
-          setSplitSelection(next);
-          const focus = next.at(-1);
-          setSelected(
-            focus
-              ? { registrationId: focus, fromGroupId: placementGroupId }
-              : null,
-          );
-        }}
-        className={cn(
-          "hover:border-pm-green focus-visible:outline-pm-green w-full cursor-pointer rounded-xl border bg-white p-3 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-default",
-          active && "border-pm-green bg-pm-mist ring-pm-green/20 ring-2",
-        )}
+        className="w-full"
+        onPointerEnter={() =>
+          setActiveNotesKey((current) =>
+            current === notesKey ? current : null,
+          )
+        }
       >
-        <span className="flex items-center justify-between gap-2">
-          <span className="text-sm font-semibold">
-            {student.firstName} {student.lastName}
+        <button
+          draggable={editable && !busy}
+          onDragStart={(event) => {
+            setActiveNotesKey(null);
+            setSplitModeGroupId(null);
+            setSplitSelection([student.registrationId]);
+            setSelected({
+              registrationId: student.registrationId,
+              fromGroupId: placementGroupId,
+            });
+            event.dataTransfer.setData(
+              "application/carve-student",
+              JSON.stringify({
+                registrationId: student.registrationId,
+                fromGroupId: placementGroupId ?? null,
+              }),
+            );
+          }}
+          type="button"
+          disabled={busy}
+          role={selectingSplit ? "checkbox" : undefined}
+          aria-checked={selectingSplit ? active : undefined}
+          aria-pressed={selectingSplit ? undefined : active}
+          onClick={() => {
+            setApplyToMatching(false);
+            if (splitModeGroupId && splitModeGroupId !== placementGroupId)
+              setSplitModeGroupId(null);
+            const sameGroup = selected?.fromGroupId === placementGroupId;
+            const next = active
+              ? splitSelection.filter((id) => id !== student.registrationId)
+              : sameGroup && placementGroupId
+                ? [...splitSelection, student.registrationId]
+                : [student.registrationId];
+            setSplitSelection(next);
+            const focus = next.at(-1);
+            setSelected(
+              focus
+                ? { registrationId: focus, fromGroupId: placementGroupId }
+                : null,
+            );
+          }}
+          className={cn(
+            "hover:border-pm-green focus-visible:outline-pm-green w-full cursor-pointer rounded-xl border bg-white p-2.5 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-default",
+            fromGroupId &&
+              "hover:bg-pm-mist/50 rounded-md border-transparent bg-transparent px-2 py-1.5",
+            active && "border-pm-green bg-pm-mist ring-pm-green/20 ring-2",
+          )}
+        >
+          <span className="flex items-center justify-between gap-2">
+            {selectingSplit && (
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "flex size-4 shrink-0 items-center justify-center rounded border",
+                  active
+                    ? "border-pm-green bg-pm-green text-white"
+                    : "border-stone-400",
+                )}
+              >
+                {active && <Check className="size-3" />}
+              </span>
+            )}
+            <span className="flex-1 text-sm font-semibold">
+              {student.firstName} {student.lastName}
+            </span>
+            {active && !selectingSplit && (
+              <Check className="text-pm-green size-4" />
+            )}
           </span>
-          {active && <Check className="text-pm-green size-4" />}
-        </span>
-        <span className="text-muted-foreground mt-1 block text-xs">
+          <span className="text-muted-foreground mt-1 block text-xs">
+            {!fromGroupId &&
+              `${findLabel(workspace.disciplines, student.disciplineId) ?? "Discipline needed"} · `}
+            {findLabel(workspace.abilityLevels, student.abilityLevelId) ??
+              "Level needed"}{" "}
+            ·{" "}
+            {student.dateOfBirth
+              ? `Age ${computeAgeOnDate(student.dateOfBirth, workspace.program.seasonStartsOn)}`
+              : "Birthdate needed"}
+          </span>
+          {student.survey?.hasSupportReview && (
+            <span className="mt-1 block text-xs text-amber-800">
+              Support information to review
+            </span>
+          )}
+          {student.needsSchedule && (
+            <span className="mt-1 block text-xs text-amber-800">
+              Confirm session · {student.sourceScheduleLabel}
+            </span>
+          )}
+          {student.registrationStatus !== "active" && (
+            <span className="mt-1 block text-xs font-medium text-amber-800">
+              Registration {student.registrationStatus} · remove this placement
+            </span>
+          )}
           {!fromGroupId &&
-            `${findLabel(workspace.disciplines, student.disciplineId) ?? "Discipline needed"} · `}
-          {findLabel(workspace.abilityLevels, student.abilityLevelId) ??
-            "Level needed"}{" "}
-          ·{" "}
-          {student.dateOfBirth
-            ? `Age ${computeAgeOnDate(student.dateOfBirth, workspace.program.seasonStartsOn)}`
-            : "Birthdate needed"}
-        </span>
+            !assignedIds.has(student.registrationId) &&
+            workspace.unplacedReasons[student.registrationId] && (
+              <span className="text-muted-foreground mt-1 block text-xs">
+                {workspace.unplacedReasons[student.registrationId]}
+              </span>
+            )}
+          {placedElsewhere && (
+            <span className="text-pm-green mt-1 block text-xs">
+              Placed · select to view notes or move
+            </span>
+          )}
+        </button>
         {(student.placementNotes ||
           student.survey?.placementNotes ||
           student.medicalNotes) && (
-          <HoverCard openDelay={150}>
-            <HoverCardTrigger asChild>
-              <span
-                tabIndex={0}
-                className="mt-2 block cursor-help rounded-lg border border-amber-200/60 bg-amber-50 p-2 text-xs text-amber-950"
-              >
-                {(student.placementNotes || student.survey?.placementNotes) && (
-                  <span className="line-clamp-2">
-                    <strong>Placement · </strong>
-                    {student.placementNotes || student.survey?.placementNotes}
-                  </span>
-                )}
-                {student.medicalNotes && (
-                  <span className="mt-1 line-clamp-2">
-                    <strong>Medical · </strong>
-                    {student.medicalNotes}
-                  </span>
-                )}
-                <span className="mt-1 block text-[10px] text-amber-800">
-                  Hover or focus for all notes
-                </span>
-              </span>
-            </HoverCardTrigger>
-            <HoverCardContent>
-              <p className="mb-3 font-semibold">
-                {student.firstName} {student.lastName} · Student notes
-              </p>
-              {student.placementNotes && (
-                <div className="mb-3">
-                  <strong className="text-xs">Placement</strong>
-                  <p className="whitespace-pre-wrap">
-                    {student.placementNotes}
-                  </p>
-                </div>
-              )}
-              {student.survey?.placementNotes && (
-                <div className="mb-3">
-                  <strong className="text-xs">Survey guidance</strong>
-                  <p className="whitespace-pre-wrap">
-                    {student.survey.placementNotes}
-                  </p>
-                </div>
-              )}
-              {student.medicalNotes && (
-                <div>
-                  <strong className="text-xs">Medical & support</strong>
-                  <p className="whitespace-pre-wrap">{student.medicalNotes}</p>
-                </div>
-              )}
-            </HoverCardContent>
-          </HoverCard>
+          <StudentNotesPreview
+            student={student}
+            compact={Boolean(fromGroupId)}
+            disabled={busy}
+            open={activeNotesKey === notesKey}
+            onOpenChange={(open) =>
+              setActiveNotesKey((current) =>
+                open ? notesKey : current === notesKey ? null : current,
+              )
+            }
+            onRead={(event) => {
+              notesTriggerRef.current = event.currentTarget;
+              setActiveNotesKey(null);
+              setNotesStudent(student);
+            }}
+          />
         )}
-        {student.survey?.hasSupportReview && (
-          <span className="mt-1 block text-xs text-amber-800">
-            Support information to review
-          </span>
-        )}
-        {student.needsSchedule && (
-          <span className="mt-1 block text-xs text-amber-800">
-            Confirm session · {student.sourceScheduleLabel}
-          </span>
-        )}
-        {student.registrationStatus !== "active" && (
-          <span className="mt-1 block text-xs font-medium text-amber-800">
-            Registration {student.registrationStatus} · remove this placement
-          </span>
-        )}
-        {!fromGroupId &&
-          !assignedIds.has(student.registrationId) &&
-          workspace.unplacedReasons[student.registrationId] && (
-            <span className="text-muted-foreground mt-1 block text-xs">
-              {workspace.unplacedReasons[student.registrationId]}
-            </span>
-          )}
-        {placedElsewhere && (
-          <span className="text-pm-green mt-1 block text-xs">
-            Placed · select to view notes or move
-          </span>
-        )}
-      </button>
+      </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      {Object.keys(extraFilters).some((key) => key !== "programId") && (
+    <div className="flex min-h-0 flex-col gap-3 xl:h-full">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Build lesson groups
+          </h1>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            Drag students and instructors into groups. Changes save as you go.
+          </p>
+        </div>
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <label className="min-w-0 text-xs font-medium">
+            <span className="sr-only">Season and program</span>
+            <select
+              aria-label="Season and program"
+              className="h-9 max-w-80 rounded-lg border bg-white px-3 text-sm"
+              value={workspace.program.id}
+              disabled={busy}
+              onChange={(event) =>
+                void navigate({
+                  to: "/grouping",
+                  resetScroll: false,
+                  search: { programId: event.target.value },
+                })
+              }
+            >
+              {workspace.availablePrograms.map((program) => (
+                <option key={program.id} value={program.id}>
+                  {program.seasonName} · {program.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {draft && (
+            <span className="bg-pm-mist text-pm-forest border-pm-green/15 rounded-full border px-2.5 py-1 text-xs font-semibold">
+              {draft.status === "editing"
+                ? "Draft"
+                : draft.status === "submitted"
+                  ? "Awaiting approval"
+                  : draft.status === "published"
+                    ? "Published"
+                    : "Approved"}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setToolsOpen(true)}
+          >
+            <Settings2 />
+            Workspace tools
+          </Button>
+        </div>
+      </header>
+
+      {Boolean(
+        extraFilters.allSessions ||
+        extraFilters.disciplineId ||
+        extraFilters.ageBandId ||
+        extraFilters.levelId ||
+        extraFilters.groupSize !== undefined ||
+        extraFilters.staffing ||
+        extraFilters.view,
+      ) && (
         <div className="flex items-center gap-3 rounded border p-3 text-sm">
           Dashboard filters applied
           <Button
@@ -587,7 +685,12 @@ export function PersistedGroupingBoard({
               setRosterView("unplaced");
               void navigate({
                 to: "/grouping",
-                search: { programId: workspace.program.id },
+                resetScroll: false,
+                search: {
+                  programId: workspace.program.id,
+                  weekday,
+                  timeSlotId,
+                },
               });
             }}
           >
@@ -604,194 +707,6 @@ export function PersistedGroupingBoard({
           before creating groups.
         </p>
       )}
-      {draft?.finalizedSnapshot && (
-        <GroupLifecyclePanel workspace={workspace} />
-      )}
-      {editable && (
-        <section
-          className="space-y-3 rounded-xl border bg-white p-4"
-          aria-label="Re-group all"
-        >
-          <div className="flex flex-wrap items-center gap-3">
-            <strong>Re-group all</strong>
-            <select
-              aria-label="Rebuild scope"
-              value={rebuildScope}
-              onChange={(e) => {
-                setRebuildScope(e.target.value as "session" | "program");
-                setRebuildPreview(null);
-              }}
-            >
-              <option value="session">Visible day/time</option>
-              <option value="program">Whole program</option>
-            </select>
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                mutate(async () => {
-                  setRebuildPreview(
-                    await rebuildDraft({
-                      data: {
-                        draftId: draft.id,
-                        baseVersion: draft.version,
-                        commandId: crypto.randomUUID(),
-                        weekday,
-                        timeSlotId,
-                        scope: rebuildScope,
-                      },
-                    }),
-                  );
-                }, "Rebuild preview ready. No placements changed.")
-              }
-            >
-              Preview rebuild
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={busy || !workspace.capabilities.canUndoRebuild}
-              onClick={() =>
-                mutate(
-                  () =>
-                    undoDraftRebuild({
-                      data: {
-                        draftId: draft.id,
-                        baseVersion: draft.version,
-                        commandId: crypto.randomUUID(),
-                      },
-                    }),
-                  "Previous layout restored.",
-                )
-              }
-            >
-              Undo rebuild
-            </Button>
-          </div>
-          {rebuildPreview && (
-            <div role="status">
-              <p>
-                {rebuildPreview.oldGroups} existing groups →{" "}
-                {rebuildPreview.newGroups} new groups; {rebuildPreview.students}{" "}
-                registrations; {rebuildPreview.unresolved} unresolved;{" "}
-                {rebuildPreview.clearedInstructors} instructor assignments
-                cleared. Previous layout and group notes remain in history.
-              </p>
-              <Button
-                disabled={busy}
-                onClick={() =>
-                  mutate(async () => {
-                    await rebuildDraft({
-                      data: {
-                        draftId: draft.id,
-                        baseVersion: rebuildPreview.version,
-                        commandId: crypto.randomUUID(),
-                        weekday,
-                        timeSlotId,
-                        scope: rebuildScope,
-                        previewHash: rebuildPreview.previewHash,
-                      },
-                    });
-                    setRebuildPreview(null);
-                  }, "Groups rebuilt without instructor assignments.")
-                }
-              >
-                Replace scoped draft groups
-              </Button>
-              <Button variant="ghost" onClick={() => setRebuildPreview(null)}>
-                Cancel
-              </Button>
-            </div>
-          )}
-        </section>
-      )}
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-pm-green text-sm font-medium">
-            {workspace.program.seasonName}
-          </p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight">
-            Build lesson groups
-          </h1>
-          <p className="text-muted-foreground mt-2 text-sm">
-            Start with suggested groups. Select a student, then choose their
-            group.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" asChild>
-            <Link to="/admin/imports">Import registrations</Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link
-              to="/admin/surveys"
-              search={{
-                sort: "newest",
-                q: "",
-                page: 1,
-                pageSize: 25,
-                link: "all",
-                session: "",
-                discipline: "",
-                level: "",
-                from: "",
-                until: "",
-              }}
-            >
-              Review surveys
-            </Link>
-          </Button>
-        </div>
-      </header>
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-white p-3">
-        <label className="min-w-56 flex-1 text-xs font-medium">
-          Season & program
-          <select
-            aria-label="Season and program"
-            className="mt-1 block w-full rounded-md border bg-white p-2 text-sm"
-            value={workspace.program.id}
-            disabled={busy}
-            onChange={(event) =>
-              void navigate({
-                to: "/grouping",
-                search: { programId: event.target.value },
-              })
-            }
-          >
-            {workspace.availablePrograms.map((program) => (
-              <option key={program.id} value={program.id}>
-                {program.seasonName} · {program.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="flex gap-6 px-3 text-sm">
-          <span>
-            <strong className="block text-xl">{workspace.roster.length}</strong>
-            students
-          </span>
-          <span>
-            <strong className="block text-xl text-amber-800">
-              {unplaced.length}
-            </strong>
-            need placement
-          </span>
-          <span>
-            <strong className="block text-xl">{workspace.groups.length}</strong>
-            groups
-          </span>
-        </div>
-        {draft && (
-          <span className="bg-pm-mist rounded-full px-3 py-1 text-xs font-medium">
-            {draft.status === "editing"
-              ? "Draft"
-              : draft.status === "submitted"
-                ? "Awaiting approval"
-                : draft.status === "published"
-                  ? "Published"
-                  : "Approved"}
-          </span>
-        )}
-      </div>
       {error && (
         <div
           role="alert"
@@ -813,19 +728,13 @@ export function PersistedGroupingBoard({
           </Button>
         </div>
       )}
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="flex shrink-0 flex-wrap items-end gap-3 rounded-xl border bg-white px-3 py-2.5">
         <Picker
           label="Day"
           value={String(weekday)}
           onChange={(value) => {
-            setWeekday(Number(value));
-            setTimeSlotId(
-              workspace.timeSlots.find((slot) =>
-                slot.allowedWeekdays.includes(Number(value)),
-              )?.id ?? "",
-            );
-            setSplitSelection([]);
-            setSelected(null);
+            selectSession({ weekday: Number(value) });
+            clearStudentSelection();
           }}
           items={weekdays
             .map((day, index) => ({
@@ -838,8 +747,8 @@ export function PersistedGroupingBoard({
           label="Time"
           value={timeSlotId}
           onChange={(value) => {
-            setTimeSlotId(value);
-            setSelected(null);
+            selectSession({ weekday, timeSlotId: value });
+            clearStudentSelection();
           }}
           items={workspace.timeSlots
             .filter((slot) => slot.allowedWeekdays.includes(weekday))
@@ -899,39 +808,7 @@ export function PersistedGroupingBoard({
             Suggest remaining placements
           </Button>
         )}
-        <p role="status" className="text-muted-foreground ml-auto pb-2 text-xs">
-          {busy ? "Saving…" : notice}
-        </p>
       </div>
-      {(() => {
-        const slot = workspace.timeSlots.find((item) => item.id === timeSlotId);
-        return slot ? (
-          <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
-            <span>
-              {slot.cohort === "session-1"
-                ? "Session 1 · "
-                : slot.cohort === "session-2"
-                  ? "Session 2 · "
-                  : ""}
-              {slot.startsOn && slot.endsOn
-                ? `${slot.startsOn} to ${slot.endsOn}`
-                : slot.cohort && slot.cohort !== "season"
-                  ? "Dates pending — groups can be built now"
-                  : "Session follows the season calendar"}
-              {slot.excludedDates.length
-                ? ` · ${slot.excludedDates.length} no-lesson dates`
-                : ""}
-            </span>
-            <Link
-              to="/admin/programs/$programId"
-              params={{ programId: workspace.program.id }}
-              className="underline"
-            >
-              Edit session calendar
-            </Link>
-          </div>
-        ) : null;
-      })()}
       {!draft && (
         <Card className="border-pm-green/20">
           <CardHeader>
@@ -990,130 +867,190 @@ export function PersistedGroupingBoard({
           </CardContent>
         </Card>
       )}
-      <div className="grid items-start gap-5 lg:grid-cols-[minmax(20rem,1fr)_minmax(0,2fr)]">
-        <aside className="flex min-w-0 flex-col gap-4">
-          {selectedStudent && (
-            <div className="border-pm-green/30 bg-pm-mist max-h-[26rem] overflow-y-auto rounded-xl border p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm">
-                  <strong>
-                    {selectedStudent.firstName} {selectedStudent.lastName}
-                  </strong>{" "}
-                  · Choose a destination group.
+      <div
+        onScrollCapture={() => setActiveNotesKey(null)}
+        className="grouping-workbench grid min-h-0 gap-3 lg:grid-cols-[15rem_minmax(0,1fr)] xl:flex-1 xl:grid-cols-[15rem_minmax(0,1fr)_15rem] xl:overflow-hidden 2xl:grid-cols-[17rem_minmax(0,1fr)_17rem]"
+      >
+        <aside className="flex min-h-0 min-w-0 flex-col gap-3 xl:h-full xl:overflow-y-auto xl:overscroll-contain">
+          {workspace.roster.some(
+            (student) =>
+              student.registrationStatus === "active" && !student.schedule,
+          ) && (
+            <details
+              className="shrink-0 rounded-xl border bg-amber-50/60 p-3"
+              aria-label="Schedule review"
+            >
+              <summary className="cursor-pointer text-xs font-semibold text-amber-900">
+                Schedule review ·{" "}
+                {
+                  workspace.roster.filter(
+                    (student) =>
+                      student.registrationStatus === "active" &&
+                      !student.schedule,
+                  ).length
+                }
+              </summary>
+              <div className="mt-2 max-h-52 overflow-y-auto">
+                <p className="text-muted-foreground text-xs">
+                  These registrations need a confirmed day and time before
+                  placement. Select a student to review their imported schedule.
                 </p>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => {
-                    setSelected(null);
-                    setSplitSelection([]);
-                  }}
-                >
-                  Clear selection
-                </Button>
-              </div>
-              <h3 className="mt-3 text-xs font-semibold tracking-wide uppercase">
-                Placement notes
-              </h3>
-              <p className="mt-1 text-sm whitespace-pre-wrap">
-                {selectedStudent.placementNotes || "No placement notes."}
-              </p>
-              {selectedStudent.survey?.placementNotes && (
-                <p className="text-sm whitespace-pre-wrap">
-                  Survey: {selectedStudent.survey.placementNotes}
-                </p>
-              )}
-              {selectedStudent.medicalNotes && (
-                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                  <h3 className="text-xs font-semibold">Medical & support</h3>
-                  <p className="text-sm whitespace-pre-wrap">
-                    {selectedStudent.medicalNotes}
-                  </p>
-                </div>
-              )}
-              {splitSelection.length > 1 && (
-                <p className="mt-3 text-sm font-medium">
-                  {splitSelection.length} students selected for splitting.
-                  Select one student to move between groups.
-                </p>
-              )}
-              {selectedStudent.needsSchedule && (
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-                  <span>
-                    Imported session: {selectedStudent.sourceScheduleLabel}.
-                    Confirm as {weekdays[weekday]} ·{" "}
-                    {findLabel(workspace.timeSlots, timeSlotId)}?
-                  </span>
-                  <Button
-                    size="sm"
-                    disabled={
-                      busy || !workspace.capabilities.canEdit || !timeSlotId
-                    }
-                    onClick={() =>
-                      void mutate(
-                        () =>
-                          saveRegistrationSchedule({
-                            data: {
-                              registrationId: selectedStudent.registrationId,
-                              weekday,
-                              timeSlotId,
-                              applyToMatching,
-                            },
-                          }),
-                        "Lesson session confirmed.",
-                      )
-                    }
-                  >
-                    {applyToMatching
-                      ? "Confirm matching sessions"
-                      : "Confirm this session"}
-                  </Button>
-                  <label className="flex items-center gap-2 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={applyToMatching}
-                      onChange={(event) =>
-                        setApplyToMatching(event.target.checked)
+                {workspace.roster
+                  .filter(
+                    (student) =>
+                      student.registrationStatus === "active" &&
+                      !student.schedule,
+                  )
+                  .map((student) => (
+                    <Button
+                      key={student.registrationId}
+                      variant="outline"
+                      className="mt-2 w-full justify-start"
+                      onClick={() =>
+                        setSelected({ registrationId: student.registrationId })
                       }
-                    />
-                    Apply to all unplaced students with the same imported
-                    session (
-                    {
-                      workspace.roster.filter(
-                        (student) =>
-                          student.needsSchedule &&
-                          student.sourceScheduleLabel ===
-                            selectedStudent.sourceScheduleLabel,
-                      ).length
-                    }
-                    )
-                  </label>
-                </div>
-              )}
-              {editable &&
-                splitSelection.length === 1 &&
-                selected?.fromGroupId && (
+                    >
+                      {student.firstName} {student.lastName} ·{" "}
+                      {student.sourceScheduleLabel ?? "Schedule not recorded"}
+                    </Button>
+                  ))}
+              </div>
+            </details>
+          )}
+          {selectedStudent && (
+            <details
+              open={selectedStudent.needsSchedule ? true : undefined}
+              className="border-pm-green/30 bg-pm-mist shrink-0 rounded-xl border p-3"
+            >
+              <summary className="cursor-pointer text-xs font-semibold">
+                {selectedStudent.firstName} {selectedStudent.lastName} · Notes &
+                session
+              </summary>
+              <div className="mt-2 max-h-60 overflow-y-auto">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm">
+                    <strong>
+                      {selectedStudent.firstName} {selectedStudent.lastName}
+                    </strong>{" "}
+                    · Choose a destination group.
+                  </p>
                   <Button
-                    className="mt-2"
-                    size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => void place(null)}
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => {
+                      setSelected(null);
+                      setSplitSelection([]);
+                    }}
                   >
-                    Return to needs placement
+                    Clear selection
                   </Button>
+                </div>
+                <h3 className="mt-3 text-xs font-semibold tracking-wide uppercase">
+                  Placement notes
+                </h3>
+                <p className="mt-1 text-sm whitespace-pre-wrap">
+                  {selectedStudent.placementNotes || "No placement notes."}
+                </p>
+                {selectedStudent.survey?.placementNotes && (
+                  <p className="text-sm whitespace-pre-wrap">
+                    Survey: {selectedStudent.survey.placementNotes}
+                  </p>
                 )}
-            </div>
+                {selectedStudent.medicalNotes && (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <h3 className="text-xs font-semibold">Medical & support</h3>
+                    <p className="text-sm whitespace-pre-wrap">
+                      {selectedStudent.medicalNotes}
+                    </p>
+                  </div>
+                )}
+                {splitSelection.length > 1 && (
+                  <p className="mt-3 text-sm font-medium">
+                    {splitSelection.length} students selected for splitting.
+                    Select one student to move between groups.
+                  </p>
+                )}
+                {selectedStudent.needsSchedule && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                    <span>
+                      Imported session: {selectedStudent.sourceScheduleLabel}.
+                      Confirm as {weekdays[weekday]} ·{" "}
+                      {findLabel(workspace.timeSlots, timeSlotId)}?
+                    </span>
+                    <Button
+                      size="sm"
+                      disabled={
+                        busy || !workspace.capabilities.canEdit || !timeSlotId
+                      }
+                      onClick={() =>
+                        void mutate(
+                          () =>
+                            saveRegistrationSchedule({
+                              data: {
+                                registrationId: selectedStudent.registrationId,
+                                weekday,
+                                timeSlotId,
+                                applyToMatching,
+                              },
+                            }),
+                          "Lesson session confirmed.",
+                        )
+                      }
+                    >
+                      {applyToMatching
+                        ? "Confirm matching sessions"
+                        : "Confirm this session"}
+                    </Button>
+                    <label className="flex items-center gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={applyToMatching}
+                        onChange={(event) =>
+                          setApplyToMatching(event.target.checked)
+                        }
+                      />
+                      Apply to all unplaced students with the same imported
+                      session (
+                      {
+                        workspace.roster.filter(
+                          (student) =>
+                            student.needsSchedule &&
+                            student.sourceScheduleLabel ===
+                              selectedStudent.sourceScheduleLabel,
+                        ).length
+                      }
+                      )
+                    </label>
+                  </div>
+                )}
+                {editable &&
+                  splitSelection.length === 1 &&
+                  selected?.fromGroupId && (
+                    <Button
+                      className="mt-2"
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => void place(null)}
+                    >
+                      Return to needs placement
+                    </Button>
+                  )}
+              </div>
+            </details>
           )}
 
           <section
-            className="flex h-[min(65vh,42rem)] min-h-80 flex-col overflow-hidden rounded-xl border bg-white"
+            className="flex h-[min(65vh,42rem)] min-h-80 flex-col overflow-hidden rounded-xl border bg-white xl:h-auto xl:min-h-64 xl:flex-1"
             aria-label="Student pool"
           >
-            <div className="border-b p-4">
+            <div className="shrink-0 border-b p-3">
               <h2 className="flex items-center gap-2 font-semibold">
                 <UsersRound className="size-4" />
-                Students
+                Students{" "}
+                <span className="text-muted-foreground ml-auto text-xs font-normal">
+                  {roster.length} shown
+                </span>
               </h2>
               <p className="text-muted-foreground mt-1 text-xs">
                 Students registered for this day and session.
@@ -1165,40 +1102,9 @@ export function PersistedGroupingBoard({
               to edit student details.
             </div>
           </section>
-          <InstructorOverview
-            onRemove={(groupId, instructorId) => {
-              const group = workspace.groups.find(
-                (item) => item.id === groupId,
-              );
-              if (!group || !draft || !editable) return;
-              void mutate(
-                () =>
-                  assignDraftInstructor({
-                    data: {
-                      draftId: draft.id,
-                      baseVersion: draft.version,
-                      commandId: crypto.randomUUID(),
-                      groupId,
-                      instructorIds: group.instructorIds.filter(
-                        (id) => id !== instructorId,
-                      ),
-                      leadInstructorId:
-                        group.leadInstructorId === instructorId
-                          ? null
-                          : group.leadInstructorId,
-                    },
-                  }),
-                "Instructor removed from group.",
-              );
-            }}
-            groupName={groupName}
-            workspace={workspace}
-            weekday={weekday}
-            timeSlotId={timeSlotId}
-          />
         </aside>
         <section
-          className="flex min-w-0 flex-col gap-4"
+          className="flex min-h-0 min-w-0 flex-col gap-3 xl:h-full xl:overflow-hidden"
           aria-label="Lesson groups"
         >
           <div className="flex items-center justify-between">
@@ -1210,11 +1116,16 @@ export function PersistedGroupingBoard({
               {groups.length} groups in view
             </span>
           </div>
-          <div className="space-y-4">
+          <div
+            role="region"
+            aria-label="Group board"
+            tabIndex={0}
+            className="grid min-h-0 auto-rows-max grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] content-start items-start gap-3 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain xl:pr-1"
+          >
             {lanes.map((lane) => (
               <section
                 key={lane.key}
-                className="overflow-hidden rounded-xl border bg-white"
+                className="contents"
                 aria-label={[
                   findLabel(
                     workspace.disciplines,
@@ -1225,7 +1136,7 @@ export function PersistedGroupingBoard({
                   .filter(Boolean)
                   .join(" · ")}
               >
-                <header className="bg-pm-mist/60 flex items-center justify-between gap-3 border-b px-4 py-3">
+                <header className="sr-only">
                   <h3 className="font-semibold">
                     {[
                       findLabel(
@@ -1238,14 +1149,10 @@ export function PersistedGroupingBoard({
                       .join(" · ")}
                   </h3>
                   <span className="text-muted-foreground text-xs">
-                    {lane.groups.length} groups · scroll to browse
+                    {lane.groups.length} groups
                   </span>
                 </header>
-                <div
-                  className="grid max-h-[38rem] auto-rows-max grid-cols-1 content-start items-start gap-3 overflow-y-auto overscroll-contain bg-stone-50/60 p-3 xl:h-[34rem] xl:grid-cols-2 2xl:grid-cols-3"
-                  tabIndex={0}
-                  aria-label="Scrollable groups"
-                >
+                <div className="contents">
                   {lane.groups.map((group) => {
                     const students = placements
                       .filter((row) => row.draftGroupId === group.id)
@@ -1271,6 +1178,13 @@ export function PersistedGroupingBoard({
                     const wrongDiscipline =
                       selectedStudent?.disciplineId &&
                       selectedStudent.disciplineId !== group.disciplineId;
+                    const selectedForSplit = students.filter((student) =>
+                      splitSelection.includes(student.registrationId),
+                    );
+                    const splitting = splitModeGroupId === group.id;
+                    const canSplit =
+                      selectedForSplit.length > 0 &&
+                      selectedForSplit.length < students.length;
                     const canPlace =
                       editable &&
                       selected &&
@@ -1283,6 +1197,14 @@ export function PersistedGroupingBoard({
                     return (
                       <Card
                         key={group.id}
+                        data-group-id={group.id}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape" && splitting) {
+                            event.stopPropagation();
+                            clearStudentSelection();
+                          }
+                        }}
+                        aria-label={"Lesson group: " + groupName(group.id)}
                         onDragOver={(event) => {
                           if (editable) event.preventDefault();
                         }}
@@ -1293,7 +1215,7 @@ export function PersistedGroupingBoard({
                             "application/carve-instructor",
                           );
                           if (instructorId) {
-                            void assignLead(group, instructorId);
+                            addInstructor(group, instructorId);
                             return;
                           }
                           const raw = event.dataTransfer.getData(
@@ -1317,6 +1239,7 @@ export function PersistedGroupingBoard({
                         className={cn(
                           "min-w-0 gap-0 overflow-hidden py-0",
                           canPlace && "border-pm-green/50",
+                          splitting && "ring-pm-green/40 ring-2",
                         )}
                       >
                         <CardHeader className="gap-2 border-b p-3">
@@ -1395,7 +1318,11 @@ export function PersistedGroupingBoard({
                                   "Suggested lead for " + groupName(group.id)
                                 }
                               >
-                                <SelectValue placeholder="Choose lead instructor" />
+                                <SelectValue placeholder="Choose lead instructor">
+                                  {lead
+                                    ? `${lead.firstName} ${lead.lastName}`
+                                    : undefined}
+                                </SelectValue>
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="none">
@@ -1413,13 +1340,33 @@ export function PersistedGroupingBoard({
                               </SelectContent>
                             </Select>
                           )}
+                          {group.instructorIds.some(
+                            (id) => id !== group.leadInstructorId,
+                          ) && (
+                            <p className="text-muted-foreground text-xs">
+                              Also teaching:{" "}
+                              {group.instructorIds
+                                .filter((id) => id !== group.leadInstructorId)
+                                .map((id) => {
+                                  const instructor = workspace.instructors.find(
+                                    (item) => item.id === id,
+                                  );
+                                  return instructor
+                                    ? instructor.firstName +
+                                        " " +
+                                        instructor.lastName
+                                    : "Instructor";
+                                })
+                                .join(", ")}
+                            </p>
+                          )}
                           {staffing.message && (
                             <p className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
                               {staffing.message}
                             </p>
                           )}
                         </CardHeader>
-                        <CardContent className="flex flex-col gap-2 p-3">
+                        <CardContent className="flex flex-col gap-0.5 p-2">
                           {students.map((student) => (
                             <div
                               key={student.registrationId}
@@ -1428,47 +1375,89 @@ export function PersistedGroupingBoard({
                               {studentCard(student, group.id)}
                             </div>
                           ))}
-                          {editable &&
-                            students.some((student) =>
-                              splitSelection.includes(student.registrationId),
-                            ) && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={
-                                  busy ||
-                                  !students.some((student) =>
-                                    splitSelection.includes(
-                                      student.registrationId,
-                                    ),
-                                  )
-                                }
-                                onClick={() =>
-                                  mutate(async () => {
-                                    await splitGroup({
-                                      data: {
-                                        draftId: draft.id,
-                                        baseVersion: draft.version,
-                                        commandId: crypto.randomUUID(),
-                                        groupId: group.id,
-                                        registrationIds: students
-                                          .filter((student) =>
-                                            splitSelection.includes(
-                                              student.registrationId,
-                                            ),
-                                          )
-                                          .map(
-                                            (student) => student.registrationId,
-                                          ),
-                                      },
-                                    });
-                                    setSplitSelection([]);
-                                  }, "Selected students split into a new unstaffed group.")
-                                }
-                              >
-                                Split selected
-                              </Button>
-                            )}
+                          {editable && (
+                            <div className="mt-2 space-y-2 border-t pt-2">
+                              {splitting || selectedForSplit.length > 0 ? (
+                                <>
+                                  <p
+                                    className="text-xs font-medium"
+                                    aria-live="polite"
+                                  >
+                                    {selectedForSplit.length} of{" "}
+                                    {students.length} selected
+                                  </p>
+                                  <p
+                                    className={cn(
+                                      "text-xs",
+                                      selectedForSplit.length ===
+                                        students.length
+                                        ? "text-amber-800"
+                                        : "text-muted-foreground",
+                                    )}
+                                  >
+                                    {selectedForSplit.length === students.length
+                                      ? "Leave at least one student in this group."
+                                      : "Select students for a new, unstaffed group. Leave at least one here."}
+                                  </p>
+                                  <div className="flex flex-wrap gap-2">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={busy || !canSplit}
+                                      onClick={() =>
+                                        void mutate(async () => {
+                                          await splitGroup({
+                                            data: {
+                                              draftId: draft.id,
+                                              baseVersion: draft.version,
+                                              commandId: crypto.randomUUID(),
+                                              groupId: group.id,
+                                              registrationIds:
+                                                selectedForSplit.map(
+                                                  (student) =>
+                                                    student.registrationId,
+                                                ),
+                                            },
+                                          });
+                                          clearStudentSelection();
+                                        }, "Selected students split into a new unstaffed group.")
+                                      }
+                                    >
+                                      <Scissors />
+                                      Split selected ({selectedForSplit.length})
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      disabled={busy}
+                                      onClick={clearStudentSelection}
+                                    >
+                                      Cancel selection
+                                    </Button>
+                                  </div>
+                                </>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-muted-foreground w-full justify-start"
+                                  disabled={busy || students.length < 2}
+                                  title={
+                                    students.length < 2
+                                      ? "A group needs at least two students to split."
+                                      : "Choose students to move into a new group."
+                                  }
+                                  onClick={() => {
+                                    clearStudentSelection();
+                                    setSplitModeGroupId(group.id);
+                                  }}
+                                >
+                                  <Scissors />
+                                  Split group
+                                </Button>
+                              )}
+                            </div>
+                          )}
                           {!students.length && (
                             <p className="text-muted-foreground rounded-lg border border-dashed p-5 text-center text-xs">
                               Select a student to add them here.
@@ -1497,7 +1486,7 @@ export function PersistedGroupingBoard({
               </section>
             ))}
             {!groups.length && (
-              <div className="rounded-xl border border-dashed p-10 text-center md:col-span-2">
+              <div className="col-span-full rounded-xl border border-dashed p-10 text-center">
                 <UsersRound className="text-pm-green mx-auto mb-3 size-7" />
                 <h3 className="font-medium">
                   No groups in this day and time slot.
@@ -1527,55 +1516,54 @@ export function PersistedGroupingBoard({
             )}
           </div>
         </section>
+        <aside className="min-h-0 lg:col-span-2 xl:col-span-1 xl:h-full">
+          <InstructorOverview
+            onRemove={(groupId, instructorId) => {
+              const group = workspace.groups.find(
+                (item) => item.id === groupId,
+              );
+              if (!group || !draft || !editable) return;
+              void mutate(
+                () =>
+                  assignDraftInstructor({
+                    data: {
+                      draftId: draft.id,
+                      baseVersion: draft.version,
+                      commandId: crypto.randomUUID(),
+                      groupId,
+                      instructorIds: group.instructorIds.filter(
+                        (id) => id !== instructorId,
+                      ),
+                      leadInstructorId:
+                        group.leadInstructorId === instructorId
+                          ? null
+                          : group.leadInstructorId,
+                    },
+                  }),
+                "Instructor removed from group.",
+              );
+            }}
+            groupName={groupName}
+            workspace={workspace}
+            weekday={weekday}
+            timeSlotId={timeSlotId}
+          />
+        </aside>
       </div>
-      {workspace.rebuildHistory.length > 0 && (
-        <details className="rounded-xl border bg-white p-4">
-          <summary className="font-semibold">Previous rebuild layouts</summary>
-          {workspace.rebuildHistory.map((operation) => (
-            <section key={operation.id} className="mt-3 border-t pt-3">
-              <h3>
-                {new Date(operation.createdAt).toLocaleString()} ·{" "}
-                {operation.scope === "program"
-                  ? "Whole program"
-                  : "Visible session"}
-              </h3>
-              {operation.groups.map((group) => (
-                <article key={group.id} className="mt-2 text-sm">
-                  <strong>{group.description}</strong>
-                  <p>
-                    {group.registrationIds
-                      .map((id) => {
-                        const person = workspace.roster.find(
-                          (row) => row.registrationId === id,
-                        );
-                        return person
-                          ? `${person.firstName} ${person.lastName}`
-                          : "Former registration";
-                      })
-                      .join(", ")}
-                  </p>
-                  {group.notes && (
-                    <p className="whitespace-pre-wrap">
-                      Group notes: {group.notes}
-                    </p>
-                  )}
-                </article>
-              ))}
-            </section>
-          ))}
-        </details>
-      )}
       {draft && (
-        <footer className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-4">
+        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-3 py-2.5">
           <div>
             <p className="text-sm font-medium">
               {unplaced.length === 0 && missingLeads === 0
                 ? "Ready for a final review"
                 : `${unplaced.length} students need placement · ${missingLeads} groups need a lead`}
             </p>
-            <p className="text-muted-foreground mt-1 text-xs">
-              Draft version {draft.version}. Publishing creates the recurring
-              lesson schedule.
+            <p
+              role="status"
+              className="text-muted-foreground mt-1 max-w-[55vw] truncate text-xs"
+              title={notice}
+            >
+              Draft version {draft.version} · {busy ? "Saving…" : notice}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1777,6 +1765,249 @@ export function PersistedGroupingBoard({
         </AlertDialogContent>
       </AlertDialog>
       <Sheet
+        open={Boolean(notesStudent)}
+        onOpenChange={(open) => {
+          if (!open) setNotesStudent(null);
+        }}
+      >
+        <SheetContent
+          className="overflow-y-auto sm:max-w-lg"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            notesTriggerRef.current?.focus({ preventScroll: true });
+          }}
+        >
+          <SheetHeader>
+            <SheetTitle>
+              {notesStudent?.firstName} {notesStudent?.lastName} · Student notes
+            </SheetTitle>
+            <SheetDescription>
+              Full placement, survey, and medical notes. Close to return to the
+              board.
+            </SheetDescription>
+          </SheetHeader>
+          {notesStudent && (
+            <div className="px-4 pb-6">
+              <StudentNotesContent student={notesStudent} />
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+      <Sheet open={toolsOpen} onOpenChange={setToolsOpen}>
+        <SheetContent className="overflow-y-auto sm:max-w-xl">
+          <SheetHeader>
+            <SheetTitle>Workspace tools</SheetTitle>
+            <SheetDescription>
+              Program setup, rebuilding, and change history.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-5 px-4 pb-6">
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" asChild>
+                <Link to="/admin/imports">Import registrations</Link>
+              </Button>
+              <Button variant="outline" asChild>
+                <Link
+                  to="/admin/surveys"
+                  search={{
+                    sort: "newest",
+                    q: "",
+                    page: 1,
+                    pageSize: 25,
+                    link: "all",
+                    session: "",
+                    discipline: "",
+                    level: "",
+                    from: "",
+                    until: "",
+                  }}
+                >
+                  Review surveys
+                </Link>
+              </Button>
+            </div>
+            {(() => {
+              const slot = workspace.timeSlots.find(
+                (item) => item.id === timeSlotId,
+              );
+              return slot ? (
+                <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
+                  <span>
+                    {slot.cohort === "session-1"
+                      ? "Session 1 · "
+                      : slot.cohort === "session-2"
+                        ? "Session 2 · "
+                        : ""}
+                    {slot.startsOn && slot.endsOn
+                      ? `${slot.startsOn} to ${slot.endsOn}`
+                      : slot.cohort && slot.cohort !== "season"
+                        ? "Dates pending — groups can be built now"
+                        : "Session follows the season calendar"}
+                    {slot.excludedDates.length
+                      ? ` · ${slot.excludedDates.length} no-lesson dates`
+                      : ""}
+                  </span>
+                  <Link
+                    to="/admin/programs/$programId"
+                    params={{ programId: workspace.program.id }}
+                    className="underline"
+                  >
+                    Edit session calendar
+                  </Link>
+                </div>
+              ) : null;
+            })()}
+
+            {draft?.finalizedSnapshot && (
+              <GroupLifecyclePanel workspace={workspace} />
+            )}
+
+            {editable && (
+              <section
+                className="space-y-3 rounded-xl border bg-white p-4"
+                aria-label="Re-group all"
+              >
+                <div className="flex flex-wrap items-center gap-3">
+                  <strong>Re-group all</strong>
+                  <select
+                    aria-label="Rebuild scope"
+                    value={rebuildScope}
+                    onChange={(e) => {
+                      setRebuildScope(e.target.value as "session" | "program");
+                      setRebuildPreview(null);
+                    }}
+                  >
+                    <option value="session">Visible day/time</option>
+                    <option value="program">Whole program</option>
+                  </select>
+                  <Button
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() =>
+                      mutate(async () => {
+                        setRebuildPreview(
+                          await rebuildDraft({
+                            data: {
+                              draftId: draft.id,
+                              baseVersion: draft.version,
+                              commandId: crypto.randomUUID(),
+                              weekday,
+                              timeSlotId,
+                              scope: rebuildScope,
+                            },
+                          }),
+                        );
+                      }, "Rebuild preview ready. No placements changed.")
+                    }
+                  >
+                    Preview rebuild
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={busy || !workspace.capabilities.canUndoRebuild}
+                    onClick={() =>
+                      mutate(
+                        () =>
+                          undoDraftRebuild({
+                            data: {
+                              draftId: draft.id,
+                              baseVersion: draft.version,
+                              commandId: crypto.randomUUID(),
+                            },
+                          }),
+                        "Previous layout restored.",
+                      )
+                    }
+                  >
+                    Undo rebuild
+                  </Button>
+                </div>
+                {rebuildPreview && (
+                  <div role="status">
+                    <p>
+                      {rebuildPreview.oldGroups} existing groups →{" "}
+                      {rebuildPreview.newGroups} new groups;{" "}
+                      {rebuildPreview.students} registrations;{" "}
+                      {rebuildPreview.unresolved} unresolved;{" "}
+                      {rebuildPreview.clearedInstructors} instructor assignments
+                      cleared. Previous layout and group notes remain in
+                      history.
+                    </p>
+                    <Button
+                      disabled={busy}
+                      onClick={() =>
+                        mutate(async () => {
+                          await rebuildDraft({
+                            data: {
+                              draftId: draft.id,
+                              baseVersion: rebuildPreview.version,
+                              commandId: crypto.randomUUID(),
+                              weekday,
+                              timeSlotId,
+                              scope: rebuildScope,
+                              previewHash: rebuildPreview.previewHash,
+                            },
+                          });
+                          setRebuildPreview(null);
+                        }, "Groups rebuilt without instructor assignments.")
+                      }
+                    >
+                      Replace scoped draft groups
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setRebuildPreview(null)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {workspace.rebuildHistory.length > 0 && (
+              <details className="rounded-xl border bg-white p-4">
+                <summary className="font-semibold">
+                  Previous rebuild layouts
+                </summary>
+                {workspace.rebuildHistory.map((operation) => (
+                  <section key={operation.id} className="mt-3 border-t pt-3">
+                    <h3>
+                      {new Date(operation.createdAt).toLocaleString()} ·{" "}
+                      {operation.scope === "program"
+                        ? "Whole program"
+                        : "Visible session"}
+                    </h3>
+                    {operation.groups.map((group) => (
+                      <article key={group.id} className="mt-2 text-sm">
+                        <strong>{group.description}</strong>
+                        <p>
+                          {group.registrationIds
+                            .map((id) => {
+                              const person = workspace.roster.find(
+                                (row) => row.registrationId === id,
+                              );
+                              return person
+                                ? `${person.firstName} ${person.lastName}`
+                                : "Former registration";
+                            })
+                            .join(", ")}
+                        </p>
+                        {group.notes && (
+                          <p className="whitespace-pre-wrap">
+                            Group notes: {group.notes}
+                          </p>
+                        )}
+                      </article>
+                    ))}
+                  </section>
+                ))}
+              </details>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+      <Sheet
         open={Boolean(editingGroup)}
         onOpenChange={(open) => {
           if (!open) setEditingGroupId(null);
@@ -1928,6 +2159,21 @@ function InstructorOverview({
 }) {
   const [search, setSearch] = useState("");
   const slot = workspace.timeSlots.find((item) => item.id === timeSlotId);
+  const occupiedIds = new Set(
+    workspace.groups
+      .filter((group) => {
+        const other = workspace.timeSlots.find(
+          (item) => item.id === group.timeSlotId,
+        );
+        return (
+          group.weekday === weekday &&
+          slot &&
+          other &&
+          sessionsOverlap(slot, other, weekday)
+        );
+      })
+      .flatMap((group) => group.instructorIds),
+  );
   const availableInstructors = workspace.instructors
     .filter((instructor) =>
       Boolean(
@@ -1960,10 +2206,15 @@ function InstructorOverview({
       `${instructor.firstName} ${instructor.lastName}`
         .toLowerCase()
         .includes(search.toLowerCase()),
+    )
+    .sort(
+      (a, b) =>
+        Number(occupiedIds.has(a.id)) - Number(occupiedIds.has(b.id)) ||
+        a.lastName.localeCompare(b.lastName),
     );
   return (
     <section
-      className="flex h-[min(40vh,28rem)] min-h-64 flex-col rounded-xl border bg-white p-4"
+      className="flex h-[min(50vh,28rem)] min-h-64 flex-col rounded-xl border bg-white p-3 xl:h-full xl:min-h-0"
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
@@ -1974,9 +2225,19 @@ function InstructorOverview({
         if (from && instructor) onRemove(from, instructor);
       }}
     >
-      <h2 className="flex items-center gap-2 text-sm font-semibold">
+      <h2
+        aria-label="Instructors for this session"
+        className="flex items-center gap-2 text-sm font-semibold"
+      >
         <GraduationCap className="size-4" />
-        Instructors for this session
+        Instructors
+        <span className="text-muted-foreground ml-auto text-xs font-normal">
+          {
+            availableInstructors.filter((item) => !occupiedIds.has(item.id))
+              .length
+          }{" "}
+          free
+        </span>
       </h2>
       <Input
         className="mt-3"
@@ -2005,41 +2266,52 @@ function InstructorOverview({
           return (
             <div
               key={instructor.id}
-              draggable
-              onDragStart={(event) =>
+              draggable={
+                workspace.capabilities.canEdit &&
+                !assigned.length &&
+                instructor.disciplineIds.length > 0
+              }
+              onDragStart={(event) => {
+                if (
+                  assigned.length ||
+                  !workspace.capabilities.canEdit ||
+                  !instructor.disciplineIds.length
+                ) {
+                  event.preventDefault();
+                  return;
+                }
                 event.dataTransfer.setData(
                   "application/carve-instructor",
                   instructor.id,
-                )
-              }
+                );
+              }}
               className="rounded-lg border px-3 py-2 text-xs"
             >
-              <p className="font-medium">
-                {instructor.firstName} {instructor.lastName}
-              </p>
-              <p className="mt-1 font-medium">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm font-medium">
+                  {instructor.firstName} {instructor.lastName}
+                </p>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium",
+                    assigned.length
+                      ? "bg-stone-100 text-stone-500"
+                      : "bg-pm-mist text-pm-green",
+                  )}
+                >
+                  {assigned.length ? "Assigned" : "Available"}
+                </span>
+              </div>
+              <p className="text-muted-foreground mt-1">
                 {instructor.disciplineIds
                   .map((id) => findLabel(workspace.disciplines, id))
                   .join(" · ") || "Qualifications needed"}
               </p>
-              <p className="text-muted-foreground mt-1">
-                {slot
-                  ? instructorAvailability(instructor.preferences, {
-                      programId: workspace.program.id,
-                      cohort: slot.cohort,
-                      weekday,
-                      startsAt: slot.startsAt,
-                      endsAt: slot.endsAt,
-                    }).reason
-                  : "Choose a configured session"}
-              </p>
-              <p className="text-muted-foreground mt-1">
-                {assigned.length
-                  ? assigned.map((group) => groupName(group.id)).join(", ")
-                  : instructor.disciplineIds.length
-                    ? "Not assigned this session"
-                    : "Qualifications needed"}
-              </p>
+              {assigned.length > 0 && (
+                <p className="text-muted-foreground mt-1 text-[11px]">
+                  {assigned.map((group) => groupName(group.id)).join(", ")}
+                </p>
+              )}
             </div>
           );
         })}
@@ -2050,9 +2322,8 @@ function InstructorOverview({
         )}
       </div>
       <p className="text-muted-foreground mt-3 text-xs">
-        Suggestions use recorded availability and teaching preferences. Drag an
-        assigned instructor back here to remove them, or use the group’s
-        instructor controls.
+        Drag a free instructor onto a group to add them. To unassign, drag the
+        group’s instructor back here or use its instructor controls.
       </p>
     </section>
   );

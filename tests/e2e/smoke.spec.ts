@@ -31,7 +31,13 @@ test("serves health and the authenticated staff workspace", async ({
   ).toBeVisible();
   await page.goto("/admin/students");
   await expect(page.getByRole("heading", { name: "Students" })).toBeVisible();
-  await expect(page.locator("tbody tr")).toHaveCount(0);
+  const soleProgram =
+    (await page
+      .getByLabel("Program", { exact: true })
+      .locator("option[value]:not([value=''])")
+      .count()) === 1;
+  if (soleProgram) await expect(page.locator("tbody tr").first()).toBeVisible();
+  else await expect(page.locator("tbody tr")).toHaveCount(0);
   await page
     .getByLabel("Program", { exact: true })
     .selectOption({ label: "Winter 2026 · Weekend Snowsports" });
@@ -178,6 +184,9 @@ test("serves health and the authenticated staff workspace", async ({
   ).toBeVisible();
 
   await page
+    .getByRole("button", { name: "Workspace tools", exact: true })
+    .click();
+  await page
     .getByRole("button", { name: "Preview rebuild", exact: true })
     .click();
   await expect(page.getByText(/instructor assignments cleared/)).toBeVisible();
@@ -194,6 +203,10 @@ test("serves health and the authenticated staff workspace", async ({
   await expect(
     page.getByRole("button", { name: "Preview rebuild", exact: true }),
   ).toBeEnabled();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
   await page.getByRole("button", { name: "All", exact: true }).click();
   await expect(
     page.getByText("No linked survey", { exact: false }),
@@ -208,14 +221,19 @@ test("serves health and the authenticated staff workspace", async ({
   await expect(noteCard).toBeVisible();
   await noteCard.click();
   await expect(
-    page.getByRole("heading", { name: "Placement notes", exact: true }),
+    page
+      .getByRole("dialog")
+      .getByRole("heading", { name: "Placement", exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel("Scrollable groups").first()).toHaveCSS(
-    "overflow-y",
-    "auto",
-  );
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await expect(
+    page.getByRole("region", { name: "Group board", exact: true }),
+  ).toHaveCSS("overflow-y", "auto");
   const laneCards = page
-    .getByLabel("Scrollable groups")
+    .getByRole("region", { name: "Group board", exact: true })
     .first()
     .locator('[data-slot="card"]');
   const firstBounds = await laneCards.nth(0).boundingBox();

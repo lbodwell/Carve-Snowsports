@@ -64,6 +64,7 @@ type StudentRow = {
   programName: string | null;
   seasonName: string | null;
   schedule: RegistrationScheduleSummary;
+  surveyStatus?: "No response" | "Needs review" | "Completed";
 };
 
 export function StudentRoster({
@@ -109,6 +110,7 @@ export function StudentRoster({
   const [cohort, setCohort] = useState("all");
   const [status, setStatus] = useState("all");
   const [missing, setMissing] = useState("all");
+  const [surveyStatus, setSurveyStatus] = useState("all");
   const [sort, setSort] = useState("name");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -151,10 +153,13 @@ export function StudentRoster({
           const matchesAge =
             ageBand === "all" ||
             (ageBand === "4-6" && age !== null && age >= 4 && age <= 6) ||
-            (ageBand === "7-12" && age !== null && age >= 7 && age <= 12);
+            (ageBand === "7-12" && age !== null && age >= 7 && age <= 12) ||
+            (ageBand === "11-13" && age !== null && age >= 11 && age <= 13);
           const hasMedical = student.medicalInfo.trim() !== "";
           return (
             searchable.includes(normalizedQuery) &&
+            (surveyStatus === "all" ||
+              (student.surveyStatus ?? "No response") === surveyStatus) &&
             Boolean(program) &&
             student.programId === program &&
             (season === "all" || student.seasonName === season) &&
@@ -225,6 +230,7 @@ export function StudentRoster({
       cohort,
       status,
       missing,
+      surveyStatus,
       sort,
     ],
   );
@@ -253,6 +259,7 @@ export function StudentRoster({
     setCohort("all");
     setStatus("all");
     setMissing("all");
+    setSurveyStatus("all");
     setPage(1);
   }
 
@@ -298,31 +305,33 @@ export function StudentRoster({
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="grid max-w-lg gap-2 text-sm font-medium">
-            <label htmlFor="registration-program">Program</label>
-            <select
-              id="registration-program"
-              className="rounded-md border bg-white p-2"
-              required
-              value={program}
-              onChange={(event) => {
-                setProgram(event.target.value);
-                onProgramChange?.(event.target.value);
-                setPage(1);
-                resetFilters();
-              }}
-            >
-              <option value="">Choose a program…</option>
-              {programOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.seasonName} · {option.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          {program ? (
-            <>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-1 text-sm font-medium">
+              <label htmlFor="registration-program">Program</label>
+              <select
+                id="registration-program"
+                className="rounded-md border bg-white p-2"
+                required
+                value={program}
+                onChange={(event) => {
+                  setProgram(event.target.value);
+                  onProgramChange?.(event.target.value);
+                  setPage(1);
+                  resetFilters();
+                }}
+              >
+                <option value="">Choose a program…</option>
+                {programOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.seasonName} · {option.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {program && (
+              <>
+                {" "}
                 <div className="grid gap-1">
                   <label
                     htmlFor="student-search"
@@ -389,7 +398,11 @@ export function StudentRoster({
                     ["unregistered", "Not registered"],
                   ]}
                 />
-              </div>
+              </>
+            )}
+          </div>
+          {program ? (
+            <>
               <details className="rounded-lg border p-3">
                 <summary className="cursor-pointer text-sm font-medium">
                   More filters
@@ -425,6 +438,7 @@ export function StudentRoster({
                       ["all", "All ages"],
                       ["4-6", "Ages 4–6"],
                       ["7-12", "Ages 7–12"],
+                      ["11-13", "Ages 11–13"],
                     ]}
                   />
                   <FilterSelect
@@ -476,6 +490,17 @@ export function StudentRoster({
                     ]}
                   />
                   <FilterSelect
+                    label="Survey status"
+                    value={surveyStatus}
+                    onChange={filter(setSurveyStatus)}
+                    options={[
+                      ["all", "All surveys"],
+                      ["No response", "No response"],
+                      ["Needs review", "Needs review"],
+                      ["Completed", "Completed"],
+                    ]}
+                  />
+                  <FilterSelect
                     label="Sort by"
                     value={sort}
                     onChange={filter(setSort)}
@@ -524,6 +549,7 @@ export function StudentRoster({
                         <TableHead>Level</TableHead>
                         <TableHead>Age</TableHead>
                         <TableHead>Discipline</TableHead>
+                        <TableHead>Survey</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -558,6 +584,9 @@ export function StudentRoster({
                           </TableCell>
                           <TableCell>
                             {student.disciplineLabel ?? "Not recorded"}
+                          </TableCell>
+                          <TableCell>
+                            {student.surveyStatus ?? "No response"}
                           </TableCell>
                         </RosterRow>
                       ))}

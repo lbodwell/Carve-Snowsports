@@ -1,7 +1,8 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { Actor } from "@/application/policies/authorization";
+import type { SurveyAssessmentContext } from "@/domain/surveys/response-assessment";
 import { requirePermission } from "@/application/policies/authorization";
 import { ApplicationError } from "@/application/errors";
 import { db } from "@/db/client.server";
@@ -10,6 +11,7 @@ import {
   auditEvents,
   contactMethods,
   disciplines,
+  organizations,
   people,
   programs,
   registrations,
@@ -21,39 +23,16 @@ import {
   surveys,
   timeSlots,
 } from "@/db/schema";
-import { surveyMatchesRegistrationSession } from "@/domain/surveys/enrichment-context";
-import { matchSurveyStudent } from "@/domain/surveys/student-matching";
+import { assessSurveyResponse } from "@/domain/surveys/response-assessment";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-// Retained export name for existing callers; every confirmed-link path now
-// reconciles all supported fields, including responses linked in earlier runs.
-export async function fillConfirmedSurveyBirthdates(
-  tx: Transaction,
+export async function loadSurveyAssessmentContext(
+  tx: Transaction | typeof db,
   organizationId: string,
-  actorId: string | null,
-  studentId?: string,
-) {
-  const birthdates = await fillBirthdates(
-    tx,
-    organizationId,
-    actorId,
-    studentId,
-  );
-  const responses = await tx
-    .select({ response: surveyResponses, birthdate: people.dateOfBirth })
-    .from(surveyResponses)
-    .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
-    .innerJoin(people, eq(people.id, surveyResponses.confirmedStudentId))
-    .where(
-      and(
-        eq(surveys.organizationId, organizationId),
-        eq(people.organizationId, organizationId),
-        isNull(people.archivedAt),
-        studentId ? eq(people.id, studentId) : undefined,
-      ),
-    );
-  const enrollments = await tx
+): Promise<SurveyAssessmentContext> {
+  const studentRows = await surveyMatchCandidates(tx, organizationId);
+  const enrollmentRows = await tx
     .select({ registration: registrations })
     .from(registrations)
     .innerJoin(people, eq(people.id, registrations.studentId))
@@ -63,68 +42,94 @@ export async function fillConfirmedSurveyBirthdates(
       and(
         eq(people.organizationId, organizationId),
         eq(seasons.organizationId, organizationId),
-        isNull(seasons.archivedAt),
         isNull(people.archivedAt),
+        isNull(seasons.archivedAt),
         isNull(registrations.archivedAt),
         eq(registrations.status, "active"),
-        studentId ? eq(people.id, studentId) : undefined,
+      ),
+    );
+  const programIds = [
+    ...new Set(enrollmentRows.map((item) => item.registration.programId)),
+  ];
+  const [slots, disciplineRows, levels] = programIds.length
+    ? await Promise.all([
+        tx
+          .select()
+          .from(timeSlots)
+          .where(
+            and(
+              inArray(timeSlots.programId, programIds),
+              eq(timeSlots.active, true),
+            ),
+          ),
+        tx
+          .select()
+          .from(disciplines)
+          .where(
+            and(
+              inArray(disciplines.programId, programIds),
+              eq(disciplines.active, true),
+            ),
+          ),
+        tx
+          .select()
+          .from(abilityLevels)
+          .where(
+            and(
+              inArray(abilityLevels.programId, programIds),
+              eq(abilityLevels.active, true),
+            ),
+          ),
+      ])
+    : [[], [], []];
+  const responseRows = await tx
+    .select({
+      id: surveyResponses.id,
+      confirmedStudentId: surveyResponses.confirmedStudentId,
+      childDateOfBirth: surveyResponses.childDateOfBirth,
+      answers: surveyResponses.answers,
+    })
+    .from(surveyResponses)
+    .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
+    .where(eq(surveys.organizationId, organizationId));
+  return {
+    students: studentRows,
+    registrations: enrollmentRows.map((item) => item.registration),
+    slots,
+    disciplines: disciplineRows,
+    levels,
+    responses: responseRows,
+  };
+}
+
+// Every write path assesses identity and enrollment evidence before enrichment.
+export async function fillConfirmedSurveyBirthdates(
+  tx: Transaction,
+  organizationId: string,
+  actorId: string | null,
+  studentId?: string,
+) {
+  const context = await loadSurveyAssessmentContext(tx, organizationId);
+  const responses = await tx
+    .select({ response: surveyResponses })
+    .from(surveyResponses)
+    .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
+    .where(
+      and(
+        eq(surveys.organizationId, organizationId),
+        studentId
+          ? eq(surveyResponses.confirmedStudentId, studentId)
+          : undefined,
       ),
     )
-    .for("update", { of: registrations });
-  const issues = new Map(
-    responses.map(({ response, birthdate }) => [
-      response.id,
-      birthdate && birthdate !== response.childDateOfBirth
-        ? ["Birthdate conflicts with the student record."]
-        : ([] as Array<string>),
-    ]),
-  );
-  const configurations = new Map<
-    string,
-    {
-      slots: Array<typeof timeSlots.$inferSelect>;
-      disciplines: Array<typeof disciplines.$inferSelect>;
-      levels: Array<typeof abilityLevels.$inferSelect>;
-    }
-  >();
-  for (const programId of new Set(
-    enrollments.map((item) => item.registration.programId),
-  )) {
-    const [slots, disciplineRows, levels] = await Promise.all([
-      tx
-        .select()
-        .from(timeSlots)
-        .where(
-          and(eq(timeSlots.programId, programId), eq(timeSlots.active, true)),
-        ),
-      tx
-        .select()
-        .from(disciplines)
-        .where(
-          and(
-            eq(disciplines.programId, programId),
-            eq(disciplines.active, true),
-          ),
-        ),
-      tx
-        .select()
-        .from(abilityLevels)
-        .where(
-          and(
-            eq(abilityLevels.programId, programId),
-            eq(abilityLevels.active, true),
-          ),
-        ),
-    ]);
-    configurations.set(programId, {
-      slots,
-      disciplines: disciplineRows,
-      levels,
-    });
-  }
-  const eligibleRegistrations = new Map<string, Array<string>>();
+    .for("update", { of: surveyResponses });
+  let registrationsFilled = 0,
+    medicalNotesAdded = 0,
+    reviewNeeded = 0;
+  const birthdateConflicts = new Set<string>();
   for (const { response } of responses) {
     if (
+      response.confirmedStudentId &&
       new Set(
         responses
           .filter(
@@ -134,45 +139,27 @@ export async function fillConfirmedSurveyBirthdates(
           .map((item) => item.response.childDateOfBirth),
       ).size > 1
     )
-      issues.get(response.id)!.push("Linked responses disagree on birthdate.");
-    const candidates = enrollments
-      .filter(({ registration }) => {
-        const config = configurations.get(registration.programId)!;
-        const discipline = config.disciplines.find(
-          (item) => item.key === response.answers.discipline,
-        );
-        return (
-          registration.studentId === response.confirmedStudentId &&
-          discipline &&
-          (!registration.disciplineId ||
-            registration.disciplineId === discipline.id) &&
-          surveyMatchesRegistrationSession(
-            String(response.answers.session),
-            registration.sourceSnapshot,
-            config.slots,
-          )
-        );
-      })
-      .map((item) => item.registration.id);
-    eligibleRegistrations.set(response.id, candidates);
-    if (candidates.length !== 1)
-      issues
-        .get(response.id)!
-        .push(
-          candidates.length
-            ? "Multiple registrations match this survey session; review program and enrollment context."
-            : "No registration uniquely matches the survey session and discipline.",
-        );
+      birthdateConflicts.add(response.confirmedStudentId);
   }
-  const enrichmentReferences: Array<{
-    registrationId?: string;
-    supportRecordId?: string;
-    responseIds: Array<string>;
-    categories: Array<string>;
-  }> = [];
-  let registrationsFilled = 0;
-  let medicalNotesAdded = 0;
+  const safeBirthdateResponses = new Set<string>();
   for (const { response } of responses) {
+    const assessment = assessSurveyResponse(response, context);
+    const registration = assessment.registration;
+    const abilityConflict = assessment.issues.some((issue) =>
+      issue.startsWith("Ability evidence conflicts"),
+    );
+    await tx
+      .update(surveyResponses)
+      .set({
+        enrichmentIssues: assessment.unresolvedIssues,
+        candidateRegistrationIds: assessment.candidateRegistrationIds,
+      })
+      .where(eq(surveyResponses.id, response.id));
+    if (assessment.unresolvedIssues.length) reviewNeeded++;
+    if (!response.confirmedStudentId || assessment.unresolvedIssues.length)
+      continue;
+    if (!birthdateConflicts.has(response.confirmedStudentId))
+      safeBirthdateResponses.add(response.id);
     const medical =
       typeof response.answers.medicalConcerns === "string"
         ? response.answers.medicalConcerns.trim()
@@ -181,7 +168,7 @@ export async function fillConfirmedSurveyBirthdates(
       const inserted = await tx
         .insert(supportRecords)
         .values({
-          studentId: response.confirmedStudentId!,
+          studentId: response.confirmedStudentId,
           category: "special_condition",
           restrictedNote: medical,
           requiresReview: true,
@@ -191,96 +178,44 @@ export async function fillConfirmedSurveyBirthdates(
         .onConflictDoNothing()
         .returning({ id: supportRecords.id });
       medicalNotesAdded += inserted.length;
-      for (const note of inserted)
-        enrichmentReferences.push({
-          supportRecordId: note.id,
-          responseIds: [response.id],
-          categories: ["special_condition"],
-        });
     }
-  }
-  for (const { registration } of enrollments) {
-    const linked = responses.filter(
-      ({ response }) => response.confirmedStudentId === registration.studentId,
-    );
-    if (!linked.length) continue;
-    const config = configurations.get(registration.programId)!;
-    const disciplinesForProgram = config.disciplines,
-      levels = config.levels;
-    const applicable = linked.filter(({ response }) => {
-      const candidates = eligibleRegistrations.get(response.id)!;
-      return candidates.length === 1 && candidates[0] === registration.id;
-    });
-    const evidence = applicable.flatMap(({ response }) => {
-      const discipline = disciplinesForProgram.find(
-        (item) => item.key === response.answers.discipline,
-      );
-      const level = levels.find((item) => item.key === response.answers.level);
-      if (
-        !discipline ||
-        !level ||
-        (registration.disciplineId &&
-          registration.disciplineId !== discipline.id)
-      ) {
-        issues
-          .get(response.id)!
-          .push(
-            "The survey discipline or ability is not configured in the applicable program.",
-          );
-        return [];
-      }
-      return [{ response, discipline, level }];
-    });
-    if (!evidence.length) continue;
-    const disagree =
-      new Set(evidence.map((item) => `${item.discipline.id}:${item.level.id}`))
-        .size > 1;
     if (
-      disagree ||
-      (registration.abilityLevelId &&
-        evidence.some((item) => item.level.id !== registration.abilityLevelId))
-    ) {
-      for (const item of evidence)
-        issues
-          .get(item.response.id)!
-          .push("Ability evidence conflicts for an applicable registration.");
+      !registration ||
+      !assessment.discipline ||
+      !assessment.level ||
+      abilityConflict
+    )
       continue;
-    }
-    const first = evidence[0]!;
     if (!registration.disciplineId || !registration.abilityLevelId) {
-      await tx
+      const filled = await tx
         .update(registrations)
         .set({
-          disciplineId: registration.disciplineId ?? first.discipline.id,
-          abilityLevelId: registration.abilityLevelId ?? first.level.id,
+          disciplineId: registration.disciplineId ?? assessment.discipline.id,
+          abilityLevelId: registration.abilityLevelId ?? assessment.level.id,
           updatedAt: new Date(),
         })
-        .where(eq(registrations.id, registration.id));
-      registrationsFilled++;
-      enrichmentReferences.push({
-        registrationId: registration.id,
-        responseIds: evidence.map((item) => item.response.id),
-        categories: [
-          ...(!registration.disciplineId ? ["discipline"] : []),
-          ...(!registration.abilityLevelId ? ["ability_level"] : []),
-        ],
-      });
+        .where(
+          and(
+            eq(registrations.id, registration.id),
+            sql`${registrations.disciplineId} is not distinct from ${registration.disciplineId}`,
+            sql`${registrations.abilityLevelId} is not distinct from ${registration.abilityLevelId}`,
+          ),
+        )
+        .returning({ id: registrations.id });
+      registrationsFilled += filled.length;
+      if (filled.length) {
+        registration.disciplineId ??= assessment.discipline.id;
+        registration.abilityLevelId ??= assessment.level.id;
+      }
     }
   }
-  for (const { response } of responses) {
-    const notes = issues.get(response.id)!;
-    if (
-      !enrollments.some(
-        ({ registration }) =>
-          registration.studentId === response.confirmedStudentId,
-      )
-    )
-      notes.push("No active registration is available for ability enrichment.");
-    await tx
-      .update(surveyResponses)
-      .set({ enrichmentIssues: notes })
-      .where(eq(surveyResponses.id, response.id));
-  }
+  const birthdates = await fillBirthdates(
+    tx,
+    organizationId,
+    actorId,
+    studentId,
+    safeBirthdateResponses,
+  );
   if (registrationsFilled || medicalNotesAdded)
     await tx.insert(auditEvents).values({
       organizationId,
@@ -288,17 +223,14 @@ export async function fillConfirmedSurveyBirthdates(
       entityType: "survey_matching",
       entityId: studentId ?? organizationId,
       action: "survey.enriched",
-      metadata: {
-        registrationsFilled,
-        medicalNotesAdded,
-        references: enrichmentReferences,
-      },
+      metadata: { registrationsFilled, medicalNotesAdded },
     });
   return {
     ...birthdates,
+    birthdateConflicts: birthdateConflicts.size,
     registrationsFilled,
     medicalNotesAdded,
-    reviewNeeded: [...issues.values()].filter((items) => items.length).length,
+    reviewNeeded,
   };
 }
 
@@ -309,7 +241,10 @@ async function fillBirthdates(
   organizationId: string,
   actorId: string | null,
   studentId?: string,
+  safeResponseIds: Set<string> = new Set(),
 ) {
+  if (!safeResponseIds.size)
+    return { birthdatesFilled: 0, birthdateConflicts: 0 };
   const dates = await tx
     .select({
       studentId: people.id,
@@ -323,6 +258,7 @@ async function fillBirthdates(
     .where(
       and(
         eq(surveys.organizationId, organizationId),
+        inArray(surveyResponses.id, [...safeResponseIds]),
         eq(people.organizationId, organizationId),
         isNull(people.archivedAt),
         isNull(people.dateOfBirth),
@@ -405,47 +341,58 @@ export async function surveyMatchCandidates(
 // Called inside import apply so imported identities and their matches commit together.
 // A human or previous automatic confirmation is never silently reassigned.
 export async function reconcileSurveyMatches(tx: Transaction, actor: Actor) {
-  const candidates = await surveyMatchCandidates(tx, actor.organizationId);
+  await tx
+    .select({ id: organizations.id })
+    .from(organizations)
+    .where(eq(organizations.id, actor.organizationId))
+    .for("update");
+  const context = await loadSurveyAssessmentContext(tx, actor.organizationId);
   const responses = await tx
-    .select({
-      id: surveyResponses.id,
-      firstName: surveyResponses.childFirstName,
-      lastName: surveyResponses.childLastName,
-      dateOfBirth: surveyResponses.childDateOfBirth,
-      answers: surveyResponses.answers,
-    })
+    .select({ response: surveyResponses })
     .from(surveyResponses)
     .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
-    .where(
-      and(
-        eq(surveys.organizationId, actor.organizationId),
-        isNull(surveyResponses.confirmedStudentId),
-      ),
-    )
+    .where(eq(surveys.organizationId, actor.organizationId))
     .for("update", { of: surveyResponses });
   let matched = 0;
-  for (const response of responses) {
-    const match = matchSurveyStudent(
-      {
-        ...response,
-        invitationEmail:
-          typeof response.answers.parentEmail === "string"
-            ? response.answers.parentEmail
-            : null,
-      },
-      candidates,
-    );
+  for (const { response } of responses) {
+    const assessment = assessSurveyResponse(response, context);
+    const reopen =
+      response.linkSource === "automatic" &&
+      assessment.unresolvedIssues.length > 0;
+    const confirm = !response.confirmedStudentId && assessment.canAutoConfirm;
     await tx
       .update(surveyResponses)
       .set({
-        matchStatus: match.status,
-        suggestedStudentId: match.suggestedStudentId,
-        confirmedStudentId:
-          match.status === "unique" ? match.suggestedStudentId : null,
+        suggestedStudentId: assessment.studentId,
+        confirmedStudentId: reopen
+          ? null
+          : (response.confirmedStudentId ??
+            (confirm ? assessment.studentId : null)),
+        matchStatus:
+          reopen || assessment.unresolvedIssues.length
+            ? assessment.studentId
+              ? "ambiguous"
+              : "unmatched"
+            : "unique",
+        linkSource: confirm ? "automatic" : response.linkSource,
+        enrichmentIssues: assessment.unresolvedIssues,
+        candidateRegistrationIds: assessment.candidateRegistrationIds,
         updatedAt: new Date(),
       })
       .where(eq(surveyResponses.id, response.id));
-    if (match.status === "unique") matched++;
+    if (confirm) matched++;
+    if (reopen)
+      await tx.insert(auditEvents).values({
+        organizationId: actor.organizationId,
+        actorId: actor.userId,
+        entityType: "survey_response",
+        entityId: response.id,
+        action: "survey.match_reopened",
+        metadata: {
+          studentId: response.confirmedStudentId,
+          issues: assessment.unresolvedIssues,
+        },
+      });
   }
   await tx.insert(auditEvents).values({
     organizationId: actor.organizationId,
@@ -460,7 +407,7 @@ export async function reconcileSurveyMatches(tx: Transaction, actor: Actor) {
     actor.organizationId,
     actor.userId,
   );
-  return { matched, needsReview: responses.length - matched, ...birthdates };
+  return { matched, needsReview: birthdates.reviewNeeded, ...birthdates };
 }
 
 export async function refreshSurveyMatches(actor: Actor) {
@@ -472,23 +419,25 @@ export const confirmSurveyMatchSchema = z.object({
   responseId: z.uuid(),
   studentId: z.uuid(),
   fillMissingBirthDate: z.boolean().default(false),
+  acknowledgeConflicts: z.boolean().default(false),
+  reviewEvidenceKey: z.string().max(100000).optional(),
   programId: z.uuid().optional(),
 });
 
 export async function confirmSurveyMatch(
   actor: Actor,
-  input: z.infer<typeof confirmSurveyMatchSchema>,
+  input: z.input<typeof confirmSurveyMatchSchema>,
 ) {
   requirePermission(actor, "people:manage");
   const parsed = confirmSurveyMatchSchema.parse(input);
   return db.transaction(async (tx) => {
+    await tx
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(eq(organizations.id, actor.organizationId))
+      .for("update");
     const [response] = await tx
-      .select({
-        id: surveyResponses.id,
-        confirmedStudentId: surveyResponses.confirmedStudentId,
-        dateOfBirth: surveyResponses.childDateOfBirth,
-        answers: surveyResponses.answers,
-      })
+      .select({ ...getTableColumns(surveyResponses) })
       .from(surveyResponses)
       .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
       .where(
@@ -522,11 +471,46 @@ export async function confirmSurveyMatch(
         "VALIDATION",
         "This response is already confirmed for another student. Existing confirmed links cannot be silently reassigned.",
       );
+    const context = await loadSurveyAssessmentContext(tx, actor.organizationId);
+    const assessment = assessSurveyResponse(
+      {
+        ...response,
+        confirmedStudentId: student.id,
+        linkSource: "staff",
+        reviewAcknowledgement: null,
+      },
+      context,
+    );
+    const issues = [
+      ...new Set([...assessment.issues, ...response.enrichmentIssues]),
+    ];
+    if (
+      parsed.reviewEvidenceKey &&
+      parsed.reviewEvidenceKey !== assessment.evidenceKey
+    )
+      throw new ApplicationError(
+        "VERSION_CONFLICT",
+        "The roster or survey evidence changed. Reload the response and review the current values.",
+      );
+    if (issues.length && !parsed.acknowledgeConflicts)
+      throw new ApplicationError(
+        "VALIDATION",
+        "Review and acknowledge the conflicting values before confirming this match.",
+      );
     await tx
       .update(surveyResponses)
       .set({
         confirmedStudentId: student.id,
         suggestedStudentId: student.id,
+        linkSource: "staff",
+        candidateRegistrationIds: assessment.candidateRegistrationIds,
+        reviewAcknowledgement: {
+          studentId: student.id,
+          issues,
+          evidenceKey: assessment.evidenceKey,
+          reviewedBy: actor.userId,
+          reviewedAt: new Date().toISOString(),
+        },
         matchStatus: "unique",
         updatedAt: new Date(),
       })
@@ -546,6 +530,7 @@ export async function confirmSurveyMatch(
       metadata: {
         studentId: student.id,
         fillMissingBirthDate: parsed.fillMissingBirthDate,
+        acknowledgedIssues: issues,
       },
     });
   });

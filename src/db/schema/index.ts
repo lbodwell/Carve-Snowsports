@@ -15,6 +15,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { ReviewAcknowledgement } from "@/domain/surveys/response-assessment";
 import type {
   GroupChangeAction,
   LifecycleGroup,
@@ -632,6 +633,16 @@ export const surveyResponses = pgTable(
       .$type<Array<string>>()
       .default([])
       .notNull(),
+    linkSource: varchar("link_source", { length: 16 })
+      .default("unknown")
+      .notNull(),
+    candidateRegistrationIds: jsonb("candidate_registration_ids")
+      .$type<Array<string>>()
+      .default([])
+      .notNull(),
+    reviewAcknowledgement: jsonb(
+      "review_acknowledgement",
+    ).$type<ReviewAcknowledgement>(),
     matchStatus: varchar("match_status", { length: 32 })
       .default("unmatched")
       .notNull(),

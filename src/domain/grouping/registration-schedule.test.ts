@@ -10,13 +10,13 @@ const slots = [
 ];
 
 describe("imported registration sessions", () => {
-  it("resolves Thursday and Friday cohorts at 9am without merging their identities", () => {
+  it("resolves Thursday and Friday cohorts at 9:30–11 without merging their identities", () => {
     const weekdaySlots = [1, 2].map((n) => ({
       id: `session-${n}`,
-      label: `9:00 AM - Session ${n}`,
+      label: `9:30 AM - Session ${n}`,
       cohort: `session-${n}`,
-      startsAt: "09:00",
-      endsAt: "12:00",
+      startsAt: "09:30",
+      endsAt: "11:00",
       allowedWeekdays: [4, 5],
     }));
     for (const [weekday, day] of [
@@ -87,6 +87,54 @@ describe("imported registration sessions", () => {
         slots,
       ),
     ).toEqual({ weekday: 6, timeSlotId: "morning" });
+  });
+  it("resolves weekend advanced 9am independently from 10am and full day", () => {
+    const calendar = [
+      {
+        id: "advanced",
+        label: "Ages 11–13",
+        startsAt: "09:00:00",
+        endsAt: "12:00:00",
+        allowedWeekdays: [6, 0],
+      },
+      {
+        id: "regular",
+        label: "Morning",
+        startsAt: "10:00",
+        endsAt: "12:00",
+        allowedWeekdays: [6, 0],
+      },
+      {
+        id: "full",
+        label: "Full day",
+        startsAt: "09:00",
+        endsAt: "15:00",
+        allowedWeekdays: [6, 0],
+      },
+    ];
+    for (const weekday of ["Saturday", "Sunday"]) {
+      for (const session of ["9am", "9:00 AM", "9 AM"])
+        expect(
+          resolveRegistrationSchedule({ weekday, session }, calendar)
+            ?.timeSlotId,
+        ).toBe("advanced");
+      expect(
+        resolveRegistrationSchedule({ weekday, session: "10am" }, calendar)
+          ?.timeSlotId,
+      ).toBe("regular");
+    }
+    expect(
+      resolveRegistrationSchedule({ weekday: "Sunday", session: "9am" }, [
+        ...calendar,
+        { ...calendar[0]!, id: "duplicate" },
+      ]),
+    ).toBeNull();
+    expect(
+      resolveRegistrationSchedule(
+        { weekday: "Friday", session: "9am" },
+        calendar,
+      ),
+    ).toBeNull();
   });
   it("never guesses full-day or numbered session mappings", () => {
     for (const session of ["Session 1", "Session 2", "Full Day", "PM", ""])

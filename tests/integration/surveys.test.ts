@@ -35,6 +35,7 @@ import {
 } from "@/application/services/survey-service.server";
 import {
   abilityLevels,
+  auditEvents,
   contactMethods,
   disciplines,
   importBatches,
@@ -93,6 +94,56 @@ describe("public parent surveys", () => {
   let instructorActor: Actor;
   let surveyId: string;
   let programId: string;
+
+  async function enrollMatchingStudent(studentId: string) {
+    const [discipline] = await database
+      .insert(disciplines)
+      .values({ programId, key: "ski", label: "Ski" })
+      .onConflictDoUpdate({
+        target: [disciplines.programId, disciplines.key],
+        set: { active: true },
+      })
+      .returning();
+    const [level] = await database
+      .insert(abilityLevels)
+      .values({ programId, key: "level-3", label: "Level 3", numericRank: 3 })
+      .onConflictDoUpdate({
+        target: [abilityLevels.programId, abilityLevels.key],
+        set: { active: true },
+      })
+      .returning();
+    const [slot] = await database
+      .insert(timeSlots)
+      .values({
+        programId,
+        key: "matching-am",
+        label: "Matching morning",
+        startsAt: "10:00",
+        endsAt: "12:00",
+        allowedWeekdays: [6],
+      })
+      .onConflictDoUpdate({
+        target: [timeSlots.programId, timeSlots.key],
+        set: { active: true },
+      })
+      .returning();
+    return (
+      await database
+        .insert(registrations)
+        .values({
+          studentId,
+          programId,
+          disciplineId: discipline!.id,
+          abilityLevelId: level!.id,
+          sourceSnapshot: {
+            weekday: "Saturday",
+            session: "10am",
+            groupingSchedule: { weekday: 6, timeSlotId: slot!.id },
+          },
+        })
+        .returning()
+    )[0]!;
+  }
 
   beforeAll(async () => {
     await adminSql.unsafe("DROP DATABASE IF EXISTS carve_test WITH (FORCE)");
@@ -175,11 +226,7 @@ describe("public parent surveys", () => {
       .returning({ id: people.id });
     if (!student || !guardian) throw new Error("Failed to seed family.");
     await database.insert(students).values({ personId: student.id });
-    await database.insert(registrations).values({
-      studentId: student.id,
-      programId: program.id,
-      status: "active",
-    });
+    await enrollMatchingStudent(student.id);
     await database.insert(studentGuardians).values({
       studentId: student.id,
       guardianId: guardian.id,
@@ -331,6 +378,7 @@ describe("public parent surveys", () => {
       })
       .returning({ id: people.id });
     await database.insert(students).values({ personId: person!.id });
+    await enrollMatchingStudent(person!.id);
     await refreshSurveyMatches(actor);
     const [response] = await database
       .select()
@@ -375,6 +423,7 @@ describe("public parent surveys", () => {
       })
       .returning({ id: people.id });
     await database.insert(students).values({ personId: person!.id });
+    await enrollMatchingStudent(person!.id);
     await refreshSurveyMatches(actor);
     const [response] = await database
       .select()
@@ -429,6 +478,7 @@ describe("public parent surveys", () => {
       })
       .returning();
     await database.insert(students).values({ personId: person!.id });
+    await enrollMatchingStudent(person!.id);
     await submitPublicSurvey({
       slug: "pre-lesson-test",
       website: "",
@@ -502,6 +552,7 @@ describe("public parent surveys", () => {
     await database
       .insert(students)
       .values(family.map((person) => ({ personId: person.id })));
+    for (const person of family) await enrollMatchingStudent(person.id);
     const response = (index: number, date: string) => ({
       surveyId,
       answers,
@@ -510,6 +561,7 @@ describe("public parent surveys", () => {
       childDateOfBirth: date,
       confirmedStudentId: family[index]!.id,
       matchStatus: "unique" as const,
+      linkSource: "staff",
     });
     await database.insert(surveyResponses).values([
       response(0, "2018-01-01"),
@@ -558,6 +610,7 @@ describe("public parent surveys", () => {
       responseId: unlinked!.id,
       studentId: family[3]!.id,
       fillMissingBirthDate: false,
+      acknowledgeConflicts: true,
     });
     expect(await readBirthdate(3)).toBe("2018-01-01");
     // Even explicit confirmation cannot choose between conflicting linked dates.
@@ -569,6 +622,7 @@ describe("public parent surveys", () => {
       responseId: conflict!.id,
       studentId: family[1]!.id,
       fillMissingBirthDate: true,
+      acknowledgeConflicts: true,
     });
     expect(await readBirthdate(1)).toBeNull();
   });
@@ -748,6 +802,7 @@ describe("public parent surveys", () => {
         childDateOfBirth: "2017-01-08",
         confirmedStudentId: person!.id,
         matchStatus: "unique",
+        linkSource: "staff",
         answers: {
           ...answers,
           childFirstName: "Sync",
@@ -878,5 +933,185 @@ describe("public parent surveys", () => {
       (await getSurveyResponseDetail(actor, pages[0]!.responses[0]!.id)).answers
         .medicalConcerns,
     ).toBe(answers.medicalConcerns);
+  });
+  test("queues new and historical conflicts, scopes review by program, and preserves staff decisions", async () => {
+    const [person] = await database
+      .insert(people)
+      .values({
+        organizationId: actor.organizationId,
+        firstName: "Review",
+        lastName: "Evidence",
+        dateOfBirth: answers.childDateOfBirth,
+      })
+      .returning();
+    await database.insert(students).values({ personId: person!.id });
+    const registration = await enrollMatchingStudent(person!.id);
+    await database
+      .insert(abilityLevels)
+      .values({ programId, key: "level-4", label: "Level 4", numericRank: 4 })
+      .onConflictDoNothing();
+    await submitPublicSurvey({
+      slug: "pre-lesson-test",
+      website: "",
+      answers: {
+        ...answers,
+        childFirstName: "Review",
+        childLastName: "Evidence",
+        level: "level-4",
+      },
+    });
+    let [response] = await database
+      .select()
+      .from(surveyResponses)
+      .where(eq(surveyResponses.childFirstName, "Review"));
+    expect(response!.confirmedStudentId).toBeNull();
+    expect(response!.suggestedStudentId).toBe(person!.id);
+    expect(response!.enrichmentIssues.join()).toContain("Level conflicts");
+    expect(
+      (
+        await getSurveyWorkspace(actor, { link: "review", programId })
+      ).responses.some((item) => item.id === response!.id),
+    ).toBe(true);
+    // Simulate an earlier automatic link that bypassed enrollment assessment.
+    await database
+      .update(surveyResponses)
+      .set({ confirmedStudentId: person!.id, linkSource: "automatic" })
+      .where(eq(surveyResponses.id, response!.id));
+    await refreshSurveyMatches(actor);
+    [response] = await database
+      .select()
+      .from(surveyResponses)
+      .where(eq(surveyResponses.id, response!.id));
+    expect(response!.confirmedStudentId).toBeNull();
+    await expect(
+      confirmSurveyMatch(actor, {
+        responseId: response!.id,
+        studentId: person!.id,
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+    await confirmSurveyMatch(actor, {
+      responseId: response!.id,
+      studentId: person!.id,
+      acknowledgeConflicts: true,
+    });
+    await refreshSurveyMatches(actor);
+    [response] = await database
+      .select()
+      .from(surveyResponses)
+      .where(eq(surveyResponses.id, response!.id));
+    expect(response).toMatchObject({
+      confirmedStudentId: person!.id,
+      linkSource: "staff",
+      enrichmentIssues: [],
+    });
+    expect(
+      (
+        await database
+          .select()
+          .from(registrations)
+          .where(eq(registrations.id, registration.id))
+      )[0]!.abilityLevelId,
+    ).toBe(registration.abilityLevelId);
+    await database
+      .update(people)
+      .set({ dateOfBirth: "2016-02-03" })
+      .where(eq(people.id, person!.id));
+    await refreshSurveyMatches(actor);
+    [response] = await database
+      .select()
+      .from(surveyResponses)
+      .where(eq(surveyResponses.id, response!.id));
+    expect(response!.confirmedStudentId).toBe(person!.id);
+    expect(response!.enrichmentIssues.join()).toContain("Birthdates differ");
+    const review = await getSurveyWorkspace(actor, {
+      link: "review",
+      programId,
+      q: "Review Evidence",
+    });
+    expect(review.responses.map((item) => item.id)).toContain(response!.id);
+    expect(review.responseTotal).toBe(1);
+    expect(review.reviewTotal).toBe(1);
+  });
+  test("backfills link provenance from audit history and reopens only conflicting automatic links", async () => {
+    const cases = [];
+    for (const source of ["automatic", "staff", "unknown"]) {
+      const [person] = await database
+        .insert(people)
+        .values({
+          organizationId: actor.organizationId,
+          firstName: "Provenance",
+          lastName: source,
+          dateOfBirth: "2017-01-08",
+        })
+        .returning();
+      await database.insert(students).values({ personId: person!.id });
+      await enrollMatchingStudent(person!.id);
+      const [response] = await database
+        .insert(surveyResponses)
+        .values({
+          surveyId,
+          confirmedStudentId: person!.id,
+          matchStatus: "unique",
+          childFirstName: "Provenance",
+          childLastName: source,
+          childDateOfBirth: "2016-01-08",
+          answers: {
+            ...answers,
+            childFirstName: "Provenance",
+            childLastName: source,
+            childDateOfBirth: "2016-01-08",
+          },
+        })
+        .returning();
+      if (source !== "unknown")
+        await database.insert(auditEvents).values({
+          organizationId: actor.organizationId,
+          actorId: null,
+          entityType: "survey_response",
+          entityId: response!.id,
+          action: "submitted",
+          metadata: { matchStatus: "unique" },
+        });
+      if (source === "staff")
+        await database.insert(auditEvents).values({
+          organizationId: actor.organizationId,
+          actorId: actor.userId,
+          entityType: "survey_response",
+          entityId: response!.id,
+          action: "survey.match_confirmed",
+          metadata: { studentId: person!.id },
+        });
+      cases.push({ source, studentId: person!.id, responseId: response!.id });
+    }
+    const migration = await readFile(
+      resolve("src/db/migrations/0021_survey-review-provenance.sql"),
+      "utf8",
+    );
+    await testSql.unsafe(
+      migration.split("--> statement-breakpoint").slice(3).join("\n"),
+    );
+    await refreshSurveyMatches(actor);
+    await refreshSurveyMatches(actor);
+    for (const item of cases) {
+      const [response] = await database
+        .select()
+        .from(surveyResponses)
+        .where(eq(surveyResponses.id, item.responseId));
+      expect(response!.linkSource).toBe(item.source);
+      expect(response!.confirmedStudentId).toBe(
+        item.source === "automatic" ? null : item.studentId,
+      );
+      expect(response!.enrichmentIssues.join()).toContain("Birthdates differ");
+      if (item.source === "unknown")
+        expect(response!.enrichmentIssues.join()).toContain("origin");
+      expect(
+        (
+          await database
+            .select()
+            .from(people)
+            .where(eq(people.id, item.studentId))
+        )[0]!.dateOfBirth,
+      ).toBe("2017-01-08");
+    }
   });
 });

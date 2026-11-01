@@ -78,7 +78,8 @@ export function resolveRegistrationSchedule(
     slots.some(
       (slot) =>
         slot.id === explicit.timeSlotId &&
-        (slot.cohort ?? "season") === importedCohort(source) &&
+        ((!source.sourceKey && !source.session) ||
+          (slot.cohort ?? "season") === importedCohort(source)) &&
         (slot.allowedWeekdays === undefined ||
           slot.allowedWeekdays.includes(explicit.weekday!)),
     )
@@ -91,6 +92,13 @@ export function resolveRegistrationSchedule(
   const label = String(source.session ?? "")
     .trim()
     .toLowerCase();
+  const clock = label
+    .replace(/\s+/g, "")
+    .match(/^(\d{1,2})(?::([0-5]\d))?(am|pm)$/);
+  const startTime =
+    clock && Number(clock[1]) >= 1 && Number(clock[1]) <= 12
+      ? `${String((Number(clock[1]) % 12) + (clock[3] === "pm" ? 12 : 0)).padStart(2, "0")}:${clock[2] ?? "00"}`
+      : null;
   const weekendHours =
     label === "10am" || label === "am"
       ? ["10:00", "12:00"]
@@ -125,7 +133,8 @@ export function resolveRegistrationSchedule(
       ? slots.filter(
           (slot) =>
             slot.cohort === importedCohort(source) &&
-            slot.startsAt?.slice(0, 5) === "09:00",
+            slot.startsAt?.slice(0, 5) === "09:30" &&
+            slot.endsAt?.slice(0, 5) === "11:00",
         )
       : [];
   const candidates = (
@@ -133,7 +142,16 @@ export function resolveRegistrationSchedule(
       ? matches
       : weekdayCohortMatches.length
         ? weekdayCohortMatches
-        : clockMatches
+        : startTime
+          ? slots.filter(
+              (slot) =>
+                (slot.cohort ?? "season") === importedCohort(source) &&
+                slot.startsAt?.slice(0, 5) === startTime &&
+                (!slot.endsAt ||
+                  slot.endsAt.slice(0, 5) <=
+                    (clock?.[3] === "am" ? "12:30" : "23:59")),
+            )
+          : clockMatches
   ).filter(
     (slot) =>
       slot.allowedWeekdays === undefined ||

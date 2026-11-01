@@ -63,9 +63,9 @@ export function InstructorPreferencesEditor({
   ];
   const ranges = {
     minimumAge:
-      rows[0]?.minimumAge == null ? null : Math.min(12, rows[0].minimumAge),
+      rows[0]?.minimumAge == null ? null : Math.min(13, rows[0].minimumAge),
     maximumAge:
-      rows[0]?.maximumAge == null ? null : Math.min(12, rows[0].maximumAge),
+      rows[0]?.maximumAge == null ? null : Math.min(13, rows[0].maximumAge),
     minimumLevel: rows[0]?.minimumLevel ?? null,
     maximumLevel: rows[0]?.maximumLevel ?? null,
   };
@@ -183,7 +183,7 @@ export function InstructorPreferencesEditor({
               const max = kind === "Age" ? "maximumAge" : "maximumLevel";
               const values =
                 kind === "Age"
-                  ? Array.from({ length: 11 }, (_, i) => i + 2)
+                  ? Array.from({ length: 12 }, (_, i) => i + 2)
                   : [1, 2, 3, 4, 5, 6];
               return (
                 <fieldset

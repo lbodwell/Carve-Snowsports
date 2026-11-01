@@ -293,7 +293,7 @@ export function RegistrationImportWorkspace({
 
   if (programs.length === 0) {
     return (
-      <div className="flex max-w-4xl flex-col gap-6">
+      <div className="flex min-w-0 flex-col gap-6">
         <StaffPageHeader
           icon={FileUp}
           title="Registration import"
@@ -312,7 +312,7 @@ export function RegistrationImportWorkspace({
   }
 
   return (
-    <div className="flex max-w-4xl flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-6">
       <StaffPageHeader
         icon={FileUp}
         title="Registration import"

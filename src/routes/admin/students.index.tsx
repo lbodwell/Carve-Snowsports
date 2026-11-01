@@ -24,7 +24,10 @@ function StudentRosterPage() {
         programs={workspace.programOptions}
         selectedProgramId={workspace.program?.id ?? ""}
         onProgramChange={(programId) => {
-          void navigate({ search: programId ? { programId } : {} });
+          void navigate({
+            resetScroll: false,
+            search: programId ? { programId } : {},
+          });
         }}
         disciplines={workspace.disciplines}
         abilityLevels={workspace.abilityLevels}

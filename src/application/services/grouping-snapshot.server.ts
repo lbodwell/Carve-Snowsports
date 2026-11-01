@@ -31,9 +31,13 @@ export function resolveAgeBandForBirthDate(
 ) {
   if (!dateOfBirth) return null;
   const age = computeAgeOnDate(dateOfBirth, seasonStartsOn);
-  const match = ageBands.find(
-    (band) => age >= band.minimumAge && age <= band.maximumAge,
-  );
+  const match = ageBands
+    .filter((band) => age >= band.minimumAge && age <= band.maximumAge)
+    .sort(
+      (a, b) =>
+        a.maximumAge - a.minimumAge - (b.maximumAge - b.minimumAge) ||
+        a.minimumAge - b.minimumAge,
+    )[0];
   if (!match) return null;
   return {
     id: match.id,

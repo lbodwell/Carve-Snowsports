@@ -6,7 +6,6 @@ import {
   desc,
   eq,
   ilike,
-  inArray,
   isNotNull,
   isNull,
   or,
@@ -15,7 +14,6 @@ import {
 import { z } from "zod";
 
 import type { Actor } from "@/application/policies/authorization";
-import type { StudentMatchCandidate } from "@/domain/surveys/survey-definition";
 import { surveyResponseQuerySchema } from "@/domain/surveys/response-query";
 import { ApplicationError } from "@/application/errors";
 import { requirePermission } from "@/application/policies/authorization";
@@ -23,12 +21,12 @@ import { db } from "@/db/client.server";
 import {
   auditEvents,
   contactMethods,
+  organizations,
   people,
   programs,
   registrations,
   seasons,
   studentGuardians,
-  students,
   surveyInvitations,
   surveyResponses,
   surveys,
@@ -37,11 +35,11 @@ import {
   preLessonIntakeAnswersSchema,
   preLessonIntakeDefinition,
 } from "@/domain/surveys/pre-lesson-intake";
-import { matchSurveyStudent } from "@/domain/surveys/student-matching";
+import { assessSurveyResponse } from "@/domain/surveys/response-assessment";
 import { env } from "@/server/env.server";
 import {
   fillConfirmedSurveyBirthdates,
-  surveyMatchCandidates,
+  loadSurveyAssessmentContext,
 } from "@/application/services/survey-matching-service.server";
 
 export const publicSurveyRequestSchema = z.object({
@@ -70,6 +68,8 @@ export async function getSurveyResponseDetail(
       childDateOfBirth: surveyResponses.childDateOfBirth,
       confirmedStudentId: surveyResponses.confirmedStudentId,
       suggestedStudentId: surveyResponses.suggestedStudentId,
+      linkSource: surveyResponses.linkSource,
+      reviewAcknowledgement: surveyResponses.reviewAcknowledgement,
     })
     .from(surveyResponses)
     .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
@@ -81,10 +81,66 @@ export async function getSurveyResponseDetail(
     );
   if (!response)
     throw new ApplicationError("NOT_FOUND", "Survey response not found.");
+  const assessmentContext = await loadSurveyAssessmentContext(
+    db,
+    actor.organizationId,
+  );
   return {
     ...response,
-    students: (await surveyMatchCandidates(db, actor.organizationId)).map(
-      ({ guardianEmails: _emails, ...student }) => student,
+    registrationEvidence: assessmentContext.registrations
+      .filter(
+        (item) =>
+          item.studentId ===
+          (response.confirmedStudentId ?? response.suggestedStudentId),
+      )
+      .map((item) => ({
+        id: item.id,
+        programId: item.programId,
+        discipline:
+          assessmentContext.disciplines.find(
+            (row) => row.id === item.disciplineId,
+          )?.key ?? "Missing",
+        level:
+          assessmentContext.levels.find((row) => row.id === item.abilityLevelId)
+            ?.key ?? "Missing",
+        sourceSchedule: [
+          item.sourceSnapshot?.weekday,
+          item.sourceSnapshot?.session,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      })),
+    students: assessmentContext.students.map(
+      ({ guardianEmails: _emails, ...student }) => ({
+        ...student,
+        reviewEvidenceKey: assessSurveyResponse(
+          {
+            ...response,
+            id: responseId,
+            confirmedStudentId: student.studentId,
+            linkSource: "staff",
+            reviewAcknowledgement: null,
+          },
+          assessmentContext,
+        ).evidenceKey,
+        registrations: assessmentContext.registrations
+          .filter((item) => item.studentId === student.studentId)
+          .map((item) => ({
+            id: item.id,
+            discipline:
+              assessmentContext.disciplines.find(
+                (row) => row.id === item.disciplineId,
+              )?.key ?? "Missing",
+            level:
+              assessmentContext.levels.find(
+                (row) => row.id === item.abilityLevelId,
+              )?.key ?? "Missing",
+            schedule:
+              [item.sourceSnapshot?.weekday, item.sourceSnapshot?.session]
+                .filter(Boolean)
+                .join(" · ") || "Schedule not recorded",
+          })),
+      }),
     ),
     answers: preLessonIntakeAnswersSchema.parse(response.answers),
   };
@@ -184,53 +240,6 @@ async function resolvePublicSurvey(
   };
 }
 
-async function getStudentMatchCandidates(
-  organizationId: string,
-): Promise<Array<StudentMatchCandidate>> {
-  const studentRows = await db
-    .select({
-      studentId: students.personId,
-      firstName: people.firstName,
-      lastName: people.lastName,
-      dateOfBirth: people.dateOfBirth,
-    })
-    .from(students)
-    .innerJoin(people, eq(people.id, students.personId))
-    .where(
-      and(eq(people.organizationId, organizationId), isNull(people.archivedAt)),
-    );
-  const studentIds = studentRows.map((student) => student.studentId);
-  const guardianEmails =
-    studentIds.length === 0
-      ? []
-      : await db
-          .select({
-            studentId: studentGuardians.studentId,
-            email: contactMethods.value,
-          })
-          .from(studentGuardians)
-          .innerJoin(
-            contactMethods,
-            and(
-              eq(contactMethods.personId, studentGuardians.guardianId),
-              eq(contactMethods.kind, "email"),
-            ),
-          )
-          .where(inArray(studentGuardians.studentId, studentIds));
-
-  const emailsByStudent = new Map<string, Array<string>>();
-  for (const row of guardianEmails) {
-    const emails = emailsByStudent.get(row.studentId) ?? [];
-    emails.push(row.email);
-    emailsByStudent.set(row.studentId, emails);
-  }
-
-  return studentRows.map((student) => ({
-    ...student,
-    guardianEmails: emailsByStudent.get(student.studentId) ?? [],
-  }));
-}
-
 export async function getPublicSurvey(
   input: z.infer<typeof publicSurveyRequestSchema>,
 ) {
@@ -262,18 +271,36 @@ export async function submitPublicSurvey(
   }
 
   const answers = preLessonIntakeAnswersSchema.parse(parsed.answers);
-  const candidates = await getStudentMatchCandidates(survey.organizationId);
-  const match = matchSurveyStudent(
-    {
-      firstName: answers.childFirstName,
-      lastName: answers.childLastName,
-      dateOfBirth: answers.childDateOfBirth,
-      invitationEmail: survey.invitationEmail ?? answers.parentEmail,
-    },
-    candidates,
-  );
-
   await db.transaction(async (tx) => {
+    await tx
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(eq(organizations.id, survey.organizationId))
+      .for("update");
+    const context = await loadSurveyAssessmentContext(
+      tx,
+      survey.organizationId,
+    );
+    const assessment = assessSurveyResponse(
+      {
+        childFirstName: answers.childFirstName,
+        childLastName: answers.childLastName,
+        childDateOfBirth: answers.childDateOfBirth,
+        answers: {
+          ...answers,
+          parentEmail: survey.invitationEmail ?? answers.parentEmail,
+        },
+      },
+      context,
+    );
+    const match = {
+      status: assessment.canAutoConfirm
+        ? "unique"
+        : assessment.studentId
+          ? "ambiguous"
+          : "unmatched",
+      suggestedStudentId: assessment.studentId,
+    };
     const [response] = await tx
       .insert(surveyResponses)
       .values({
@@ -284,6 +311,9 @@ export async function submitPublicSurvey(
         childLastName: answers.childLastName,
         childDateOfBirth: answers.childDateOfBirth,
         matchStatus: match.status,
+        linkSource: "automatic",
+        enrichmentIssues: assessment.unresolvedIssues,
+        candidateRegistrationIds: assessment.candidateRegistrationIds,
         suggestedStudentId: match.suggestedStudentId,
         confirmedStudentId:
           match.status === "unique" ? match.suggestedStudentId : null,
@@ -363,7 +393,7 @@ export async function getSurveyResponsePage(actor: Actor, input: unknown = {}) {
   const filters = and(
     eq(surveyResponses.surveyId, survey.id),
     query.programId
-      ? sql`exists (select 1 from ${registrations} r join ${programs} p on p.id = r.program_id join ${seasons} s on s.id = p.season_id where r.student_id = ${surveyResponses.confirmedStudentId} and r.program_id = ${query.programId} and s.organization_id = ${actor.organizationId} and r.status = 'active' and r.archived_at is null)`
+      ? sql`exists (select 1 from ${registrations} r join ${programs} p on p.id = r.program_id join ${seasons} s on s.id = p.season_id where (r.student_id = ${surveyResponses.confirmedStudentId} or r.student_id = ${surveyResponses.suggestedStudentId} or ${surveyResponses.candidateRegistrationIds} @> jsonb_build_array(r.id::text)) and r.program_id = ${query.programId} and s.organization_id = ${actor.organizationId} and r.status = 'active' and r.archived_at is null)`
       : undefined,
     query.q
       ? or(
@@ -379,7 +409,10 @@ export async function getSurveyResponsePage(actor: Actor, input: unknown = {}) {
       : query.link === "unlinked"
         ? isNull(surveyResponses.confirmedStudentId)
         : query.link === "review"
-          ? sql`jsonb_array_length(${surveyResponses.enrichmentIssues}) > 0`
+          ? or(
+              isNull(surveyResponses.confirmedStudentId),
+              sql`jsonb_array_length(${surveyResponses.enrichmentIssues}) > 0`,
+            )
           : undefined,
     query.session
       ? sql`${surveyResponses.answers}->>'session' = ${query.session}`
@@ -397,10 +430,29 @@ export async function getSurveyResponsePage(actor: Actor, input: unknown = {}) {
       ? sql`${surveyResponses.submittedAt} < ${query.until}::date + interval '1 day'`
       : undefined,
   );
+  const [reviewCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(surveyResponses)
+    .leftJoin(
+      people,
+      sql`${people.id} = coalesce(${surveyResponses.confirmedStudentId}, ${surveyResponses.suggestedStudentId})`,
+    )
+    .where(
+      and(
+        filters,
+        or(
+          isNull(surveyResponses.confirmedStudentId),
+          sql`jsonb_array_length(${surveyResponses.enrichmentIssues}) > 0`,
+        ),
+      ),
+    );
   const [total] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(surveyResponses)
-    .leftJoin(people, eq(people.id, surveyResponses.confirmedStudentId))
+    .leftJoin(
+      people,
+      sql`${people.id} = coalesce(${surveyResponses.confirmedStudentId}, ${surveyResponses.suggestedStudentId})`,
+    )
     .where(filters);
   const responses = await db
     .select({
@@ -421,7 +473,10 @@ export async function getSurveyResponsePage(actor: Actor, input: unknown = {}) {
       submittedAt: surveyResponses.submittedAt,
     })
     .from(surveyResponses)
-    .leftJoin(people, eq(people.id, surveyResponses.confirmedStudentId))
+    .leftJoin(
+      people,
+      sql`${people.id} = coalesce(${surveyResponses.confirmedStudentId}, ${surveyResponses.suggestedStudentId})`,
+    )
     .where(filters)
     .orderBy(
       ...(query.sort === "name"
@@ -439,6 +494,7 @@ export async function getSurveyResponsePage(actor: Actor, input: unknown = {}) {
   return {
     query,
     responseTotal: total?.count ?? 0,
+    reviewTotal: reviewCount?.count ?? 0,
     responses: responses.map((response) => ({
       ...response,
       answers: z

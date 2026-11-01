@@ -20,9 +20,16 @@ import {
   studentGuardians,
   students,
   supportRecords,
+  surveyResponses,
+  surveys,
   timeSlots,
 } from "@/db/schema";
 import { registrationScheduleSummary } from "@/domain/imports/registration-schedule-summary";
+import {
+  assessSurveyResponse,
+  registrationSurveyStatus,
+} from "@/domain/surveys/response-assessment";
+import { loadSurveyAssessmentContext } from "@/application/services/survey-matching-service.server";
 import { resolveActor } from "@/server/auth/resolve-actor.server";
 
 async function loadAdminWorkspace(
@@ -63,6 +70,8 @@ async function loadAdminWorkspace(
       ),
     )
     .orderBy(asc(seasons.startsOn), asc(programs.name));
+  if (registrationView && !selectedProgramId && programOptions.length === 1)
+    selectedProgramId = programOptions[0]!.id;
   if (
     registrationView &&
     (!selectedProgramId ||
@@ -252,6 +261,26 @@ async function loadAdminWorkspace(
             .from(contactMethods)
             .where(inArray(contactMethods.personId, guardianIds)),
         ]);
+  const surveyContext = await loadSurveyAssessmentContext(
+    db,
+    actor.organizationId,
+  );
+  const responseRows = (
+    await db
+      .select({ response: surveyResponses })
+      .from(surveyResponses)
+      .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
+      .where(eq(surveys.organizationId, actor.organizationId))
+  ).map(({ response }) => {
+    const assessment = assessSurveyResponse(response, surveyContext);
+    return {
+      confirmedStudentId: response.confirmedStudentId,
+      candidateRegistrationIds: assessment.candidateRegistrationIds,
+      enrichmentIssues: assessment.registration
+        ? assessment.unresolvedIssues
+        : ["Registration session needs review"],
+    };
+  });
   const enrichedRoster = roster.map(({ sourceSnapshot, ...student }) => {
     const guardianLink = guardianLinks.find(
       (link) => link.studentId === student.id,
@@ -261,6 +290,9 @@ async function loadAdminWorkspace(
     );
     return {
       ...student,
+      surveyStatus: student.registrationId
+        ? registrationSurveyStatus(student.registrationId, responseRows)
+        : ("No response" as const),
       schedule: registrationScheduleSummary(
         sourceSnapshot,
         scheduleSlots.filter((slot) => slot.programId === student.programId),

@@ -1,5 +1,6 @@
 import { and, asc, eq, gte, inArray, lte, max } from "drizzle-orm";
 import { z } from "zod";
+import { instructorQualificationsForProgram } from "./instructor-qualifications.server";
 import { describeGroups } from "./group-description.server";
 import type { Actor } from "@/application/policies/authorization";
 import type { LifecycleGroup } from "@/domain/grouping/group-lifecycle";
@@ -19,7 +20,6 @@ import {
   groupingDraftGroups,
   groupingDraftInstructors,
   groupingDrafts,
-  instructorQualifications,
   instructors,
   lessonAttendance,
   lessonInstances,
@@ -151,12 +151,11 @@ export async function validateLifecycleSnapshot(
         .innerJoin(people, eq(people.id, instructors.personId))
         .where(inArray(instructors.personId, staffIds))
     : [];
-  const qualifications = staffIds.length
-    ? await tx
-        .select()
-        .from(instructorQualifications)
-        .where(inArray(instructorQualifications.instructorId, staffIds))
-    : [];
+  const qualifications = await instructorQualificationsForProgram(
+    tx,
+    programId,
+    staffIds,
+  );
   const [program] = await tx
     .select({ organizationId: seasons.organizationId })
     .from(programs)

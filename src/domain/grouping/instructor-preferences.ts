@@ -9,8 +9,8 @@ export const instructorPreferenceSchema = z
     weekday: z.number().int().min(0).max(6),
     startsAt: clock,
     endsAt: clock,
-    minimumAge: z.number().int().min(2).max(12).nullable(),
-    maximumAge: z.number().int().min(2).max(12).nullable(),
+    minimumAge: z.number().int().min(2).max(13).nullable(),
+    maximumAge: z.number().int().min(2).max(13).nullable(),
     minimumLevel: z.number().int().min(1).max(6).nullable(),
     maximumLevel: z.number().int().min(1).max(6).nullable(),
   })
@@ -87,7 +87,17 @@ export function instructorAvailability(
     score,
     reason: score
       ? `Available · ${score} age/level preferences matched`
-      : "Available · no matching preference",
+      : !age && level === undefined
+        ? "Available"
+        : matches.some(
+              (item) =>
+                item.minimumAge === null &&
+                item.maximumAge === null &&
+                item.minimumLevel === null &&
+                item.maximumLevel === null,
+            )
+          ? "Available · any age/level"
+          : "Available · outside preferred age/level",
   };
 }
 
