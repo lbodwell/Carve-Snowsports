@@ -31,7 +31,10 @@ test("splitting is discoverable and note previews do not obstruct neighbouring s
       name: "Create draft",
       exact: true,
     });
-    if (await create.isVisible()) await create.click();
+    if (await create.isVisible()) {
+      await create.click();
+      await expect(create).toBeHidden();
+    }
     const [base] = await sql<
       Array<{
         draft_id: string;
