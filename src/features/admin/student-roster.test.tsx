@@ -82,6 +82,26 @@ const rows: ComponentProps<typeof StudentRoster>["students"] = Array.from(
   }),
 );
 describe("registration roster", () => {
+  it("distinguishes two registrations for the same student on the same weekday", () => {
+    render(
+      <StudentRoster
+        students={[1, 2].map((number) => ({
+          ...rows[0]!,
+          registrationId: `signup-${number}`,
+          schedule: registrationScheduleSummary(
+            { weekday: "Thursday", session: `Session ${number}` },
+            [],
+          ),
+        }))}
+      />,
+    );
+    expect(screen.getByRole("row", { name: /Session 1/ })).toBeTruthy();
+    expect(screen.getByRole("row", { name: /Session 2/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("row", { name: /Session 2/ }));
+    expect(
+      within(screen.getByRole("dialog")).getByText("Session 2 · Time pending"),
+    ).toBeTruthy();
+  });
   it("shows no results until one program is explicitly selected", () => {
     renderUnselected(<StudentRoster students={rows} />);
     expect(screen.queryByRole("table")).toBeNull();

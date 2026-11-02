@@ -51,6 +51,45 @@ afterEach(() => {
 });
 
 describe("administrator group workspace", () => {
+  it("flags changed student levels on the placement and program review list, then clears after correction", () => {
+    const workspace = fixture();
+    workspace.roster[1]!.schedule = { weekday: 0, timeSlotId: "morning" };
+    const view = render(createElement(PersistedGroupingBoard, { workspace }));
+    expect(screen.queryByText(/placements need review across/)).toBeNull();
+    workspace.roster[0]!.abilityLevelId = "level4";
+    view.rerender(
+      createElement(PersistedGroupingBoard, { workspace: { ...workspace } }),
+    );
+    expect(
+      screen.getByText("1 placements need review across this program"),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByRole("group", { name: "Avery Chen" })).getByText(
+        /Placement needs review · Level differs from group/,
+      ),
+    ).toBeTruthy();
+    workspace.roster[0]!.abilityLevelId = "level3";
+    view.rerender(
+      createElement(PersistedGroupingBoard, { workspace: { ...workspace } }),
+    );
+    expect(screen.queryByText(/placements need review across/)).toBeNull();
+  });
+  it("shows a misplaced student even when viewing another session", () => {
+    const workspace = fixture();
+    workspace.roster[1]!.abilityLevelId = "level4";
+    workspace.roster[1]!.schedule = { weekday: 0, timeSlotId: "morning" };
+    render(createElement(PersistedGroupingBoard, { workspace }));
+    fireEvent.click(screen.getByText(/placements need review across/));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Rowan Patel · Sunday · Morning" }),
+    );
+    expect(
+      within(screen.getByRole("region", { name: "Group board" })).getByRole(
+        "group",
+        { name: "Rowan Patel" },
+      ),
+    ).toBeTruthy();
+  });
   it("keeps each student's notes inside their own card in the side panel", () => {
     const workspace = fixture();
     workspace.roster[0]!.medicalNotes = "Carry an inhaler";

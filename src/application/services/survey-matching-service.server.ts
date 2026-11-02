@@ -24,6 +24,8 @@ import {
   timeSlots,
 } from "@/db/schema";
 import { assessSurveyResponse } from "@/domain/surveys/response-assessment";
+import { surveyMatchesRegistrationSession } from "@/domain/surveys/enrichment-context";
+import { weekdayNames } from "@/domain/grouping/registration-schedule";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -441,6 +443,16 @@ export const confirmSurveyMatchSchema = z.object({
     .default("keep-roster"),
   reviewEvidenceKey: z.string().max(100000).optional(),
   programId: z.uuid().optional(),
+  registrationId: z.uuid().optional(),
+  fieldDecisions: z
+    .object({
+      firstName: z.enum(["keep-roster", "use-survey"]).optional(),
+      lastName: z.enum(["keep-roster", "use-survey"]).optional(),
+      discipline: z.enum(["keep-roster", "use-survey"]).optional(),
+      level: z.enum(["keep-roster", "use-survey"]).optional(),
+      session: z.enum(["keep-roster", "use-survey"]).optional(),
+    })
+    .default({}),
 });
 
 export async function confirmSurveyMatch(
@@ -467,7 +479,12 @@ export async function confirmSurveyMatch(
       )
       .for("update", { of: surveyResponses });
     const [student] = await tx
-      .select({ id: people.id, dateOfBirth: people.dateOfBirth })
+      .select({
+        id: people.id,
+        firstName: people.firstName,
+        lastName: people.lastName,
+        dateOfBirth: people.dateOfBirth,
+      })
       .from(students)
       .innerJoin(people, eq(people.id, students.personId))
       .where(
@@ -491,6 +508,11 @@ export async function confirmSurveyMatch(
         "VALIDATION",
         "This response is already confirmed for another student. Existing confirmed links cannot be silently reassigned.",
       );
+    await tx
+      .select({ id: registrations.id })
+      .from(registrations)
+      .where(eq(registrations.studentId, student.id))
+      .for("update");
     const context = await loadSurveyAssessmentContext(tx, actor.organizationId);
     let assessment = assessSurveyResponse(
       {
@@ -515,20 +537,142 @@ export async function confirmSurveyMatch(
         "VALIDATION",
         "Review and acknowledge the conflicting values before confirming this match.",
       );
-    if (parsed.birthdateDecision === "use-survey") {
+    const decisions = parsed.fieldDecisions;
+    const changesRoster =
+      parsed.birthdateDecision === "use-survey" ||
+      Object.values(decisions).includes("use-survey");
+    const registration = parsed.registrationId
+      ? context.registrations.find(
+          (item) =>
+            item.id === parsed.registrationId && item.studentId === student.id,
+        )
+      : assessment.registration;
+    if (parsed.registrationId && !registration)
+      throw new ApplicationError(
+        "VALIDATION",
+        "Choose an active registration belonging to this student.",
+      );
+    const previousValues = {
+      firstName: student.firstName,
+      lastName: student.lastName,
+      registration: registration ? JSON.stringify(registration) : null,
+    };
+    if (changesRoster) {
       if (!parsed.acknowledgeConflicts || !parsed.reviewEvidenceKey)
         throw new ApplicationError(
           "VALIDATION",
-          "Review the current evidence and explicitly acknowledge the birthdate change.",
+          "Review the current evidence and explicitly acknowledge the roster changes.",
         );
       await tx
         .update(people)
-        .set({ dateOfBirth: response.childDateOfBirth, updatedAt: new Date() })
+        .set({
+          ...(parsed.birthdateDecision === "use-survey"
+            ? { dateOfBirth: response.childDateOfBirth }
+            : {}),
+          ...(decisions.firstName === "use-survey"
+            ? { firstName: response.childFirstName }
+            : {}),
+          ...(decisions.lastName === "use-survey"
+            ? { lastName: response.childLastName }
+            : {}),
+          updatedAt: new Date(),
+        })
         .where(eq(people.id, student.id));
       const candidate = context.students.find(
         (item) => item.studentId === student.id,
       );
-      if (candidate) candidate.dateOfBirth = response.childDateOfBirth;
+      if (candidate) {
+        if (parsed.birthdateDecision === "use-survey")
+          candidate.dateOfBirth = response.childDateOfBirth;
+        if (decisions.firstName === "use-survey")
+          candidate.firstName = response.childFirstName;
+        if (decisions.lastName === "use-survey")
+          candidate.lastName = response.childLastName;
+      }
+      if (
+        [decisions.discipline, decisions.level, decisions.session].includes(
+          "use-survey",
+        )
+      ) {
+        if (!registration)
+          throw new ApplicationError(
+            "VALIDATION",
+            "Choose the registration to update before applying survey enrollment values.",
+          );
+        const discipline = context.disciplines.find(
+          (item) =>
+            item.programId === registration.programId &&
+            item.key === response.answers.discipline,
+        );
+        const level = context.levels.find(
+          (item) =>
+            item.programId === registration.programId &&
+            item.key === response.answers.level,
+        );
+        if (
+          (decisions.discipline === "use-survey" && !discipline) ||
+          (decisions.level === "use-survey" && !level)
+        )
+          throw new ApplicationError(
+            "VALIDATION",
+            "The survey discipline or level is unavailable in this registration’s program.",
+          );
+        if (decisions.session === "use-survey") {
+          const weekday = weekdayNames.findIndex((day) =>
+            String(response.answers.session).startsWith(
+              day.toLowerCase() + "-",
+            ),
+          );
+          const slots = context.slots.filter(
+            (slot) => slot.programId === registration.programId,
+          );
+          const matches = slots.filter(
+            (slot) =>
+              slot.allowedWeekdays.includes(weekday) &&
+              surveyMatchesRegistrationSession(
+                String(response.answers.session),
+                { groupingSchedule: { weekday, timeSlotId: slot.id } },
+                slots,
+              ),
+          );
+          if (matches.length !== 1)
+            throw new ApplicationError(
+              "VALIDATION",
+              "The survey session must match one active lesson time in this program. Review program schedules first.",
+            );
+          const slot = matches[0]!;
+          registration.sourceSnapshot = {
+            ...registration.sourceSnapshot,
+            weekday: weekdayNames[weekday],
+            session:
+              slot.cohort === "session-1"
+                ? "Session 1"
+                : slot.cohort === "session-2"
+                  ? "Session 2"
+                  : slot.label,
+            groupingSchedule: { weekday, timeSlotId: slot.id },
+          };
+        }
+        if (decisions.discipline === "use-survey")
+          registration.disciplineId = discipline!.id;
+        if (decisions.level === "use-survey")
+          registration.abilityLevelId = level!.id;
+        await tx
+          .update(registrations)
+          .set({
+            ...(decisions.discipline === "use-survey"
+              ? { disciplineId: registration.disciplineId }
+              : {}),
+            ...(decisions.level === "use-survey"
+              ? { abilityLevelId: registration.abilityLevelId }
+              : {}),
+            ...(decisions.session === "use-survey"
+              ? { sourceSnapshot: registration.sourceSnapshot }
+              : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(registrations.id, registration.id));
+      }
       assessment = assessSurveyResponse(
         {
           ...response,
@@ -552,6 +696,9 @@ export async function confirmSurveyMatch(
           evidenceKey: assessment.evidenceKey,
           reviewedBy: actor.userId,
           reviewedAt: new Date().toISOString(),
+          fieldDecisions: decisions,
+          registrationId: registration?.id,
+          previousValues,
           birthdateDecision: {
             action: parsed.birthdateDecision,
             previousDateOfBirth: student.dateOfBirth,
@@ -583,6 +730,9 @@ export async function confirmSurveyMatch(
         fillMissingBirthDate: parsed.fillMissingBirthDate,
         acknowledgedIssues: issues,
         birthdateDecision: parsed.birthdateDecision,
+        fieldDecisions: decisions,
+        registrationId: registration?.id,
+        previousValues,
         previousDateOfBirth: student.dateOfBirth,
         resultingDateOfBirth: updatedStudent?.dateOfBirth ?? null,
       },

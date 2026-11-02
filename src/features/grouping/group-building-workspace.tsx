@@ -28,6 +28,8 @@ import { staffingGuidance } from "@/domain/grouping/staffing-ratio";
 import { descriptiveGroupLabel } from "@/domain/grouping/group-label";
 import { instructorAvailability } from "@/domain/grouping/instructor-preferences";
 import { computeAgeOnDate } from "@/domain/calendar/student-age";
+import { placementReviewIssues } from "@/domain/grouping/placement-review";
+import { RefreshButton } from "@/components/refresh-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -216,6 +218,22 @@ export function PersistedGroupingBoard({
   const assignedIds = new Set(
     placements.map((assignment) => assignment.registrationId),
   );
+  const placementReviews = placements.flatMap((placement) => {
+    const student = workspace.roster.find(
+      (item) => item.registrationId === placement.registrationId,
+    );
+    const group = workspace.groups.find(
+      (item) => item.id === placement.draftGroupId,
+    );
+    if (!student || !group) return [];
+    const issues = placementReviewIssues(
+      student,
+      group,
+      workspace.ageBands,
+      workspace.program.seasonStartsOn,
+    );
+    return issues.length ? [{ student, group, issues }] : [];
+  });
   const unplaced = workspace.roster.filter(
     (student) =>
       student.registrationStatus === "active" &&
@@ -457,6 +475,11 @@ export function PersistedGroupingBoard({
       await moveStudent(selected.registrationId, selected.fromGroupId, groupId);
   }
   function studentCard(student: Student, fromGroupId?: string) {
+    const review = placementReviews.find(
+      (item) =>
+        item.student.registrationId === student.registrationId &&
+        (!fromGroupId || item.group.id === fromGroupId),
+    );
     const placementGroupId =
       fromGroupId ??
       placements.find(
@@ -478,6 +501,7 @@ export function PersistedGroupingBoard({
           "w-full rounded-xl border bg-white",
           fromGroupId && "rounded-lg",
           active && "border-pm-green bg-pm-mist ring-pm-green/20 ring-2",
+          review && "border-amber-400",
         )}
         onPointerEnter={() =>
           setActiveNotesKey((current) =>
@@ -565,6 +589,11 @@ export function PersistedGroupingBoard({
           {student.survey?.hasSupportReview && (
             <span className="mt-1 block text-xs text-amber-800">
               Support information to review
+            </span>
+          )}
+          {review && (
+            <span className="mt-1 block text-xs font-medium text-amber-900">
+              Placement needs review · {review.issues.join(" · ")}
             </span>
           )}
           {student.needsSchedule && (
@@ -667,8 +696,48 @@ export function PersistedGroupingBoard({
             <Settings2 />
             Workspace tools
           </Button>
+          <RefreshButton />
         </div>
       </header>
+
+      {placementReviews.length > 0 && (
+        <details className="shrink-0 rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm">
+          <summary className="cursor-pointer font-semibold">
+            {placementReviews.length} placements need review across this program
+          </summary>
+          <p className="mt-2">
+            Current student details disagree with their assigned group. Review
+            these placements after roster edits or survey changes.
+          </p>
+          <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto">
+            {placementReviews.map(({ student, group, issues }) => (
+              <li key={`${student.registrationId}:${group.id}`}>
+                <Button
+                  variant="link"
+                  size="sm"
+                  onClick={() => {
+                    setExtraFilters({});
+                    setDiscipline("all");
+                    selectSession({
+                      weekday: group.weekday,
+                      timeSlotId: group.timeSlotId,
+                    });
+                    setSelected({
+                      registrationId: student.registrationId,
+                      fromGroupId: group.id,
+                    });
+                  }}
+                >
+                  {student.firstName} {student.lastName} ·{" "}
+                  {weekdays[group.weekday]} ·{" "}
+                  {findLabel(workspace.timeSlots, group.timeSlotId)}
+                </Button>
+                <p>{issues.join(" · ")}</p>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {Boolean(
         extraFilters.allSessions ||
@@ -1252,6 +1321,13 @@ export function PersistedGroupingBoard({
                               <CardTitle role="heading" aria-level={3}>
                                 {groupName(group.id)}
                               </CardTitle>
+                              {placementReviews.some(
+                                (item) => item.group.id === group.id,
+                              ) && (
+                                <p className="mt-1 text-xs font-semibold text-amber-900">
+                                  Placement review needed
+                                </p>
+                              )}
                             </div>
                             <Button
                               size="icon-xs"

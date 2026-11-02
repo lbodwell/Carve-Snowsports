@@ -1,6 +1,7 @@
 import { matchSurveyStudent, normalizeName } from "./student-matching";
 import { surveyMatchesRegistrationSession } from "./enrichment-context";
 import type { StudentMatchCandidate } from "./survey-definition";
+import type { SurveyFieldDecisions } from "./review-decisions";
 
 export type SurveyAssessmentContext = {
   students: Array<StudentMatchCandidate>;
@@ -37,6 +38,9 @@ export type ReviewAcknowledgement = {
   evidenceKey: string;
   reviewedBy: string;
   reviewedAt: string;
+  fieldDecisions?: SurveyFieldDecisions;
+  registrationId?: string;
+  previousValues?: Record<string, string | null>;
   birthdateDecision?: {
     action: "keep-roster" | "use-survey";
     previousDateOfBirth: string | null;
@@ -230,6 +234,11 @@ export function assessSurveyResponse(
   const evidenceKey = JSON.stringify({
     studentId,
     issues,
+    roster: student && [
+      student.firstName,
+      student.lastName,
+      student.dateOfBirth ?? response.childDateOfBirth,
+    ],
     survey: [
       response.childFirstName,
       response.childLastName,
@@ -242,6 +251,10 @@ export function assessSurveyResponse(
       .map((item) => [
         item.id,
         item.programId,
+        item.disciplineId ??
+          (item.id === registration?.id ? discipline?.id : null),
+        item.abilityLevelId ??
+          (item.id === registration?.id ? level?.id : null),
         item.sourceSnapshot?.weekday,
         item.sourceSnapshot?.session,
         item.sourceSnapshot?.groupingSchedule,

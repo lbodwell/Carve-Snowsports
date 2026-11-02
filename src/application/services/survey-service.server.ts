@@ -38,6 +38,10 @@ import {
 import { assessSurveyResponse } from "@/domain/surveys/response-assessment";
 import { env } from "@/server/env.server";
 import {
+  registrationScheduleSummary,
+  registrationTimeLabel,
+} from "@/domain/imports/registration-schedule-summary";
+import {
   fillConfirmedSurveyBirthdates,
   loadSurveyAssessmentContext,
 } from "@/application/services/survey-matching-service.server";
@@ -85,6 +89,24 @@ export async function getSurveyResponseDetail(
     db,
     actor.organizationId,
   );
+  const registrationLabel = (
+    item: (typeof assessmentContext.registrations)[number],
+  ) => {
+    const summary = registrationScheduleSummary(
+      item.sourceSnapshot,
+      assessmentContext.slots
+        .filter((slot) => slot.programId === item.programId)
+        .map((slot) => ({
+          ...slot,
+          startsOn: null,
+          endsOn: null,
+          excludedDates: [],
+        })),
+    );
+    return [summary.weekday, registrationTimeLabel(summary)]
+      .filter(Boolean)
+      .join(" · ");
+  };
   return {
     ...response,
     registrationEvidence: assessmentContext.registrations
@@ -103,16 +125,21 @@ export async function getSurveyResponseDetail(
         level:
           assessmentContext.levels.find((row) => row.id === item.abilityLevelId)
             ?.key ?? "Missing",
-        sourceSchedule: [
-          item.sourceSnapshot?.weekday,
-          item.sourceSnapshot?.session,
-        ]
-          .filter(Boolean)
-          .join(" · "),
+        sourceSchedule: registrationLabel(item),
       })),
     students: assessmentContext.students.map(
       ({ guardianEmails: _emails, ...student }) => ({
         ...student,
+        matchingRegistrationId: assessSurveyResponse(
+          {
+            ...response,
+            id: responseId,
+            confirmedStudentId: student.studentId,
+            linkSource: "staff",
+            reviewAcknowledgement: null,
+          },
+          assessmentContext,
+        ).registration?.id,
         reviewEvidenceKey: assessSurveyResponse(
           {
             ...response,
@@ -135,10 +162,7 @@ export async function getSurveyResponseDetail(
               assessmentContext.levels.find(
                 (row) => row.id === item.abilityLevelId,
               )?.key ?? "Missing",
-            schedule:
-              [item.sourceSnapshot?.weekday, item.sourceSnapshot?.session]
-                .filter(Boolean)
-                .join(" · ") || "Schedule not recorded",
+            schedule: registrationLabel(item),
           })),
       }),
     ),
