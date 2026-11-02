@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { registrationScheduleSummary } from "./registration-schedule-summary";
+import {
+  registrationScheduleSummary,
+  registrationTimeLabel,
+} from "./registration-schedule-summary";
 import type { ScheduleSlot } from "./registration-schedule-summary";
 
 const slot: ScheduleSlot = {
@@ -14,6 +17,34 @@ const slot: ScheduleSlot = {
 };
 
 describe("registration schedule summary", () => {
+  it.each(["Thursday", "Friday"])(
+    "distinguishes both numbered cohorts on %s with and without configured hours",
+    (weekday) => {
+      for (const number of [1, 2]) {
+        const source = {
+          weekday,
+          session: `Session ${number}`,
+          sourceKey: "signup",
+        };
+        const configured = {
+          ...slot,
+          id: `session-${number}`,
+          label: `Session ${number}`,
+          cohort: `session-${number}`,
+          startsAt: "09:30",
+          endsAt: "11:00",
+        };
+        expect(
+          registrationTimeLabel(
+            registrationScheduleSummary(source, [configured]),
+          ),
+        ).toBe(`Session ${number} · 9:30 AM–11 AM`);
+        expect(
+          registrationTimeLabel(registrationScheduleSummary(source, [])),
+        ).toBe(`Session ${number} · Time pending`);
+      }
+    },
+  );
   it("uses the season calendar for matched regular sessions without a narrower range", () => {
     expect(
       registrationScheduleSummary(

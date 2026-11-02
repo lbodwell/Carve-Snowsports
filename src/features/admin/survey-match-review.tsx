@@ -1,7 +1,9 @@
 import { useId, useState } from "react";
+import type { SurveyFieldDecisions } from "@/domain/surveys/review-decisions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { normalizeName } from "@/domain/surveys/student-matching";
+import { surveySessions } from "@/domain/surveys/pre-lesson-intake";
 
 type Student = {
   studentId: string;
@@ -15,6 +17,7 @@ type Student = {
     schedule: string;
   }>;
   reviewEvidenceKey?: string;
+  matchingRegistrationId?: string;
 };
 
 export function SurveyMatchReview({
@@ -32,6 +35,7 @@ export function SurveyMatchReview({
     confirmedStudentId: string | null;
     suggestedStudentId: string | null;
     enrichmentIssues?: Array<string>;
+    answers?: { discipline: string; level: string; session: string };
   };
   busy: boolean;
   onConfirm: (
@@ -41,9 +45,15 @@ export function SurveyMatchReview({
     acknowledgeConflicts?: boolean,
     reviewEvidenceKey?: string,
     birthdateDecision?: "keep-roster" | "use-survey",
+    fieldDecisions?: SurveyFieldDecisions,
+    registrationId?: string,
   ) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [fieldDecisions, setFieldDecisions] = useState<SurveyFieldDecisions>(
+    {},
+  );
+  const [registrationId, setRegistrationId] = useState<string | undefined>();
   const birthdateChoiceName = useId();
   const [acknowledge, setAcknowledge] = useState(false);
   const [birthdateDecision, setBirthdateDecision] = useState<
@@ -53,6 +63,74 @@ export function SurveyMatchReview({
     response.confirmedStudentId ?? response.suggestedStudentId ?? "",
   );
   const selected = students.find((student) => student.studentId === selectedId);
+  const targetRegistrationId =
+    registrationId ??
+    selected?.matchingRegistrationId ??
+    (selected?.registrations?.length === 1
+      ? selected.registrations[0]!.id
+      : undefined);
+  const registration = selected?.registrations?.find(
+    (item) => item.id === targetRegistrationId,
+  );
+  const fieldChoices: Array<{
+    field: keyof SurveyFieldDecisions;
+    label: string;
+    roster: string;
+    survey: string;
+  }> = [];
+  if (selected) {
+    if (
+      normalizeName(selected.firstName) !==
+      normalizeName(response.childFirstName)
+    )
+      fieldChoices.push({
+        field: "firstName",
+        label: "First name",
+        roster: selected.firstName,
+        survey: response.childFirstName,
+      });
+    if (
+      normalizeName(selected.lastName) !== normalizeName(response.childLastName)
+    )
+      fieldChoices.push({
+        field: "lastName",
+        label: "Last name",
+        roster: selected.lastName,
+        survey: response.childLastName,
+      });
+    if (registration && response.answers) {
+      if (registration.discipline !== response.answers.discipline)
+        fieldChoices.push({
+          field: "discipline",
+          label: "Discipline",
+          roster: registration.discipline,
+          survey: response.answers.discipline,
+        });
+      if (registration.level !== response.answers.level)
+        fieldChoices.push({
+          field: "level",
+          label: "Level",
+          roster: registration.level,
+          survey: response.answers.level,
+        });
+      if (targetRegistrationId !== selected.matchingRegistrationId)
+        fieldChoices.push({
+          field: "session",
+          label: "Session",
+          roster: registration.schedule,
+          survey:
+            surveySessions.find(
+              (item) => item.key === response.answers!.session,
+            )?.label ?? response.answers.session,
+        });
+    }
+  }
+  const requiresReview = Boolean(
+    response.enrichmentIssues?.length ||
+    fieldChoices.length ||
+    (selected?.dateOfBirth &&
+      selected.dateOfBirth !== response.childDateOfBirth),
+  );
   const sorted = [...students].sort((left, right) => {
     const score = (student: Student) =>
       Number(
@@ -102,6 +180,8 @@ export function SurveyMatchReview({
             setSelectedId(event.target.value);
             setAcknowledge(false);
             setBirthdateDecision("keep-roster");
+            setFieldDecisions({});
+            setRegistrationId(undefined);
           }}
         >
           <option value="">Choose a student</option>
@@ -120,6 +200,56 @@ export function SurveyMatchReview({
           ))}
         </select>
       </label>
+      {Boolean(selected?.registrations?.length) && (
+        <label className="grid gap-1 text-sm font-medium">
+          Registration to review
+          <select
+            className="rounded-md border bg-white p-2"
+            disabled={busy}
+            value={targetRegistrationId ?? ""}
+            onChange={(event) => {
+              setRegistrationId(event.target.value || undefined);
+              setFieldDecisions({});
+              setAcknowledge(false);
+            }}
+          >
+            <option value="">Choose a registration</option>
+            {selected!.registrations!.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.schedule} · {item.discipline} · {item.level}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {fieldChoices.map(({ field, label, roster, survey }) => (
+        <fieldset
+          key={field}
+          className="grid gap-2 rounded border border-amber-300 p-3 text-sm"
+          disabled={busy}
+        >
+          <legend className="font-semibold">{label} decision</legend>
+          {(["keep-roster", "use-survey"] as const).map((decision) => (
+            <label key={decision} className="flex items-center gap-2">
+              <input
+                type="radio"
+                name={`${birthdateChoiceName}-${field}`}
+                checked={(fieldDecisions[field] ?? "keep-roster") === decision}
+                onChange={() => {
+                  setFieldDecisions((previous) => ({
+                    ...previous,
+                    [field]: decision,
+                  }));
+                  setAcknowledge(false);
+                }}
+              />
+              {decision === "keep-roster"
+                ? `Keep roster ${label.toLowerCase()} · ${roster}`
+                : `Use survey ${label.toLowerCase()} · ${survey}`}
+            </label>
+          ))}
+        </fieldset>
+      ))}
       {selected?.dateOfBirth &&
         selected.dateOfBirth !== response.childDateOfBirth && (
           <fieldset className="grid gap-2 rounded border border-amber-300 p-3 text-sm">
@@ -152,10 +282,10 @@ export function SurveyMatchReview({
         Conflicting birthdates change only when staff choose the survey date
         during review.
       </p>
-      {selected?.registrations?.map((registration) => (
-        <p key={registration.id} className="rounded border p-2 text-sm">
-          Roster: {registration.schedule} · {registration.discipline} ·{" "}
-          {registration.level}
+      {selected?.registrations?.map((enrollment) => (
+        <p key={enrollment.id} className="rounded border p-2 text-sm">
+          Roster: {enrollment.schedule} · {enrollment.discipline} ·{" "}
+          {enrollment.level}
         </p>
       ))}
       <p className="text-muted-foreground text-sm">
@@ -170,20 +300,15 @@ export function SurveyMatchReview({
           onChange={(event) => setAcknowledge(event.target.checked)}
         />
         I have reviewed the roster and survey values, confirm this is the same
-        child, and accept the remaining differences. Apply my birthdate decision
-        above; preserve other roster values.
+        child, and accept the remaining differences. Apply my field decisions
+        above; preserve the roster values I chose to keep.
       </label>
       <Button
         className="w-fit"
         disabled={
           busy ||
           !selectedId ||
-          (Boolean(
-            response.enrichmentIssues?.length ||
-            (selected?.dateOfBirth &&
-              selected.dateOfBirth !== response.childDateOfBirth),
-          ) &&
-            !acknowledge) ||
+          (requiresReview && !acknowledge) ||
           Boolean(
             response.confirmedStudentId &&
             selectedId !== response.confirmedStudentId,
@@ -197,6 +322,8 @@ export function SurveyMatchReview({
             acknowledge,
             selected?.reviewEvidenceKey,
             birthdateDecision,
+            fieldDecisions,
+            targetRegistrationId,
           )
         }
       >

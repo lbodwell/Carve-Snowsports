@@ -204,4 +204,31 @@ describe("survey identity and enrollment assessment", () => {
       ]),
     ).toBe("Needs review");
   });
+  it("preserves historical staff reviews while requiring new evidence after their original conflicts change", () => {
+    const data = context();
+    data.registrations[0]!.abilityLevelId = "level-6";
+    const assessment = assessSurveyResponse(response, data);
+    const evidence = JSON.parse(assessment.evidenceKey);
+    delete evidence.roster;
+    evidence.registrations = evidence.registrations.map(
+      (item: Array<unknown>) => [item[0], item[1], ...item.slice(4)],
+    );
+    const reviewed = {
+      ...response,
+      confirmedStudentId: "child",
+      linkSource: "staff",
+      reviewAcknowledgement: {
+        studentId: "child",
+        issues: assessment.issues,
+        evidenceKey: JSON.stringify(evidence),
+        reviewedBy: "admin",
+        reviewedAt: "2026-11-01",
+      },
+    };
+    expect(assessSurveyResponse(reviewed, data).unresolvedIssues).toEqual([]);
+    data.students[0]!.dateOfBirth = "2015-01-08";
+    expect(
+      assessSurveyResponse(reviewed, data).unresolvedIssues.join(),
+    ).toContain("Birthdates differ");
+  });
 });

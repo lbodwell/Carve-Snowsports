@@ -87,6 +87,25 @@ test("splitting is discoverable and note previews do not obstruct neighbouring s
       `/grouping?programId=${base.program_id}&weekday=${base.weekday}&timeSlotId=${base.time_slot_id}`,
     );
     const group = page.locator(`[data-group-id="${sourceGroupId}"]`);
+    const [alternativeLevel] = await sql<
+      Array<{ id: string }>
+    >`select id from ability_levels where program_id=${base.program_id} and id<>${base.ability_level_id} limit 1`;
+    if (!alternativeLevel)
+      throw new Error("Seed a second ability level before this browser test.");
+    await sql`update registrations set ability_level_id=${alternativeLevel.id} where id=${registrationIds[0]!}`;
+    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(
+      group.getByText("Placement review needed", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      group.getByText(/Placement needs review · Level differs from group/),
+    ).toBeVisible();
+    await page.screenshot({ path: "out/ux-review/placement-review.png" });
+    await sql`update registrations set ability_level_id=${base.ability_level_id} where id=${registrationIds[0]!}`;
+    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(
+      group.getByText("Placement review needed", { exact: true }),
+    ).toBeHidden();
     await group
       .getByRole("button", { name: "Split group", exact: true })
       .click();

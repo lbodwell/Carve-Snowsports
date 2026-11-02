@@ -1106,6 +1106,174 @@ describe("public parent surveys", () => {
       ).toHaveLength(source === "unknown" ? 1 : 0);
     }
   });
+  test("staff field decisions update only the selected registration, persist through reconciliation, and reject stale evidence", async () => {
+    const [person] = await database
+      .insert(people)
+      .values({
+        organizationId: actor.organizationId,
+        firstName: "RosterFirst",
+        lastName: "RosterLast",
+        dateOfBirth: answers.childDateOfBirth,
+      })
+      .returning();
+    await database.insert(students).values({ personId: person!.id });
+    const registration = await enrollMatchingStudent(person!.id);
+    const otherRegistration = await enrollMatchingStudent(person!.id);
+    const [snowboard] = await database
+      .insert(disciplines)
+      .values({ programId, key: "snowboard", label: "Snowboard" })
+      .onConflictDoUpdate({
+        target: [disciplines.programId, disciplines.key],
+        set: { active: true },
+      })
+      .returning();
+    const [level] = await database
+      .insert(abilityLevels)
+      .values({ programId, key: "level-4", label: "Level 4", numericRank: 4 })
+      .onConflictDoUpdate({
+        target: [abilityLevels.programId, abilityLevels.key],
+        set: { active: true },
+      })
+      .returning();
+    const [slot] = await database
+      .insert(timeSlots)
+      .values({
+        programId,
+        key: "review-thursday-2",
+        label: "Session 2",
+        cohort: "session-2",
+        startsAt: "09:30",
+        endsAt: "11:00",
+        allowedWeekdays: [4, 5],
+      })
+      .returning();
+    await submitPublicSurvey({
+      slug: "pre-lesson-test",
+      website: "",
+      answers: {
+        ...answers,
+        childFirstName: "SurveyFirst",
+        childLastName: "SurveyLast",
+        discipline: "snowboard",
+        level: "level-4",
+        session: "thursday-am-0930-1100-session-2",
+      },
+    });
+    const [response] = await database
+      .select()
+      .from(surveyResponses)
+      .where(eq(surveyResponses.childFirstName, "SurveyFirst"));
+    const detail = await getSurveyResponseDetail(actor, response!.id);
+    const input = {
+      responseId: response!.id,
+      studentId: person!.id,
+      registrationId: registration.id,
+      reviewEvidenceKey: detail.students.find(
+        (item) => item.studentId === person!.id,
+      )!.reviewEvidenceKey,
+      acknowledgeConflicts: true,
+      fieldDecisions: {
+        firstName: "use-survey",
+        lastName: "keep-roster",
+        level: "use-survey",
+        discipline: "use-survey",
+        session: "use-survey",
+      } as const,
+    };
+    await expect(
+      confirmSurveyMatch(actor, { ...input, acknowledgeConflicts: false }),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(
+      confirmSurveyMatch(actor, { ...input, reviewEvidenceKey: undefined }),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(
+      confirmSurveyMatch(actor, { ...input, reviewEvidenceKey: "stale" }),
+    ).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+    await expect(
+      confirmSurveyMatch(instructorActor, input),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      confirmSurveyMatch(actor, { ...input, registrationId: randomUUID() }),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+    // A failed enrollment validation rolls back the profile changes as well.
+    await database
+      .update(timeSlots)
+      .set({ active: false })
+      .where(eq(timeSlots.id, slot!.id));
+    const unavailableDetail = await getSurveyResponseDetail(
+      actor,
+      response!.id,
+    );
+    await expect(
+      confirmSurveyMatch(actor, {
+        ...input,
+        reviewEvidenceKey: unavailableDetail.students.find(
+          (item) => item.studentId === person!.id,
+        )!.reviewEvidenceKey,
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+    const [unchangedPerson] = await database
+      .select()
+      .from(people)
+      .where(eq(people.id, person!.id));
+    expect(unchangedPerson!.firstName).toBe("RosterFirst");
+    await database
+      .update(timeSlots)
+      .set({ active: true })
+      .where(eq(timeSlots.id, slot!.id));
+    await confirmSurveyMatch(actor, input);
+    await refreshSurveyMatches(actor);
+    const [updated] = await database
+      .select()
+      .from(registrations)
+      .where(eq(registrations.id, registration.id));
+    expect(updated).toMatchObject({
+      disciplineId: snowboard!.id,
+      abilityLevelId: level!.id,
+      sourceSnapshot: {
+        weekday: "Thursday",
+        session: "Session 2",
+        groupingSchedule: { weekday: 4, timeSlotId: slot!.id },
+      },
+    });
+    const [other] = await database
+      .select()
+      .from(registrations)
+      .where(eq(registrations.id, otherRegistration.id));
+    expect(other).toEqual(otherRegistration);
+    const [updatedPerson] = await database
+      .select()
+      .from(people)
+      .where(eq(people.id, person!.id));
+    expect(updatedPerson).toMatchObject({
+      firstName: "SurveyFirst",
+      lastName: "RosterLast",
+    });
+    const [saved] = await database
+      .select()
+      .from(surveyResponses)
+      .where(eq(surveyResponses.id, response!.id));
+    expect(saved!.enrichmentIssues).toEqual([]);
+    expect(saved!.reviewAcknowledgement).toMatchObject({
+      fieldDecisions: input.fieldDecisions,
+      registrationId: registration.id,
+    });
+    // Reusing evidence after a name/level update cannot apply another override.
+    await expect(confirmSurveyMatch(actor, input)).rejects.toMatchObject({
+      code: "VERSION_CONFLICT",
+    });
+    const audit = await database
+      .select()
+      .from(auditEvents)
+      .where(eq(auditEvents.entityId, response!.id));
+    expect(
+      audit.find((event) => event.action === "survey.match_confirmed")!
+        .metadata,
+    ).toMatchObject({
+      fieldDecisions: input.fieldDecisions,
+      registrationId: registration.id,
+    });
+  });
   test("staff can retain or replace a conflicting birthdate with a recorded, current decision", async () => {
     for (const decision of ["keep-roster", "use-survey"] as const) {
       const [person] = await database

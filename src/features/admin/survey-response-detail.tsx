@@ -66,6 +66,8 @@ export function SurveyResponseDetail({
           acknowledgeConflicts,
           reviewEvidenceKey,
           birthdateDecision,
+          fieldDecisions,
+          registrationId,
         ) => {
           setBusy(true);
           setMessage("");
@@ -78,13 +80,16 @@ export function SurveyResponseDetail({
                 acknowledgeConflicts,
                 reviewEvidenceKey,
                 birthdateDecision,
+                fieldDecisions,
+                registrationId,
               },
             });
             setAttempt((value) => value + 1);
             await router.invalidate();
             setMessage(
-              birthdateDecision === "use-survey"
-                ? "Student match confirmed. Roster birthdate updated from the survey."
+              birthdateDecision === "use-survey" ||
+                Object.values(fieldDecisions ?? {}).includes("use-survey")
+                ? "Student match confirmed. Field decisions saved."
                 : "Student match confirmed.",
             );
           } catch (confirmationError) {

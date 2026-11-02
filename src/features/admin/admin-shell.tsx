@@ -232,7 +232,6 @@ export function AdminShell({
             ) : (
               <PanelLeftClose aria-hidden />
             )}
-            {!navigationCollapsed && <span>Collapse navigation</span>}
           </Button>
           {navigation.map((item) => {
             const Icon =

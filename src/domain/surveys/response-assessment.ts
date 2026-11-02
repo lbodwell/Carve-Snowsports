@@ -1,6 +1,7 @@
 import { matchSurveyStudent, normalizeName } from "./student-matching";
 import { surveyMatchesRegistrationSession } from "./enrichment-context";
 import type { StudentMatchCandidate } from "./survey-definition";
+import type { SurveyFieldDecisions } from "./review-decisions";
 
 export type SurveyAssessmentContext = {
   students: Array<StudentMatchCandidate>;
@@ -37,6 +38,9 @@ export type ReviewAcknowledgement = {
   evidenceKey: string;
   reviewedBy: string;
   reviewedAt: string;
+  fieldDecisions?: SurveyFieldDecisions;
+  registrationId?: string;
+  previousValues?: Record<string, string | null>;
   birthdateDecision?: {
     action: "keep-roster" | "use-survey";
     previousDateOfBirth: string | null;
@@ -227,9 +231,14 @@ export function assessSurveyResponse(
       "The origin of this existing link is unknown and its current evidence needs staff review.",
     );
   const acknowledgement = response.reviewAcknowledgement;
-  const evidenceKey = JSON.stringify({
+  const evidence = {
     studentId,
     issues,
+    roster: student && [
+      student.firstName,
+      student.lastName,
+      student.dateOfBirth ?? response.childDateOfBirth,
+    ],
     survey: [
       response.childFirstName,
       response.childLastName,
@@ -242,6 +251,10 @@ export function assessSurveyResponse(
       .map((item) => [
         item.id,
         item.programId,
+        item.disciplineId ??
+          (item.id === registration?.id ? discipline?.id : null),
+        item.abilityLevelId ??
+          (item.id === registration?.id ? level?.id : null),
         item.sourceSnapshot?.weekday,
         item.sourceSnapshot?.session,
         item.sourceSnapshot?.groupingSchedule,
@@ -259,11 +272,29 @@ export function assessSurveyResponse(
         slot.allowedWeekdays,
       ])
       .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+  };
+  const evidenceKey = JSON.stringify(evidence);
+  // Reviews saved before field choices used the same conflict values but a
+  // narrower fingerprint. Preserve them until that original evidence changes.
+  const legacyEvidenceKey = JSON.stringify({
+    studentId,
+    issues,
+    survey: evidence.survey,
+    registrations: evidence.registrations.map((item) => [
+      item[0],
+      item[1],
+      ...item.slice(4),
+    ]),
+    slots: evidence.slots,
   });
+  const evidenceMatches =
+    acknowledgement?.evidenceKey === evidenceKey ||
+    (acknowledgement?.fieldDecisions === undefined &&
+      acknowledgement?.evidenceKey === legacyEvidenceKey);
   const unresolvedIssues = issues.filter(
     (issue) =>
       acknowledgement?.studentId !== studentId ||
-      acknowledgement.evidenceKey !== evidenceKey ||
+      !evidenceMatches ||
       !acknowledgement.issues.includes(issue),
   );
   return {

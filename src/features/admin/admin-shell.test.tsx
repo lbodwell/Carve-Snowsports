@@ -48,6 +48,9 @@ describe("staff navigation", () => {
     const normal = screen.getByRole("navigation", { name: "Admin navigation" });
     const expandedMarkup = normal.innerHTML;
     const expandedClasses = normal.className;
+    expect(
+      screen.getByRole("button", { name: "Collapse navigation" }).textContent,
+    ).toBe("");
     view.rerender(<AdminShell workspace>Grouping</AdminShell>);
     expect(normal.innerHTML).toBe(expandedMarkup);
     expect(normal.className).toBe(expandedClasses);
