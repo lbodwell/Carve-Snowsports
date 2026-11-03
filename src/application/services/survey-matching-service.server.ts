@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { Actor } from "@/application/policies/authorization";
 import type { SurveyAssessmentContext } from "@/domain/surveys/response-assessment";
+import { meaningfulSurveyNote } from "@/domain/surveys/survey-notes";
 import { requirePermission } from "@/application/policies/authorization";
 import { ApplicationError } from "@/application/errors";
 import { db } from "@/db/client.server";
@@ -162,10 +163,7 @@ export async function fillConfirmedSurveyBirthdates(
       continue;
     if (!birthdateConflicts.has(response.confirmedStudentId))
       safeBirthdateResponses.add(response.id);
-    const medical =
-      typeof response.answers.medicalConcerns === "string"
-        ? response.answers.medicalConcerns.trim()
-        : "";
+    const medical = meaningfulSurveyNote(response.answers.medicalConcerns);
     if (medical) {
       const inserted = await tx
         .insert(supportRecords)
@@ -173,7 +171,8 @@ export async function fillConfirmedSurveyBirthdates(
           studentId: response.confirmedStudentId,
           category: "special_condition",
           restrictedNote: medical,
-          requiresReview: true,
+          requiresReview: !response.noteReview.medical,
+          active: response.noteReview.medical !== "dismissed",
           sourceResponseId: response.id,
           sourceSubmittedAt: response.submittedAt,
         })

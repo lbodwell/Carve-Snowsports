@@ -59,6 +59,43 @@ function prompt(
 }
 
 describe("Aspenware registration export analysis", () => {
+  it("reports wrong exports once, instead of attempting unrelated daily lesson refunds", () => {
+    const preview = previewAspenwareRegistrationBatch({
+      listingRecords: [
+        listing({ Product: "PM: Ski | Private | 1 Hour | 2:30pm", Qty: "-1" }),
+      ],
+    });
+    expect(preview.facts).toEqual([]);
+    expect(preview.issues).toEqual([
+      expect.stringContaining("No seasonal program registrations found"),
+    ]);
+    expect(preview.sourceCounts.excludedListing).toBe(1);
+  });
+  it("preserves original row numbers and sale-return pairing when excluding unrelated products", () => {
+    const preview = previewAspenwareRegistrationBatch({
+      listingRecords: [
+        listing({ Product: "Private", Qty: "-1" }),
+        listing(),
+        listing({ Qty: "-1" }),
+      ],
+    });
+    expect(preview.issues).toEqual([]);
+    expect(preview.facts).toHaveLength(1);
+    expect(preview.facts[0]).toMatchObject({
+      rowNumber: 3,
+      status: "returned",
+    });
+  });
+  it.each(["Session 1 | 1pm", "1pm | Session 1"])(
+    "retains both cohort and clock from %s",
+    (tokens) => {
+      expect(
+        parseProductDimensions(
+          `PM | Ski | Children's Seasonal Program | 26/27 | Friday | 4-6yrs | ${tokens}`,
+        ),
+      ).toMatchObject({ session: "Session 1", lessonTime: "1pm" });
+    },
+  );
   it.each(["($719.00)", "-$719.00", "$-719.00"])(
     "keeps refund prompts (%s) out of sale enrichment without losing returns",
     (refundPrice) => {

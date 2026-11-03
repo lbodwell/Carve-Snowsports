@@ -6,7 +6,7 @@ import {
 
 export type CsvRecord = Record<string, string>;
 
-export const ASPENWARE_ADAPTER_VERSION = "2026-27@4";
+export const ASPENWARE_ADAPTER_VERSION = "2026-27@5";
 
 export const aspenwareListingHeaders = [
   "DetailRowC0",
@@ -72,6 +72,7 @@ export type AspenwareBatchPreview = {
   facts: Array<AspenwareImportFact>;
   sourceCounts: {
     listing: number;
+    excludedListing?: number;
     byOrder: number | null;
     prompts: number | null;
     birthdates: number | null;
@@ -121,6 +122,7 @@ export type ProductDimensions = {
   weekday: string | null;
   ageBand: string | null;
   session: string | null;
+  lessonTime?: string | null;
   unmappedTokens: Array<string>;
 };
 
@@ -245,7 +247,12 @@ export function parseProductDimensions(product: string): ProductDimensions {
     } else if (ageBandPattern.test(token)) {
       dimensions.ageBand = token;
     } else if (sessionTokens.has(token)) {
-      dimensions.session = token;
+      if (token.startsWith("Session")) dimensions.session = token;
+      else {
+        dimensions.lessonTime = token;
+        if (!dimensions.session?.startsWith("Session"))
+          dimensions.session = token;
+      }
     } else if (token.includes("Program")) {
       dimensions.program = token;
     } else {
@@ -393,7 +400,7 @@ export function pairReturns(listings: Array<ListingRegistration>): {
     const candidates = availableSales.get(key) ?? [];
     if (candidates.length !== 1) {
       warnings.push(
-        `Return row ${registration.rowNumber} has ${candidates.length} sale matches.`,
+        `Return row ${registration.rowNumber} has ${candidates.length} sale matches for ${registration.product} on ${registration.productDate} at $${(registration.priceCents / 100).toFixed(2)}.${candidates.length ? ` Candidate sale rows: ${candidates.map((sale) => sale.rowNumber).join(", ")}.` : " The original sale may be outside the export filters or have a different refund amount."} Re-export complete sale/return history with matching filters; no registration was cancelled automatically.`,
       );
       continue;
     }
@@ -446,8 +453,14 @@ export function analyzeAspenwareExports(
   listingRecords: Array<CsvRecord>,
   promptRecords: Array<CsvRecord>,
 ): ImportAnalysis {
-  const listingRegistrations = parseCustomerProductListing(listingRecords);
-  const promptRegistrations = parsePromptRegistrations(promptRecords);
+  const listingRegistrations = parseCustomerProductListing(
+    listingRecords,
+  ).filter((row) => /seasonal program/i.test(row.product));
+  const promptRegistrations = parsePromptRegistrations(
+    promptRecords.filter((row) =>
+      /seasonal program/i.test(row.ProductHeaderDescription ?? ""),
+    ),
+  );
   const pairedReturns = pairReturns(listingRegistrations);
   const levelCounts = new Map<string, number>();
   for (const registration of promptRegistrations) {
@@ -502,10 +515,18 @@ export function previewAspenwareRegistrationBatch(
   requireHeaders(input.listingRecords, aspenwareListingHeaders, "Listing");
   if (input.byOrderRecords)
     requireHeaders(input.byOrderRecords, aspenwareByOrderHeaders, "By-order");
+  const seasonalPrompts = (input.promptRecords ?? [])
+    .map((row, index) => ({ row, rowNumber: index + 2 }))
+    .filter(({ row }) =>
+      /seasonal program/i.test(row.ProductHeaderDescription ?? ""),
+    );
   const normalizedPrompts = normalizePromptIdentities(
-    input.promptRecords ?? [],
+    seasonalPrompts.map(({ row }) => row),
     input.listingRecords,
     input.birthdateRecords,
+  );
+  normalizedPrompts.rowNumbers = normalizedPrompts.rowNumbers.map(
+    (number) => seasonalPrompts[number - 2]!.rowNumber,
   );
   const birthdates = collectImportBirthdates(input.birthdateRecords ?? []);
   if (normalizedPrompts.records.length)
@@ -516,6 +537,11 @@ export function previewAspenwareRegistrationBatch(
     analysis.returnPairs.map((pair) => pair.saleRowNumber - 2),
   );
   const issues = [
+    ...(analysis.listingRegistrations.length
+      ? []
+      : [
+          "No seasonal program registrations found. Export the Children's Seasonal Program products for the intended season; these files contain other lesson products.",
+        ]),
     ...analysis.warnings,
     ...normalizedPrompts.issues,
     ...birthdates.issues,
@@ -529,9 +555,9 @@ export function previewAspenwareRegistrationBatch(
   ) =>
     `${listingMatchKey(name, listing.product, listing.productDate, listing.priceCents)}|${saleDate}`;
   const listingParticipants = new Map<string, Set<string>>();
-  for (const [index, listing] of analysis.listingRegistrations.entries()) {
+  for (const listing of analysis.listingRegistrations) {
     if (listing.quantity <= 0) continue;
-    const row = input.listingRecords[index] ?? {};
+    const row = input.listingRecords[listing.rowNumber - 2] ?? {};
     const key = purchaserMatchKey(
       cell(row, "CustomerName"),
       listing,
@@ -595,9 +621,9 @@ export function previewAspenwareRegistrationBatch(
 
   let promptMatched = 0;
   let byOrderMatched = 0;
-  const facts = analysis.listingRegistrations.flatMap((listing, index) => {
+  const facts = analysis.listingRegistrations.flatMap((listing) => {
     if (listing.quantity < 0) return [];
-    const sourceRow = input.listingRecords[index] ?? {};
+    const sourceRow = input.listingRecords[listing.rowNumber - 2] ?? {};
     const key = listingMatchKey(
       listing.participantKey,
       listing.product,
@@ -636,7 +662,8 @@ export function previewAspenwareRegistrationBatch(
     const prompt = promptByKey.get(key);
     if (byOrder) byOrderMatched += 1;
     if (prompt) promptMatched += 1;
-    const isReturned = listing.quantity < 0 || returnedSaleIndexes.has(index);
+    const isReturned =
+      listing.quantity < 0 || returnedSaleIndexes.has(listing.rowNumber - 2);
     return [
       {
         sourceKey: [
@@ -697,6 +724,8 @@ export function previewAspenwareRegistrationBatch(
     facts,
     sourceCounts: {
       listing: input.listingRecords.length,
+      excludedListing:
+        input.listingRecords.length - analysis.listingRegistrations.length,
       byOrder: input.byOrderRecords?.length ?? null,
       prompts: input.promptRecords?.length ?? null,
       birthdates: input.birthdateRecords?.length ?? null,

@@ -92,7 +92,15 @@ export function resolveRegistrationSchedule(
   const label = String(source.session ?? "")
     .trim()
     .toLowerCase();
-  const clock = label
+  const lessonTime =
+    String(source.lessonTime ?? "")
+      .trim()
+      .toLowerCase() ||
+    String(source.product ?? "")
+      .match(/\|\s*(1(?::00)?pm)\s*(?:\||$)/i)?.[1]
+      ?.toLowerCase() ||
+    "";
+  const clock = (lessonTime || label)
     .replace(/\s+/g, "")
     .match(/^(\d{1,2})(?::([0-5]\d))?(am|pm)$/);
   const startTime =
@@ -111,6 +119,9 @@ export function resolveRegistrationSchedule(
     (slot) =>
       (slot.cohort ?? "season") === importedCohort(source) &&
       slot.label.trim().toLowerCase() === label &&
+      (!lessonTime ||
+        !slot.startsAt ||
+        slot.startsAt.slice(0, 5) === startTime) &&
       (!(weekday === 0 || weekday === 6) ||
         !weekendHours ||
         !slot.startsAt ||
@@ -133,8 +144,9 @@ export function resolveRegistrationSchedule(
       ? slots.filter(
           (slot) =>
             slot.cohort === importedCohort(source) &&
-            slot.startsAt?.slice(0, 5) === "09:30" &&
-            slot.endsAt?.slice(0, 5) === "11:00",
+            slot.startsAt?.slice(0, 5) === (startTime ?? "09:30") &&
+            slot.endsAt?.slice(0, 5) ===
+              (startTime === "13:00" ? "15:00" : "11:00"),
         )
       : [];
   const candidates = (

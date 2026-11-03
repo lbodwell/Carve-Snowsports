@@ -941,6 +941,25 @@ function TimeSlotSection({
           >
             {(["session-1", "session-2"] as const).map((session, index) => (
               <Button
+                key={`${session}-pm`}
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setCohort(session);
+                  setStartsAt("13:00");
+                  setEndsAt("15:00");
+                  setAllowedWeekdays([5]);
+                  const nextLabel = `Friday PM - Session ${index + 1}`;
+                  setLabel(nextLabel);
+                  if (!editingId) setKey(slugifyKey(nextLabel));
+                }}
+              >
+                Fri · 1–3 PM - Session {index + 1}
+              </Button>
+            ))}
+            {(["session-1", "session-2"] as const).map((session, index) => (
+              <Button
                 key={session}
                 type="button"
                 variant="outline"

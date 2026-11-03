@@ -102,6 +102,16 @@ async function seedDefaultProgramConfiguration(
     },
   ]);
   await tx.insert(timeSlots).values([
+    ...(["session-1", "session-2"] as const).map((cohort, index) => ({
+      programId,
+      key: `${cohort}-pm`,
+      label: `Session ${index + 1} Friday PM`,
+      cohort,
+      startsAt: "13:00",
+      endsAt: "15:00",
+      allowedWeekdays: [5],
+      displayOrder: 6 + index,
+    })),
     {
       programId,
       key: "am",

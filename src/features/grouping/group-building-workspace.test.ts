@@ -204,7 +204,10 @@ describe("administrator group workspace", () => {
     );
     expect(instructors.getByText("Jordan Lee")).toBeTruthy();
     expect(instructors.queryByText("Unavailable Lee")).toBeNull();
-    expect(instructors.queryByText("Busy Lee")).toBeNull();
+    expect(instructors.getByText("Busy Lee")).toBeTruthy();
+    expect(
+      instructors.getAllByText("Assigned · overlaps").length,
+    ).toBeGreaterThan(0);
   });
   it("moves a student directly between groups with the original group attached", async () => {
     const workspace = fixture();

@@ -7,6 +7,14 @@ export type SurveyDiscipline = (typeof disciplines)[number];
 
 export const surveySessions = [
   {
+    key: "friday-pm-1300-1500-session-1",
+    label: "Friday PM (1–3) — session 1 — ages 4–6",
+  },
+  {
+    key: "friday-pm-1300-1500-session-2",
+    label: "Friday PM (1–3) — session 2 — ages 4–6",
+  },
+  {
     key: "thursday-am-0930-1100-session-1",
     label: "Thursday AM (9:30–11) — session 1 (starting Jan 7)",
   },

@@ -66,6 +66,7 @@ export async function getSurveyResponseDetail(
   const [response] = await db
     .select({
       answers: surveyResponses.answers,
+      noteReview: surveyResponses.noteReview,
       enrichmentIssues: surveyResponses.enrichmentIssues,
       childFirstName: surveyResponses.childFirstName,
       childLastName: surveyResponses.childLastName,

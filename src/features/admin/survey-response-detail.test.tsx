@@ -1,8 +1,15 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { SurveyResponseDetail } from "./survey-response-detail";
 import { getParentSurveyResponseDetail } from "@/server/functions/surveys";
+import { reviewSurveyNote } from "@/server/functions/student-roster";
 
 vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ invalidate: vi.fn() }),
@@ -10,6 +17,9 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("@/server/functions/surveys", () => ({
   getParentSurveyResponseDetail: vi.fn(),
   confirmParentSurveyMatch: vi.fn(),
+}));
+vi.mock("@/server/functions/student-roster", () => ({
+  reviewSurveyNote: vi.fn().mockResolvedValue({}),
 }));
 afterEach(() => {
   cleanup();
@@ -26,6 +36,7 @@ it("reloads an already-open response when refreshed queue evidence changes", asy
     linkSource: "automatic",
     reviewAcknowledgement: null,
     enrichmentIssues: [] as Array<string>,
+    noteReview: {},
     students: [],
     registrationEvidence: [],
     answers: {
@@ -37,7 +48,7 @@ it("reloads an already-open response when refreshed queue evidence changes", asy
       session: "saturday-am-1000-1200",
       level: "level-3",
       lifts: ["never"],
-      medicalConcerns: "",
+      medicalConcerns: "Carries an inhaler",
       additionalInformation: "",
     },
   };
@@ -60,4 +71,19 @@ it("reloads an already-open response when refreshed queue evidence changes", asy
   await waitFor(() =>
     expect(getParentSurveyResponseDetail).toHaveBeenCalledTimes(2),
   );
+  vi.mocked(getParentSurveyResponseDetail).mockResolvedValue({
+    ...value,
+    noteReview: { medical: "dismissed" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Hide note" }));
+  await screen.findByText("Hidden from lesson staff");
+  expect(reviewSurveyNote).toHaveBeenLastCalledWith({
+    data: { responseId: "response", kind: "medical", status: "dismissed" },
+  });
+  vi.mocked(getParentSurveyResponseDetail).mockResolvedValue(value);
+  fireEvent.click(screen.getByRole("button", { name: "Restore note" }));
+  await screen.findByText("Needs review");
+  expect(reviewSurveyNote).toHaveBeenLastCalledWith({
+    data: { responseId: "response", kind: "medical", status: "pending" },
+  });
 });
