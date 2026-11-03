@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { Actor } from "@/application/policies/authorization";
@@ -18,6 +18,8 @@ import {
   studentGuardians,
   students,
   supportRecords,
+  surveyResponses,
+  surveys,
 } from "@/db/schema";
 
 const studentProfileFields = {
@@ -40,6 +42,7 @@ export const reviewSurveySupportSchema = z.object({
   studentId: z.uuid(),
   responseId: z.uuid(),
   requiresReview: z.boolean(),
+  dismissed: z.boolean().optional(),
 });
 export async function reviewSurveySupport(
   actor: Actor,
@@ -61,17 +64,36 @@ export async function reviewSurveySupport(
     if (!student) throw new ApplicationError("NOT_FOUND", "Student not found.");
     const [note] = await tx
       .update(supportRecords)
-      .set({ requiresReview: parsed.requiresReview, updatedAt: new Date() })
+      .set({
+        requiresReview: parsed.requiresReview,
+        ...(parsed.dismissed !== undefined
+          ? { active: !parsed.dismissed }
+          : {}),
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(supportRecords.studentId, student.id),
           eq(supportRecords.sourceResponseId, parsed.responseId),
-          eq(supportRecords.active, true),
         ),
       )
       .returning({ id: supportRecords.id });
     if (!note)
       throw new ApplicationError("NOT_FOUND", "Survey support note not found.");
+    const medicalStatus = parsed.dismissed
+      ? "dismissed"
+      : parsed.requiresReview
+        ? null
+        : "reviewed";
+    await tx
+      .update(surveyResponses)
+      .set({
+        noteReview: medicalStatus
+          ? sql`${surveyResponses.noteReview} || ${JSON.stringify({ medical: medicalStatus })}::jsonb`
+          : sql`${surveyResponses.noteReview} - 'medical'`,
+        updatedAt: new Date(),
+      })
+      .where(eq(surveyResponses.id, parsed.responseId));
     await tx.insert(auditEvents).values({
       organizationId: actor.organizationId,
       actorId: actor.userId,
@@ -82,10 +104,68 @@ export async function reviewSurveySupport(
         studentId: student.id,
         responseId: parsed.responseId,
         requiresReview: parsed.requiresReview,
+        dismissed: parsed.dismissed,
         category: "medical",
       },
     });
     return { requiresReview: parsed.requiresReview };
+  });
+}
+
+export const reviewSurveyNoteSchema = z.object({
+  responseId: z.uuid(),
+  kind: z.enum(["medical", "placement"]),
+  status: z.enum(["reviewed", "dismissed", "pending"]),
+});
+
+export async function reviewSurveyNote(
+  actor: Actor,
+  input: z.infer<typeof reviewSurveyNoteSchema>,
+) {
+  requirePermission(actor, "people:manage");
+  const parsed = reviewSurveyNoteSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const [response] = await tx
+      .select({
+        id: surveyResponses.id,
+        noteReview: surveyResponses.noteReview,
+      })
+      .from(surveyResponses)
+      .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
+      .where(
+        and(
+          eq(surveyResponses.id, parsed.responseId),
+          eq(surveys.organizationId, actor.organizationId),
+        ),
+      )
+      .for("update", { of: surveyResponses });
+    if (!response)
+      throw new ApplicationError("NOT_FOUND", "Survey response not found.");
+    const noteReview = { ...response.noteReview };
+    if (parsed.status === "pending") delete noteReview[parsed.kind];
+    else noteReview[parsed.kind] = parsed.status;
+    await tx
+      .update(surveyResponses)
+      .set({ noteReview, updatedAt: new Date() })
+      .where(eq(surveyResponses.id, response.id));
+    if (parsed.kind === "medical")
+      await tx
+        .update(supportRecords)
+        .set({
+          active: parsed.status !== "dismissed",
+          requiresReview: parsed.status === "pending",
+          updatedAt: new Date(),
+        })
+        .where(eq(supportRecords.sourceResponseId, response.id));
+    await tx.insert(auditEvents).values({
+      organizationId: actor.organizationId,
+      actorId: actor.userId,
+      entityType: "survey_response",
+      entityId: response.id,
+      action: "survey.note_reviewed",
+      metadata: parsed,
+    });
+    return noteReview;
   });
 }
 

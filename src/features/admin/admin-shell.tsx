@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import {
   CalendarDays,
   CalendarRange,
@@ -62,6 +62,10 @@ export function AdminShell({
   > | null>(null);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const [navigationCollapsed, setNavigationCollapsed] = useState(false);
+  const pathname = useLocation({ select: (location) => location.pathname });
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [pathname]);
 
   useEffect(() => {
     setIsHydrated(true);
@@ -270,7 +274,14 @@ export function AdminShell({
             workspace && "xl:flex xl:min-h-0 xl:flex-col",
           )}
         >
-          <fieldset className="contents" disabled={!isHydrated}>
+          <fieldset
+            className={
+              workspace
+                ? "m-0 min-h-0 min-w-0 border-0 p-0 xl:flex xl:flex-1 xl:flex-col xl:overflow-hidden"
+                : "contents"
+            }
+            disabled={!isHydrated}
+          >
             {children}
           </fieldset>
         </main>

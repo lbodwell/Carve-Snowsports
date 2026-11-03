@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import type { Actor } from "@/application/policies/authorization";
 import {
+  reviewSurveyNote,
   reviewSurveySupport,
   updateStudent,
 } from "@/application/services/student-roster-service.server";
@@ -889,6 +890,48 @@ describe("public parent surveys", () => {
     expect(notes.find((note) => !note.sourceResponseId)!.restrictedNote).toBe(
       "Revised staff note",
     );
+    await reviewSurveySupport(actor, {
+      studentId: person!.id,
+      responseId: response!.id,
+      requiresReview: false,
+      dismissed: true,
+    });
+    await reviewSurveyNote(actor, {
+      responseId: response!.id,
+      kind: "placement",
+      status: "dismissed",
+    });
+    await refreshSurveyMatches(actor);
+    const [hidden] = await database
+      .select()
+      .from(supportRecords)
+      .where(eq(supportRecords.sourceResponseId, response!.id));
+    expect(hidden).toMatchObject({ active: false, requiresReview: false });
+    const [reviewedResponse] = await database
+      .select()
+      .from(surveyResponses)
+      .where(eq(surveyResponses.id, response!.id));
+    expect(reviewedResponse!.noteReview).toEqual({
+      medical: "dismissed",
+      placement: "dismissed",
+    });
+    await reviewSurveyNote(actor, {
+      responseId: response!.id,
+      kind: "medical",
+      status: "pending",
+    });
+    const [restored] = await database
+      .select()
+      .from(supportRecords)
+      .where(eq(supportRecords.sourceResponseId, response!.id));
+    expect(restored).toMatchObject({ active: true, requiresReview: true });
+    await expect(
+      reviewSurveyNote(instructorActor, {
+        responseId: response!.id,
+        kind: "placement",
+        status: "dismissed",
+      }),
+    ).rejects.toThrow();
     await expect(
       reviewSurveySupport(instructorActor, {
         studentId: person!.id,

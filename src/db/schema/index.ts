@@ -640,6 +640,12 @@ export const surveyResponses = pgTable(
       .$type<Array<string>>()
       .default([])
       .notNull(),
+    noteReview: jsonb("note_review")
+      .$type<
+        Partial<Record<"medical" | "placement", "reviewed" | "dismissed">>
+      >()
+      .default({})
+      .notNull(),
     reviewAcknowledgement: jsonb(
       "review_acknowledgement",
     ).$type<ReviewAcknowledgement>(),

@@ -96,6 +96,7 @@ export function StudentDetailEditor({
   onBusyChange,
 }: StudentDetailEditorProps) {
   const [reviewed, setReviewed] = useState<Array<string>>([]);
+  const [dismissed, setDismissed] = useState<Array<string>>([]);
   const [reviewing, setReviewing] = useState(false);
   const [firstName, setFirstName] = useState(student.firstName);
   const [lastName, setLastName] = useState(student.lastName);
@@ -385,61 +386,97 @@ export function StudentDetailEditor({
               />
             </Field>
           </div>
-          {student.surveyMedicalNotes?.map((note) => (
-            <article
-              key={note.sourceResponseId}
-              className="rounded-lg border p-3"
-            >
-              <h3 className="font-medium">
-                Survey medical note ·{" "}
-                {note.sourceSubmittedAt
-                  ? new Date(note.sourceSubmittedAt).toLocaleDateString()
-                  : "Date unavailable"}
-              </h3>
-              <p className="whitespace-pre-wrap">{note.note}</p>
-              {note.requiresReview &&
-              !reviewed.includes(note.sourceResponseId ?? "") ? (
-                <>
-                  <p className="text-sm text-amber-700">Needs review</p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={reviewing}
-                    onClick={async () => {
-                      if (!note.sourceResponseId) return;
-                      setReviewing(true);
-                      try {
-                        await reviewSurveySupport({
-                          data: {
-                            studentId: student.id,
-                            responseId: note.sourceResponseId,
-                            requiresReview: false,
-                          },
-                        });
-                        setReviewed((value) => [
-                          ...value,
-                          note.sourceResponseId!,
-                        ]);
-                      } catch (reviewError) {
-                        setError(
-                          reviewError instanceof Error
-                            ? reviewError.message
-                            : "Review could not be saved.",
-                        );
-                      } finally {
-                        setReviewing(false);
-                      }
-                    }}
-                  >
-                    Mark reviewed
-                  </Button>
-                </>
-              ) : (
-                <p className="text-muted-foreground text-sm">Reviewed</p>
-              )}
-            </article>
-          ))}
+          {student.surveyMedicalNotes
+            ?.filter((note) => !dismissed.includes(note.sourceResponseId ?? ""))
+            .map((note) => (
+              <article
+                key={note.sourceResponseId}
+                className="rounded-lg border p-3"
+              >
+                <h3 className="font-medium">
+                  Survey medical note ·{" "}
+                  {note.sourceSubmittedAt
+                    ? new Date(note.sourceSubmittedAt).toLocaleDateString()
+                    : "Date unavailable"}
+                </h3>
+                <p className="whitespace-pre-wrap">{note.note}</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={reviewing}
+                  onClick={async () => {
+                    if (!note.sourceResponseId) return;
+                    setReviewing(true);
+                    try {
+                      await reviewSurveySupport({
+                        data: {
+                          studentId: student.id,
+                          responseId: note.sourceResponseId,
+                          requiresReview: false,
+                          dismissed: true,
+                        },
+                      });
+                      setDismissed((value) => [
+                        ...value,
+                        note.sourceResponseId!,
+                      ]);
+                    } catch (reviewError) {
+                      setError(
+                        reviewError instanceof Error
+                          ? reviewError.message
+                          : "Note could not be hidden.",
+                      );
+                    } finally {
+                      setReviewing(false);
+                    }
+                  }}
+                >
+                  Hide duplicate or unneeded note
+                </Button>
+                {note.requiresReview &&
+                !reviewed.includes(note.sourceResponseId ?? "") ? (
+                  <>
+                    <p className="text-sm text-amber-700">Needs review</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={reviewing}
+                      onClick={async () => {
+                        if (!note.sourceResponseId) return;
+                        setReviewing(true);
+                        try {
+                          await reviewSurveySupport({
+                            data: {
+                              studentId: student.id,
+                              responseId: note.sourceResponseId,
+                              requiresReview: false,
+                            },
+                          });
+                          setReviewed((value) => [
+                            ...value,
+                            note.sourceResponseId!,
+                          ]);
+                        } catch (reviewError) {
+                          setError(
+                            reviewError instanceof Error
+                              ? reviewError.message
+                              : "Review could not be saved.",
+                          );
+                        } finally {
+                          setReviewing(false);
+                        }
+                      }}
+                    >
+                      Mark reviewed
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-muted-foreground text-sm">Reviewed</p>
+                )}
+              </article>
+            ))}
           <Field>
             <FieldLabel htmlFor="edit-medical-info">
               Medical/support information

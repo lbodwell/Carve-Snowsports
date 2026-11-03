@@ -644,7 +644,7 @@ export function PersistedGroupingBoard({
   }
 
   return (
-    <div className="flex min-h-0 flex-col gap-3 xl:h-full">
+    <div className="flex min-h-0 flex-col gap-3 xl:flex-1 xl:overflow-hidden">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -1869,6 +1869,24 @@ export function PersistedGroupingBoard({
           {notesStudent && (
             <div className="px-4 pb-6">
               <StudentNotesContent student={notesStudent} />
+              <Link
+                className="mt-4 inline-block text-sm underline"
+                to="/admin/surveys"
+                search={{
+                  sort: "newest",
+                  q: `${notesStudent.firstName} ${notesStudent.lastName}`,
+                  page: 1,
+                  pageSize: 25,
+                  link: "all",
+                  session: "",
+                  discipline: "",
+                  level: "",
+                  from: "",
+                  until: "",
+                }}
+              >
+                Review or hide survey notes
+              </Link>
             </div>
           )}
         </SheetContent>
@@ -2265,23 +2283,6 @@ function InstructorOverview({
         }).eligible,
       ),
     )
-    .filter(
-      (instructor) =>
-        !workspace.groups.some((group) => {
-          if (
-            group.weekday !== weekday ||
-            group.timeSlotId === timeSlotId ||
-            !group.instructorIds.includes(instructor.id)
-          )
-            return false;
-          const otherSlot = workspace.timeSlots.find(
-            (item) => item.id === group.timeSlotId,
-          );
-          return Boolean(
-            slot && otherSlot && sessionsOverlap(slot, otherSlot, weekday),
-          );
-        }),
-    )
     .filter((instructor) =>
       `${instructor.firstName} ${instructor.lastName}`
         .toLowerCase()
@@ -2379,7 +2380,7 @@ function InstructorOverview({
                       : "bg-pm-mist text-pm-green",
                   )}
                 >
-                  {assigned.length ? "Assigned" : "Available"}
+                  {assigned.length ? "Assigned · overlaps" : "Available"}
                 </span>
               </div>
               <p className="text-muted-foreground mt-1">
@@ -2389,7 +2390,15 @@ function InstructorOverview({
               </p>
               {assigned.length > 0 && (
                 <p className="text-muted-foreground mt-1 text-[11px]">
-                  {assigned.map((group) => groupName(group.id)).join(", ")}
+                  {assigned
+                    .map(
+                      (group) =>
+                        `${weekdays[group.weekday]} · ${findLabel(workspace.timeSlots, group.timeSlotId)} · ${groupName(group.id)}`,
+                    )
+                    .join(", ")}
+                  {
+                    " · Unassign from the overlapping group to make available here."
+                  }
                 </p>
               )}
             </div>

@@ -7,6 +7,7 @@ import type { LifecycleGroup } from "@/domain/grouping/group-lifecycle";
 import type { Actor } from "@/application/policies/authorization";
 import type { GroupingProgramSnapshot } from "@/application/services/grouping-snapshot.server";
 import { instructorAvailability } from "@/domain/grouping/instructor-preferences";
+import { meaningfulSurveyNote } from "@/domain/surveys/survey-notes";
 import {
   captureGroupingSnapshot,
   getGroupLifecycle,
@@ -604,6 +605,7 @@ export async function getGroupingWorkspace(
         disciplineId: registrations.disciplineId,
         abilityLevelId: registrations.abilityLevelId,
         placementNotes: students.notes,
+        hasSupportReview: sql<boolean>`exists(select 1 from ${supportRecords} where ${supportRecords.studentId} = ${people.id} and ${supportRecords.active} = true and ${supportRecords.requiresReview} = true)`,
         medicalNotes: sql<string>`coalesce((select string_agg(concat(case when ${supportRecords.sourceResponseId} is null then 'Staff: ' else 'Survey: ' end, ${supportRecords.restrictedNote}), E'\n') from ${supportRecords} where ${supportRecords.studentId} = ${people.id} and ${supportRecords.active} = true), '')`,
         sourceSnapshot: registrations.sourceSnapshot,
         registrationStatus: registrations.status,
@@ -657,6 +659,7 @@ export async function getGroupingWorkspace(
     .select({
       studentId: surveyResponses.confirmedStudentId,
       answers: surveyResponses.answers,
+      noteReview: surveyResponses.noteReview,
       candidateRegistrationIds: surveyResponses.candidateRegistrationIds,
       enrichmentIssues: surveyResponses.enrichmentIssues,
     })
@@ -700,12 +703,16 @@ export async function getGroupingWorkspace(
       );
       return response
         ? {
-            placementNotes: String(
-              response.answers.additionalInformation ?? "",
-            ),
+            placementNotes:
+              response.noteReview.placement === "dismissed"
+                ? ""
+                : meaningfulSurveyNote(response.answers.additionalInformation),
             level: String(response.answers.level ?? ""),
             session: String(response.answers.session ?? ""),
-            hasSupportReview: Boolean(response.answers.medicalConcerns),
+            hasSupportReview:
+              Boolean(meaningfulSurveyNote(response.answers.medicalConcerns)) &&
+              !response.noteReview.medical &&
+              Boolean(student.hasSupportReview),
           }
         : null;
     })(),

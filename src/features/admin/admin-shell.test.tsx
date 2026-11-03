@@ -6,11 +6,12 @@ import {
   screen,
   within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminShell } from "./admin-shell";
 import type { ReactNode } from "react";
 
 vi.mock("@tanstack/react-router", () => ({
+  useLocation: () => "/grouping",
   Link: ({
     children,
     to,
@@ -40,6 +41,9 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   window.localStorage.clear();
+});
+beforeEach(() => {
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
 });
 
 describe("staff navigation", () => {

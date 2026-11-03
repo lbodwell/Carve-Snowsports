@@ -77,6 +77,7 @@ const reconciliationLabels: Record<string, string> = {
   promptMatched: "Ability records matched",
   byOrderMatched: "Purchasers matched",
   issueCount: "Blocking issues",
+  excludedListing: "Other lesson rows excluded",
 };
 
 async function textFromFile(file: File | null) {

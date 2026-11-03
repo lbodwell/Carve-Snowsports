@@ -251,6 +251,13 @@ async function toPreview(
       promptMatched: numberValue("promptMatched"),
       byOrderMatched: numberValue("byOrderMatched"),
       issueCount: numberValue("issueCount"),
+      excludedListing:
+        typeof values.sourceCounts === "object" && values.sourceCounts !== null
+          ? Number(
+              (values.sourceCounts as Record<string, unknown>)
+                .excludedListing ?? 0,
+            )
+          : 0,
     },
     facts: facts.map((fact) => ({
       rowNumber: fact.rowNumber,
@@ -368,16 +375,17 @@ export async function previewRegistrationImport(
         rowCount: csvRecords(file.content, file.kind).length,
       })),
     );
-    await tx.insert(importRows).values(
-      preview.facts.map((fact) => ({
-        batchId: created.id,
-        rowNumber: fact.rowNumber,
-        status: fact.status === "returned" ? "returned" : "pending",
-        rawHash: hash(fact.sourceKey),
-        normalized: fact,
-        issues: fact.issues,
-      })),
-    );
+    if (preview.facts.length)
+      await tx.insert(importRows).values(
+        preview.facts.map((fact) => ({
+          batchId: created.id,
+          rowNumber: fact.rowNumber,
+          status: fact.status === "returned" ? "returned" : "pending",
+          rawHash: hash(fact.sourceKey),
+          normalized: fact,
+          issues: fact.issues,
+        })),
+      );
     return [created];
   });
   return toPreview(
@@ -588,16 +596,17 @@ export async function processQueuedRegistrationImport(batchId: string) {
         .for("update");
       if (current?.phase !== claim) return;
       await tx.delete(importRows).where(eq(importRows.batchId, batchId));
-      await tx.insert(importRows).values(
-        preview.facts.map((fact) => ({
-          batchId,
-          rowNumber: fact.rowNumber,
-          status: fact.status === "returned" ? "returned" : "pending",
-          rawHash: hash(fact.sourceKey),
-          normalized: fact,
-          issues: fact.issues,
-        })),
-      );
+      if (preview.facts.length)
+        await tx.insert(importRows).values(
+          preview.facts.map((fact) => ({
+            batchId,
+            rowNumber: fact.rowNumber,
+            status: fact.status === "returned" ? "returned" : "pending",
+            rawHash: hash(fact.sourceKey),
+            normalized: fact,
+            issues: fact.issues,
+          })),
+        );
       await tx
         .update(importBatches)
         .set({
@@ -1137,7 +1146,10 @@ export async function applyRegistrationImport(
           .update(people)
           .set({ dateOfBirth: fact.dateOfBirth, updatedAt: new Date() })
           .where(and(eq(people.id, studentId), isNull(people.dateOfBirth)));
-      if (source && fact.placementNotes?.length) {
+      if (
+        source &&
+        (fact.placementNotes?.length || fact.dimensions.lessonTime)
+      ) {
         const [existingRegistration] = await tx
           .select({ snapshot: registrations.sourceSnapshot })
           .from(registrations)
@@ -1154,8 +1166,11 @@ export async function applyRegistrationImport(
           .set({
             sourceSnapshot: {
               ...existingRegistration?.snapshot,
+              ...(fact.dimensions.lessonTime
+                ? { lessonTime: fact.dimensions.lessonTime }
+                : {}),
               placementNotes: [
-                ...new Set([...oldNotes, ...fact.placementNotes]),
+                ...new Set([...oldNotes, ...(fact.placementNotes ?? [])]),
               ],
             },
             updatedAt: new Date(),
@@ -1205,6 +1220,7 @@ export async function applyRegistrationImport(
             placementNotes: fact.placementNotes ?? [],
             weekday: fact.dimensions.weekday,
             session: fact.dimensions.session,
+            lessonTime: fact.dimensions.lessonTime,
             ageBand: fact.dimensions.ageBand,
           },
         })

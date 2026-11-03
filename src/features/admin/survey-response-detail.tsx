@@ -7,6 +7,8 @@ import {
 } from "@/server/functions/surveys";
 import { surveyLifts } from "@/domain/surveys/pre-lesson-intake";
 import { Button } from "@/components/ui/button";
+import { reviewSurveyNote } from "@/server/functions/student-roster";
+import { meaningfulSurveyNote } from "@/domain/surveys/survey-notes";
 
 export function SurveyResponseDetail({
   responseId,
@@ -128,19 +130,85 @@ export function SurveyResponseDetail({
               .join(", ")}
           </dd>
         </div>
-        <div>
-          <dt className="font-medium">Medical concerns</dt>
-          <dd className="whitespace-pre-wrap">
-            {data.answers.medicalConcerns || "None provided"}
-          </dd>
-        </div>
-        <div>
-          <dt className="font-medium">Additional information</dt>
-          <dd className="whitespace-pre-wrap">
-            {data.answers.additionalInformation || "None provided"}
-          </dd>
-        </div>
       </dl>
+      <section
+        className="space-y-3 rounded-lg border p-3"
+        aria-label="Survey note review"
+      >
+        <h3 className="font-medium">Notes for lesson staff</h3>
+        <p className="text-muted-foreground text-sm">
+          Keep useful notes, or hide duplicates and empty answers from lesson
+          staff. Original responses remain here, and hidden notes can be
+          restored.
+        </p>
+        {(["medical", "placement"] as const).map((kind) => {
+          const text =
+            kind === "medical"
+              ? data.answers.medicalConcerns
+              : data.answers.additionalInformation;
+          if (!text.trim()) return null;
+          const status = data.noteReview[kind];
+          return (
+            <article key={kind} className="space-y-2 rounded border p-3">
+              <strong>
+                {kind === "medical" ? "Medical/support" : "Placement"}
+              </strong>
+              <p className="whitespace-pre-wrap">{text}</p>
+              <p className="text-sm">
+                {status === "dismissed"
+                  ? "Hidden from lesson staff"
+                  : !meaningfulSurveyNote(text)
+                    ? "Empty answer · automatically omitted"
+                    : status === "reviewed"
+                      ? "Reviewed · visible to lesson staff"
+                      : "Needs review"}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {(
+                  [
+                    status === "dismissed" ? "pending" : "dismissed",
+                    "reviewed",
+                  ] as const
+                ).map((next) => (
+                  <Button
+                    key={next}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      setMessage("");
+                      try {
+                        await reviewSurveyNote({
+                          data: { responseId, kind, status: next },
+                        });
+                        setAttempt((value) => value + 1);
+                        await router.invalidate();
+                        setMessage("Note decision saved.");
+                      } catch (reviewError) {
+                        setMessage(
+                          reviewError instanceof Error
+                            ? reviewError.message
+                            : "Could not save note review.",
+                        );
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    {next === "dismissed"
+                      ? "Hide note"
+                      : next === "pending"
+                        ? "Restore note"
+                        : "Keep · mark reviewed"}
+                  </Button>
+                ))}
+              </div>
+            </article>
+          );
+        })}
+      </section>
       {data.enrichmentIssues.length > 0 && (
         <div className="rounded border border-amber-400 p-3">
           <strong>Enrichment needs review</strong>
