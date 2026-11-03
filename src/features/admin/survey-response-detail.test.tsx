@@ -75,17 +75,13 @@ it("reloads an already-open response when refreshed queue evidence changes", asy
     ...value,
     noteReview: { medical: "dismissed" },
   });
-  fireEvent.click(
-    screen.getByRole("button", { name: "Hide note" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Hide note" }));
   await screen.findByText("Hidden from lesson staff");
   expect(reviewSurveyNote).toHaveBeenLastCalledWith({
     data: { responseId: "response", kind: "medical", status: "dismissed" },
   });
   vi.mocked(getParentSurveyResponseDetail).mockResolvedValue(value);
-  fireEvent.click(
-    screen.getByRole("button", { name: "Restore note" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Restore note" }));
   await screen.findByText("Needs review");
   expect(reviewSurveyNote).toHaveBeenLastCalledWith({
     data: { responseId: "response", kind: "medical", status: "pending" },
