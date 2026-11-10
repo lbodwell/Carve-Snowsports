@@ -42,6 +42,10 @@ export function RegistrationScheduleEditor({
   const savedSlotId = schedule.resolved?.timeSlotId ?? null;
   const weekday = selection?.weekday ?? savedDay;
   const timeSlotId = selection ? selection.timeSlotId : savedSlotId;
+  const timePlaceholder =
+    !selection && !savedSlotId && schedule.hours
+      ? `${formatLessonHours(schedule.hours)} · Needs review`
+      : "Select time";
   const times = eligibleSlots
     .filter((slot) => slot.allowedWeekdays.includes(weekday))
     .sort(
@@ -105,7 +109,7 @@ export function RegistrationScheduleEditor({
         label="Time"
         value={timeSlotId ?? ""}
         disabled={disabled || !times.length}
-        placeholder="Select time"
+        placeholder={timePlaceholder}
         options={times.map(({ value, hours, label, cohort }) => {
           const duplicates = times.filter(
             (time) => time.value !== value && time.hours === hours,
