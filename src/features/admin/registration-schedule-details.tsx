@@ -6,7 +6,9 @@ export function RegistrationScheduleDetails({
   schedule: RegistrationScheduleSummary;
 }) {
   const fields = [
-    ["Seasonal cohort", schedule.cohort],
+    ...(!schedule.resolved || schedule.cohort === "Regular season"
+      ? [["Seasonal cohort", schedule.cohort]]
+      : []),
     ["Purchased age band", schedule.ageBand ?? "Not recorded"],
     ["Schedule status", schedule.status],
   ];

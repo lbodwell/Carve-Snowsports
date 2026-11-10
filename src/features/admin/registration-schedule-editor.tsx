@@ -120,13 +120,12 @@ export function RegistrationScheduleEditor({
               : cohort === "session-2"
                 ? "Session 2"
                 : null;
-          const suffix =
-            session && duplicates.every((time) => time.cohort !== cohort)
-              ? session
-              : label;
+          const suffix = duplicates.some((time) => time.cohort === cohort)
+            ? label
+            : (session ?? (duplicates.length ? label : null));
           return {
             value,
-            label: duplicates.length ? `${hours} · ${suffix}` : hours,
+            label: suffix ? `${hours} · ${suffix}` : hours,
           };
         })}
         onChange={(value) => change(weekday, value || null)}
