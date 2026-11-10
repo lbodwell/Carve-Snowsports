@@ -1,6 +1,5 @@
 import { useId } from "react";
 import { ChevronDown } from "lucide-react";
-import type { RegistrationSchedule } from "@/domain/grouping/registration-schedule";
 import type {
   RegistrationScheduleOption,
   RegistrationScheduleSummary,
@@ -12,6 +11,11 @@ import {
   registrationTimeLabel,
 } from "@/domain/imports/registration-schedule-summary";
 
+export type RegistrationScheduleDraft = {
+  weekday: number;
+  timeSlotId: string | null;
+};
+
 export function RegistrationScheduleEditor({
   schedule,
   slots,
@@ -21,36 +25,44 @@ export function RegistrationScheduleEditor({
 }: {
   schedule: RegistrationScheduleSummary;
   slots: ReadonlyArray<RegistrationScheduleOption>;
-  selection?: RegistrationSchedule | null;
-  onChange?: (schedule: RegistrationSchedule | null) => void;
+  selection?: RegistrationScheduleDraft | null;
+  onChange?: (schedule: RegistrationScheduleDraft | null) => void;
   disabled: boolean;
 }) {
-  const fieldId = useId();
-  const options = slots
-    .filter(
-      (slot) =>
-        !schedule.requiredCohort || slot.cohort === schedule.requiredCohort,
+  const eligibleSlots = slots.filter(
+    (slot) =>
+      !schedule.requiredCohort || slot.cohort === schedule.requiredCohort,
+  );
+  const days = [
+    ...new Set(eligibleSlots.flatMap((slot) => slot.allowedWeekdays)),
+  ].sort((a, b) => a - b);
+  const savedDay =
+    schedule.resolved?.weekday ??
+    weekdayNames.findIndex((day) => day === schedule.weekday);
+  const savedSlotId = schedule.resolved?.timeSlotId ?? null;
+  const weekday = selection?.weekday ?? savedDay;
+  const timeSlotId = selection ? selection.timeSlotId : savedSlotId;
+  const times = eligibleSlots
+    .filter((slot) => slot.allowedWeekdays.includes(weekday))
+    .sort(
+      (a, b) =>
+        a.startsAt.localeCompare(b.startsAt) ||
+        a.endsAt.localeCompare(b.endsAt) ||
+        a.label.localeCompare(b.label),
     )
-    .flatMap((slot) =>
-      slot.allowedWeekdays.map((weekday) => ({
-        key: `${weekday}:${slot.id}`,
-        weekday,
-        timeSlotId: slot.id,
-        label: `${weekdayNames[weekday]} · ${formatLessonHours(`${slot.startsAt.slice(0, 5)}–${slot.endsAt.slice(0, 5)}`)} · ${slot.label}`,
-      })),
-    )
-    .sort((a, b) => a.weekday - b.weekday || a.label.localeCompare(b.label));
-  const current = schedule.resolved
-    ? `${schedule.resolved.weekday}:${schedule.resolved.timeSlotId}`
-    : "";
-  const value = selection
-    ? `${selection.weekday}:${selection.timeSlotId}`
-    : current;
+    .map((slot) => ({
+      value: slot.id,
+      label: slot.label,
+      cohort: slot.cohort,
+      hours: formatLessonHours(
+        `${slot.startsAt.slice(0, 5)}–${slot.endsAt.slice(0, 5)}`,
+      ),
+    }));
   const currentLabel = [schedule.weekday, registrationTimeLabel(schedule)]
     .filter(Boolean)
     .join(" · ");
 
-  if (!onChange || !options.length)
+  if (!onChange || !days.length)
     return (
       <dl className="grid gap-1 text-sm">
         <dt className="text-muted-foreground">Lesson day and time</dt>
@@ -58,31 +70,104 @@ export function RegistrationScheduleEditor({
       </dl>
     );
 
+  function change(day: number, slotId: string | null) {
+    onChange?.(
+      day === savedDay && slotId === savedSlotId
+        ? null
+        : { weekday: day, timeSlotId: slotId },
+    );
+  }
+
+  return (
+    <div className="grid min-w-0 gap-x-4 gap-y-2 sm:grid-cols-2">
+      <ScheduleSelect
+        label="Day"
+        value={days.includes(weekday) ? String(weekday) : ""}
+        disabled={disabled}
+        placeholder="Select day"
+        options={days.map((day) => ({
+          value: String(day),
+          label: weekdayNames[day]!,
+        }))}
+        onChange={(value) => {
+          const day = Number(value);
+          const compatible = eligibleSlots.some(
+            (slot) =>
+              slot.id === timeSlotId && slot.allowedWeekdays.includes(day),
+          );
+          change(
+            day,
+            compatible ? timeSlotId : day === savedDay ? savedSlotId : null,
+          );
+        }}
+      />
+      <ScheduleSelect
+        label="Time"
+        value={timeSlotId ?? ""}
+        disabled={disabled || !times.length}
+        placeholder="Select time"
+        options={times.map(({ value, hours, label, cohort }) => {
+          const duplicates = times.filter(
+            (time) => time.value !== value && time.hours === hours,
+          );
+          const session =
+            cohort === "session-1"
+              ? "Session 1"
+              : cohort === "session-2"
+                ? "Session 2"
+                : null;
+          const suffix =
+            session && duplicates.every((time) => time.cohort !== cohort)
+              ? session
+              : label;
+          return {
+            value,
+            label: duplicates.length ? `${hours} · ${suffix}` : hours,
+          };
+        })}
+        onChange={(value) => change(weekday, value || null)}
+      />
+      {selection?.timeSlotId === null && (
+        <p className="text-muted-foreground text-xs sm:col-span-2">
+          Select a time to save this change.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ScheduleSelect({
+  label,
+  value,
+  disabled,
+  placeholder,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  disabled: boolean;
+  placeholder: string;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
+  const fieldId = useId();
   return (
     <div className="grid min-w-0 gap-1.5">
-      <FieldLabel htmlFor={fieldId}>Lesson day and time</FieldLabel>
+      <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>
       <div className="relative">
         <select
           id={fieldId}
-          className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full appearance-none truncate rounded-lg border pr-8 pl-2.5 text-sm outline-none focus-visible:ring-3"
+          className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full appearance-none truncate rounded-lg border pr-8 pl-2.5 text-sm outline-none focus-visible:ring-3 disabled:opacity-50"
           value={value}
           disabled={disabled}
-          onChange={(event) => {
-            const chosen = options.find(
-              (option) => option.key === event.target.value,
-            );
-            onChange(
-              chosen && chosen.key !== current
-                ? { weekday: chosen.weekday, timeSlotId: chosen.timeSlotId }
-                : null,
-            );
-          }}
+          onChange={(event) => onChange(event.target.value)}
         >
-          <option value="" disabled={Boolean(current)}>
-            {currentLabel}
+          <option value="" disabled>
+            {placeholder}
           </option>
           {options.map((option) => (
-            <option key={option.key} value={option.key}>
+            <option key={option.value} value={option.value}>
               {option.label}
             </option>
           ))}

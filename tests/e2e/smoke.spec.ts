@@ -47,7 +47,14 @@ test("serves health and the authenticated staff workspace", async ({
   await firstStudent.click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(
-    page.getByRole("dialog").getByText("Lesson day and time", { exact: true }),
+    page
+      .getByRole("dialog")
+      .getByRole("combobox", { name: "Day", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("combobox", { name: "Time", exact: true }),
   ).toBeVisible();
   const saveStudent = page.getByRole("button", {
     name: "Save changes",

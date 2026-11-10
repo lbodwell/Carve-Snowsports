@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Archive, ArrowLeft, Save } from "lucide-react";
 import { useState } from "react";
 import type { FormEvent } from "react";
-import type { RegistrationSchedule } from "@/domain/grouping/registration-schedule";
+import type { RegistrationScheduleDraft } from "@/features/admin/registration-schedule-editor";
 import type {
   RegistrationScheduleOption,
   RegistrationScheduleSummary,
@@ -123,7 +123,7 @@ export function StudentDetailEditor({
   const [medicalInfo, setMedicalInfo] = useState(student.medicalInfo);
   const [notes, setNotes] = useState(student.notes);
   const [scheduleChanges, setScheduleChanges] = useState<
-    Record<string, RegistrationSchedule | null>
+    Record<string, RegistrationScheduleDraft | null>
   >({});
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -157,7 +157,18 @@ export function StudentDetailEditor({
     ]);
   const registrationSchedules = Object.entries(scheduleChanges).flatMap(
     ([registrationId, schedule]) =>
-      schedule ? [{ registrationId, ...schedule }] : [],
+      schedule?.timeSlotId
+        ? [
+            {
+              registrationId,
+              weekday: schedule.weekday,
+              timeSlotId: schedule.timeSlotId,
+            },
+          ]
+        : [],
+  );
+  const hasIncompleteSchedule = Object.values(scheduleChanges).some(
+    (schedule) => schedule?.timeSlotId === null,
   );
   const isDirty = profileIsDirty || registrationSchedules.length > 0;
 
@@ -187,7 +198,7 @@ export function StudentDetailEditor({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!isDirty || isSaving) return;
+    if (!isDirty || hasIncompleteSchedule || isSaving) return;
     setError(null);
     setIsSaving(true);
     onBusyChange?.(true);
@@ -595,7 +606,9 @@ export function StudentDetailEditor({
             )}
             <Button
               type="submit"
-              disabled={isSaving || isArchiving || !isDirty}
+              disabled={
+                isSaving || isArchiving || !isDirty || hasIncompleteSchedule
+              }
             >
               <Save data-icon="inline-start" />
               {isSaving ? "Saving…" : "Save changes"}

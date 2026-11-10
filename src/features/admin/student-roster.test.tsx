@@ -88,7 +88,7 @@ describe("registration roster", () => {
       label: "Session 1 AM",
       cohort: "session-1",
       programId: "program",
-      allowedWeekdays: [4, 5],
+      allowedWeekdays: [4],
       startsAt: "09:30",
       endsAt: "11:00",
       startsOn: null,
@@ -138,34 +138,41 @@ describe("registration roster", () => {
     );
     fireEvent.click(screen.getByRole("row", { name: /Edit registration/ }));
     const dialog = within(screen.getByRole("dialog"));
-    const time = dialog.getByLabelText<HTMLSelectElement>(
-      "Lesson day and time",
-    );
-    expect(time.value).toBe("4:am");
-    expect(time.selectedOptions[0]?.textContent).toContain(
-      "Thursday · 9:30 AM–11 AM",
-    );
-    expect(dialog.queryByText("Day", { exact: true })).toBeNull();
-    expect(dialog.queryByText("Time", { exact: true })).toBeNull();
+    const day = dialog.getByLabelText<HTMLSelectElement>("Day");
+    const time = dialog.getByLabelText<HTMLSelectElement>("Time");
+    expect(day.value).toBe("4");
+    expect(time.value).toBe("am");
+    expect(time.selectedOptions[0]?.label).toBe("9:30 AM–11 AM");
     expect(
       dialog.queryByRole("button", { name: "Save lesson time" }),
     ).toBeNull();
-    expect(
-      within(time).queryByRole("option", { name: /Session 2|Other program/ }),
-    ).toBeNull();
     const save = dialog.getByRole("button", { name: "Save changes" });
     expect(save.hasAttribute("disabled")).toBe(true);
-    fireEvent.change(time, { target: { value: "5:pm" } });
+    fireEvent.change(day, { target: { value: "5" } });
+    expect(time.value).toBe("");
+    expect(Array.from(time.options, (option) => option.value)).toEqual([
+      "",
+      "pm",
+    ]);
+    expect(
+      within(time).getByRole("option", { name: "1 PM–3 PM" }),
+    ).toBeTruthy();
+    fireEvent.change(dialog.getByLabelText("Placement notes"), {
+      target: { value: "Unsaved" },
+    });
+    expect(save.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(time, { target: { value: "pm" } });
     expect(save.hasAttribute("disabled")).toBe(false);
     fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
     expect(updateStudent).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("row", { name: /Edit registration/ }));
     const reopened = within(screen.getByRole("dialog"));
-    const reopenedTime = reopened.getByLabelText<HTMLSelectElement>(
-      "Lesson day and time",
-    );
-    expect(reopenedTime.value).toBe("4:am");
-    fireEvent.change(reopenedTime, { target: { value: "5:pm" } });
+    const reopenedDay = reopened.getByLabelText<HTMLSelectElement>("Day");
+    const reopenedTime = reopened.getByLabelText<HTMLSelectElement>("Time");
+    expect(reopenedDay.value).toBe("4");
+    expect(reopenedTime.value).toBe("am");
+    fireEvent.change(reopenedDay, { target: { value: "5" } });
+    fireEvent.change(reopenedTime, { target: { value: "pm" } });
     fireEvent.click(reopened.getByRole("button", { name: "Save changes" }));
     await waitFor(() =>
       expect(updateStudent).toHaveBeenCalledWith({
