@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Archive, ArrowLeft, Save } from "lucide-react";
 import { useState } from "react";
 import type { FormEvent } from "react";
+import type { RegistrationSchedule } from "@/domain/grouping/registration-schedule";
 import type {
   RegistrationScheduleOption,
   RegistrationScheduleSummary,
@@ -86,6 +87,11 @@ type StudentDetailEditorProps = {
   onSaved: () => void | Promise<void>;
   onCancel?: () => void;
   embedded?: boolean;
+  embeddedRegistration?: {
+    schedule: RegistrationScheduleSummary;
+    slots: ReadonlyArray<RegistrationScheduleOption>;
+    age: number | null;
+  };
   onBusyChange?: (busy: boolean) => void;
 };
 
@@ -98,6 +104,7 @@ export function StudentDetailEditor({
   student,
   onCancel,
   embedded = false,
+  embeddedRegistration,
   onBusyChange,
 }: StudentDetailEditorProps) {
   const [reviewed, setReviewed] = useState<Array<string>>([]);
@@ -115,12 +122,15 @@ export function StudentDetailEditor({
   const [guardianEmail, setGuardianEmail] = useState(student.guardianEmail);
   const [medicalInfo, setMedicalInfo] = useState(student.medicalInfo);
   const [notes, setNotes] = useState(student.notes);
+  const [scheduleChanges, setScheduleChanges] = useState<
+    Record<string, RegistrationSchedule | null>
+  >({});
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
 
   const isRegistered = student.registrationId != null;
-  const isDirty =
+  const profileIsDirty =
     JSON.stringify([
       firstName,
       lastName,
@@ -145,6 +155,35 @@ export function StudentDetailEditor({
       student.medicalInfo,
       student.notes,
     ]);
+  const registrationSchedules = Object.entries(scheduleChanges).flatMap(
+    ([registrationId, schedule]) =>
+      schedule ? [{ registrationId, ...schedule }] : [],
+  );
+  const isDirty = profileIsDirty || registrationSchedules.length > 0;
+
+  function scheduleField(
+    registrationId: string | null,
+    schedule: RegistrationScheduleSummary,
+    slots: ReadonlyArray<RegistrationScheduleOption>,
+  ) {
+    return (
+      <RegistrationScheduleEditor
+        schedule={schedule}
+        slots={slots}
+        selection={registrationId ? scheduleChanges[registrationId] : null}
+        disabled={isSaving || isArchiving}
+        onChange={
+          registrationId
+            ? (value) =>
+                setScheduleChanges((changes) => ({
+                  ...changes,
+                  [registrationId]: value,
+                }))
+            : undefined
+        }
+      />
+    );
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -154,24 +193,34 @@ export function StudentDetailEditor({
     onBusyChange?.(true);
     try {
       await updateStudent({
-        data: {
-          studentId: student.id,
-          ...(student.registrationId
-            ? { registrationId: student.registrationId }
-            : {}),
-          firstName,
-          lastName,
-          dateOfBirth,
-          disciplineId: disciplineId || null,
-          abilityLevelId: abilityLevelId || null,
-          guardianName,
-          guardianPhone,
-          guardianEmail,
-          medicalInfo,
-          notes,
-        },
+        data: profileIsDirty
+          ? {
+              studentId: student.id,
+              ...(student.registrationId
+                ? { registrationId: student.registrationId }
+                : {}),
+              firstName,
+              lastName,
+              dateOfBirth,
+              disciplineId: disciplineId || null,
+              abilityLevelId: abilityLevelId || null,
+              guardianName,
+              guardianPhone,
+              guardianEmail,
+              medicalInfo,
+              notes,
+              ...(registrationSchedules.length
+                ? { registrationSchedules }
+                : {}),
+            }
+          : {
+              studentId: student.id,
+              scheduleOnly: true,
+              registrationSchedules,
+            },
       });
       await onSaved();
+      setScheduleChanges({});
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -231,42 +280,56 @@ export function StudentDetailEditor({
         </header>
       )}
 
-      {!embedded && (
-        <section className="grid gap-4" aria-label="Student registrations">
-          <h2 className="text-xl font-semibold">
-            Registrations and lesson schedule
-          </h2>
-          {student.signups?.length ? (
-            student.signups.map((signup) => (
-              <article
-                key={signup.id}
-                className="grid gap-3 rounded-xl border p-4"
-              >
-                <h3 className="font-semibold">
-                  {signup.programName} · {signup.seasonName}
-                </h3>
-                <p className="text-sm">
-                  {statusLabel(signup.status)} ·{" "}
-                  {signup.disciplineLabel ?? "Discipline not set"} ·{" "}
-                  {signup.abilityLevelLabel ?? "Ability not set"}
-                </p>
-                <RegistrationScheduleEditor
-                  registrationId={signup.status === "active" ? signup.id : null}
-                  schedule={signup.schedule}
-                  slots={signup.scheduleSlots}
-                  onSaved={onSaved}
-                />
-                <RegistrationScheduleDetails schedule={signup.schedule} />
-              </article>
-            ))
-          ) : (
-            <p className="text-muted-foreground text-sm">
-              No registrations recorded.
-            </p>
-          )}
-        </section>
-      )}
-      <form onSubmit={handleSubmit} noValidate>
+      <form className="grid gap-6" onSubmit={handleSubmit} noValidate>
+        {embeddedRegistration && (
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+            {scheduleField(
+              student.registrationStatus === "active"
+                ? student.registrationId
+                : null,
+              embeddedRegistration.schedule,
+              embeddedRegistration.slots,
+            )}
+            <dl className="grid min-w-10 gap-1.5 text-sm">
+              <dt className="text-muted-foreground">Age</dt>
+              <dd className="leading-9">{embeddedRegistration.age ?? "—"}</dd>
+            </dl>
+          </div>
+        )}
+        {!embedded && (
+          <section className="grid gap-4" aria-label="Student registrations">
+            <h2 className="text-xl font-semibold">
+              Registrations and lesson schedule
+            </h2>
+            {student.signups?.length ? (
+              student.signups.map((signup) => (
+                <article
+                  key={signup.id}
+                  className="grid gap-3 rounded-xl border p-4"
+                >
+                  <h3 className="font-semibold">
+                    {signup.programName} · {signup.seasonName}
+                  </h3>
+                  <p className="text-sm">
+                    {statusLabel(signup.status)} ·{" "}
+                    {signup.disciplineLabel ?? "Discipline not set"} ·{" "}
+                    {signup.abilityLevelLabel ?? "Ability not set"}
+                  </p>
+                  {scheduleField(
+                    signup.status === "active" ? signup.id : null,
+                    signup.schedule,
+                    signup.scheduleSlots,
+                  )}
+                  <RegistrationScheduleDetails schedule={signup.schedule} />
+                </article>
+              ))
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                No registrations recorded.
+              </p>
+            )}
+          </section>
+        )}
         <FieldGroup>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>

@@ -1,37 +1,31 @@
-import { useId, useState } from "react";
+import { useId } from "react";
 import { ChevronDown } from "lucide-react";
-import type { FormEvent } from "react";
+import type { RegistrationSchedule } from "@/domain/grouping/registration-schedule";
 import type {
   RegistrationScheduleOption,
   RegistrationScheduleSummary,
 } from "@/domain/imports/registration-schedule-summary";
-import { Button } from "@/components/ui/button";
-import { FieldError, FieldLabel } from "@/components/ui/field";
+import { FieldLabel } from "@/components/ui/field";
 import { weekdayNames } from "@/domain/grouping/registration-schedule";
 import {
   formatLessonHours,
   registrationTimeLabel,
 } from "@/domain/imports/registration-schedule-summary";
-import { saveRegistrationSchedule } from "@/server/functions/grouping-draft";
 
 export function RegistrationScheduleEditor({
-  registrationId,
   schedule,
   slots,
-  onSaved,
-  onBusyChange,
+  selection,
+  onChange,
+  disabled,
 }: {
-  registrationId: string | null;
   schedule: RegistrationScheduleSummary;
   slots: ReadonlyArray<RegistrationScheduleOption>;
-  onSaved: () => void | Promise<void>;
-  onBusyChange?: (busy: boolean) => void;
+  selection?: RegistrationSchedule | null;
+  onChange?: (schedule: RegistrationSchedule | null) => void;
+  disabled: boolean;
 }) {
   const fieldId = useId();
-  const [selection, setSelection] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [saved, setSaved] = useState(false);
   const options = slots
     .filter(
       (slot) =>
@@ -49,48 +43,14 @@ export function RegistrationScheduleEditor({
   const current = schedule.resolved
     ? `${schedule.resolved.weekday}:${schedule.resolved.timeSlotId}`
     : "";
-  const chosen = options.find((option) => option.key === selection);
-  const changed = chosen && chosen.key !== current;
+  const value = selection
+    ? `${selection.weekday}:${selection.timeSlotId}`
+    : current;
   const currentLabel = [schedule.weekday, registrationTimeLabel(schedule)]
     .filter(Boolean)
     .join(" · ");
 
-  function reset() {
-    setSelection(null);
-    setError("");
-    setSaved(false);
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!registrationId || !changed || saving) return;
-    setSaving(true);
-    setError("");
-    onBusyChange?.(true);
-    try {
-      await saveRegistrationSchedule({
-        data: {
-          registrationId,
-          weekday: chosen.weekday,
-          timeSlotId: chosen.timeSlotId,
-        },
-      });
-      await onSaved();
-      setSelection(null);
-      setSaved(true);
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "The lesson time could not be saved.",
-      );
-    } finally {
-      setSaving(false);
-      onBusyChange?.(false);
-    }
-  }
-
-  if (!registrationId || !options.length)
+  if (!onChange || !options.length)
     return (
       <dl className="grid gap-1 text-sm">
         <dt className="text-muted-foreground">Lesson day and time</dt>
@@ -99,21 +59,26 @@ export function RegistrationScheduleEditor({
     );
 
   return (
-    <form className="grid min-w-0 gap-1.5" onSubmit={handleSubmit}>
+    <div className="grid min-w-0 gap-1.5">
       <FieldLabel htmlFor={fieldId}>Lesson day and time</FieldLabel>
       <div className="relative">
         <select
           id={fieldId}
           className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full appearance-none truncate rounded-lg border pr-8 pl-2.5 text-sm outline-none focus-visible:ring-3"
-          value={selection ?? current}
-          disabled={saving}
+          value={value}
+          disabled={disabled}
           onChange={(event) => {
-            setSelection(event.target.value);
-            setError("");
-            setSaved(false);
+            const chosen = options.find(
+              (option) => option.key === event.target.value,
+            );
+            onChange(
+              chosen && chosen.key !== current
+                ? { weekday: chosen.weekday, timeSlotId: chosen.timeSlotId }
+                : null,
+            );
           }}
         >
-          <option value="" disabled>
+          <option value="" disabled={Boolean(current)}>
             {currentLabel}
           </option>
           {options.map((option) => (
@@ -127,28 +92,6 @@ export function RegistrationScheduleEditor({
           className="text-muted-foreground pointer-events-none absolute top-1/2 right-2.5 size-4 -translate-y-1/2"
         />
       </div>
-      {changed && (
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={reset}
-            disabled={saving}
-          >
-            Discard time change
-          </Button>
-          <Button type="submit" size="sm" disabled={saving}>
-            {saving ? "Saving time…" : "Save lesson time"}
-          </Button>
-        </div>
-      )}
-      {error && <FieldError>{error}</FieldError>}
-      {saved && (
-        <p role="status" className="text-muted-foreground text-sm">
-          Lesson time saved.
-        </p>
-      )}
-    </form>
+    </div>
   );
 }

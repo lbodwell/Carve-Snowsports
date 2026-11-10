@@ -14,7 +14,6 @@ import {
 import { registrationTimeLabel } from "@/domain/imports/registration-schedule-summary";
 
 import { StudentDetailEditor } from "@/features/admin/student-detail-editor";
-import { RegistrationScheduleEditor } from "@/features/admin/registration-schedule-editor";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -632,31 +631,16 @@ export function StudentRoster({
       >
         {selected && (
           <>
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
-              <RegistrationScheduleEditor
-                key={selected.registrationId ?? selected.id}
-                registrationId={
-                  selected.registrationStatus === "active"
-                    ? selected.registrationId
-                    : null
-                }
-                schedule={selected.schedule}
-                slots={scheduleSlots.filter(
-                  (slot) => slot.programId === selected.programId,
-                )}
-                onSaved={() => router.invalidate()}
-                onBusyChange={setEditorBusy}
-              />
-              <dl className="grid min-w-10 gap-1.5 text-sm">
-                <dt className="text-muted-foreground">Age</dt>
-                <dd className="leading-9">
-                  {ageFromDateOfBirth(selected.dateOfBirth) ?? "—"}
-                </dd>
-              </dl>
-            </div>
             <StudentDetailEditor
               key={selected.registrationId ?? selected.id}
               embedded
+              embeddedRegistration={{
+                schedule: selected.schedule,
+                slots: scheduleSlots.filter(
+                  (slot) => slot.programId === selected.programId,
+                ),
+                age: ageFromDateOfBirth(selected.dateOfBirth),
+              }}
               onBusyChange={setEditorBusy}
               student={selected}
               disciplines={disciplines}

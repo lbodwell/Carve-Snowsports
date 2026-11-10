@@ -1113,158 +1113,168 @@ export async function setRegistrationSchedule(
       .from(organizations)
       .where(eq(organizations.id, actor.organizationId))
       .for("update");
-    const [registration] = await tx
+    await writeRegistrationSchedule(tx, actor, parsed);
+  });
+}
+
+export async function writeRegistrationSchedule(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  actor: Actor,
+  parsed: z.infer<typeof registrationScheduleSchema>,
+  studentId?: string,
+) {
+  const [registration] = await tx
+    .select({
+      id: registrations.id,
+      programId: registrations.programId,
+      sourceSnapshot: registrations.sourceSnapshot,
+    })
+    .from(registrations)
+    .innerJoin(programs, eq(programs.id, registrations.programId))
+    .innerJoin(seasons, eq(seasons.id, programs.seasonId))
+    .where(
+      and(
+        eq(registrations.id, parsed.registrationId),
+        studentId ? eq(registrations.studentId, studentId) : undefined,
+        eq(seasons.organizationId, actor.organizationId),
+        isNull(seasons.archivedAt),
+        isNull(registrations.archivedAt),
+        eq(registrations.status, "active"),
+      ),
+    )
+    .for("update", { of: registrations });
+  if (!registration)
+    throw new ApplicationError("NOT_FOUND", "Registration not found.");
+  const [slot] = await tx
+    .select({
+      id: timeSlots.id,
+      cohort: timeSlots.cohort,
+      allowedWeekdays: timeSlots.allowedWeekdays,
+    })
+    .from(timeSlots)
+    .where(
+      and(
+        eq(timeSlots.id, parsed.timeSlotId),
+        eq(timeSlots.programId, registration.programId),
+        eq(timeSlots.active, true),
+      ),
+    );
+  if (!slot?.allowedWeekdays.includes(parsed.weekday))
+    throw new ApplicationError(
+      "VALIDATION",
+      "Choose an active lesson time available on this day in this program.",
+    );
+  if (
+    registration.sourceSnapshot?.sourceKey &&
+    slot.cohort !== importedCohort(registration.sourceSnapshot)
+  )
+    throw new ApplicationError(
+      "VALIDATION",
+      "Choose a lesson session in the same seasonal cohort as this registration. Session 1 and Session 2 must stay separate.",
+    );
+  const assigned = await tx
+    .select({ id: groupingDraftAssignments.registrationId })
+    .from(groupingDraftAssignments)
+    .innerJoin(
+      groupingDrafts,
+      eq(groupingDrafts.id, groupingDraftAssignments.draftId),
+    )
+    .where(
+      and(
+        eq(groupingDraftAssignments.registrationId, registration.id),
+        inArray(groupingDrafts.status, ["editing", "submitted", "approved"]),
+      ),
+    );
+  if (assigned.length)
+    throw new ApplicationError(
+      "VALIDATION",
+      "Remove this student from their draft groups before changing their session.",
+    );
+  await tx
+    .update(registrations)
+    .set({
+      sourceSnapshot: {
+        ...registration.sourceSnapshot,
+        groupingSchedule: {
+          weekday: parsed.weekday,
+          timeSlotId: parsed.timeSlotId,
+        },
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(registrations.id, registration.id));
+  let count = 1;
+  if (
+    parsed.applyToMatching &&
+    registration.sourceSnapshot?.sourceKey &&
+    registration.sourceSnapshot.weekday &&
+    registration.sourceSnapshot.session
+  ) {
+    const candidates = await tx
       .select({
         id: registrations.id,
-        programId: registrations.programId,
         sourceSnapshot: registrations.sourceSnapshot,
       })
       .from(registrations)
-      .innerJoin(programs, eq(programs.id, registrations.programId))
-      .innerJoin(seasons, eq(seasons.id, programs.seasonId))
       .where(
         and(
-          eq(registrations.id, parsed.registrationId),
-          eq(seasons.organizationId, actor.organizationId),
-          isNull(seasons.archivedAt),
-          isNull(registrations.archivedAt),
+          eq(registrations.programId, registration.programId),
           eq(registrations.status, "active"),
+          isNull(registrations.archivedAt),
         ),
       )
-      .for("update", { of: registrations });
-    if (!registration)
-      throw new ApplicationError("NOT_FOUND", "Registration not found.");
-    const [slot] = await tx
-      .select({
-        id: timeSlots.id,
-        cohort: timeSlots.cohort,
-        allowedWeekdays: timeSlots.allowedWeekdays,
-      })
+      .for("update");
+    const slots = await tx
+      .select()
       .from(timeSlots)
       .where(
         and(
-          eq(timeSlots.id, parsed.timeSlotId),
           eq(timeSlots.programId, registration.programId),
           eq(timeSlots.active, true),
         ),
       );
-    if (!slot?.allowedWeekdays.includes(parsed.weekday))
-      throw new ApplicationError(
-        "VALIDATION",
-        "Choose an active lesson time available on this day in this program.",
-      );
-    if (
-      registration.sourceSnapshot?.sourceKey &&
-      slot.cohort !== importedCohort(registration.sourceSnapshot)
-    )
-      throw new ApplicationError(
-        "VALIDATION",
-        "Choose a lesson session in the same seasonal cohort as this registration. Session 1 and Session 2 must stay separate.",
-      );
-    const assigned = await tx
-      .select({ id: groupingDraftAssignments.registrationId })
-      .from(groupingDraftAssignments)
-      .innerJoin(
-        groupingDrafts,
-        eq(groupingDrafts.id, groupingDraftAssignments.draftId),
+    for (const candidate of candidates) {
+      if (
+        candidate.id === registration.id ||
+        candidate.sourceSnapshot?.weekday !==
+          registration.sourceSnapshot.weekday ||
+        candidate.sourceSnapshot.session !==
+          registration.sourceSnapshot.session ||
+        resolveRegistrationSchedule(candidate.sourceSnapshot, slots)
       )
-      .where(
-        and(
-          eq(groupingDraftAssignments.registrationId, registration.id),
-          inArray(groupingDrafts.status, ["editing", "submitted", "approved"]),
-        ),
-      );
-    if (assigned.length)
-      throw new ApplicationError(
-        "VALIDATION",
-        "Remove this student from their draft groups before changing their session.",
-      );
-    await tx
-      .update(registrations)
-      .set({
-        sourceSnapshot: {
-          ...registration.sourceSnapshot,
-          groupingSchedule: {
-            weekday: parsed.weekday,
-            timeSlotId: parsed.timeSlotId,
-          },
-        },
-        updatedAt: new Date(),
-      })
-      .where(eq(registrations.id, registration.id));
-    let count = 1;
-    if (
-      parsed.applyToMatching &&
-      registration.sourceSnapshot?.sourceKey &&
-      registration.sourceSnapshot.weekday &&
-      registration.sourceSnapshot.session
-    ) {
-      const candidates = await tx
-        .select({
-          id: registrations.id,
-          sourceSnapshot: registrations.sourceSnapshot,
-        })
-        .from(registrations)
-        .where(
-          and(
-            eq(registrations.programId, registration.programId),
-            eq(registrations.status, "active"),
-            isNull(registrations.archivedAt),
-          ),
-        )
-        .for("update");
-      const slots = await tx
-        .select()
-        .from(timeSlots)
-        .where(
-          and(
-            eq(timeSlots.programId, registration.programId),
-            eq(timeSlots.active, true),
-          ),
-        );
-      for (const candidate of candidates) {
-        if (
-          candidate.id === registration.id ||
-          candidate.sourceSnapshot?.weekday !==
-            registration.sourceSnapshot.weekday ||
-          candidate.sourceSnapshot.session !==
-            registration.sourceSnapshot.session ||
-          resolveRegistrationSchedule(candidate.sourceSnapshot, slots)
-        )
-          continue;
-        const existingPlacements = await tx
-          .select({ registrationId: groupingDraftAssignments.registrationId })
-          .from(groupingDraftAssignments)
-          .where(eq(groupingDraftAssignments.registrationId, candidate.id));
-        if (existingPlacements.length) continue;
-        await tx
-          .update(registrations)
-          .set({
-            sourceSnapshot: {
-              ...candidate.sourceSnapshot,
-              groupingSchedule: {
-                weekday: parsed.weekday,
-                timeSlotId: parsed.timeSlotId,
-              },
+        continue;
+      const existingPlacements = await tx
+        .select({ registrationId: groupingDraftAssignments.registrationId })
+        .from(groupingDraftAssignments)
+        .where(eq(groupingDraftAssignments.registrationId, candidate.id));
+      if (existingPlacements.length) continue;
+      await tx
+        .update(registrations)
+        .set({
+          sourceSnapshot: {
+            ...candidate.sourceSnapshot,
+            groupingSchedule: {
+              weekday: parsed.weekday,
+              timeSlotId: parsed.timeSlotId,
             },
-            updatedAt: new Date(),
-          })
-          .where(eq(registrations.id, candidate.id));
-        count++;
-      }
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(registrations.id, candidate.id));
+      count++;
     }
-    await tx.insert(auditEvents).values({
-      organizationId: actor.organizationId,
-      actorId: actor.userId,
-      entityType: "registration",
-      entityId: registration.id,
-      action: "grouping.session_confirmed",
-      metadata: {
-        weekday: parsed.weekday,
-        timeSlotId: parsed.timeSlotId,
-        registrationCount: count,
-      },
-    });
+  }
+  await tx.insert(auditEvents).values({
+    organizationId: actor.organizationId,
+    actorId: actor.userId,
+    entityType: "registration",
+    entityId: registration.id,
+    action: "grouping.session_confirmed",
+    metadata: {
+      weekday: parsed.weekday,
+      timeSlotId: parsed.timeSlotId,
+      registrationCount: count,
+    },
   });
 }
 
