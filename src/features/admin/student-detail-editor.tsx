@@ -250,15 +250,13 @@ export function StudentDetailEditor({
                   {signup.disciplineLabel ?? "Discipline not set"} ·{" "}
                   {signup.abilityLevelLabel ?? "Ability not set"}
                 </p>
+                <RegistrationScheduleEditor
+                  registrationId={signup.status === "active" ? signup.id : null}
+                  schedule={signup.schedule}
+                  slots={signup.scheduleSlots}
+                  onSaved={onSaved}
+                />
                 <RegistrationScheduleDetails schedule={signup.schedule} />
-                {signup.status === "active" && (
-                  <RegistrationScheduleEditor
-                    registrationId={signup.id}
-                    schedule={signup.schedule}
-                    slots={signup.scheduleSlots}
-                    onSaved={onSaved}
-                  />
-                )}
               </article>
             ))
           ) : (

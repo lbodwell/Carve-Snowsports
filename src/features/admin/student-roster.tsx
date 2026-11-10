@@ -632,34 +632,28 @@ export function StudentRoster({
       >
         {selected && (
           <>
-            <dl className="grid grid-cols-3 gap-3 text-sm">
-              <div>
-                <dt className="text-muted-foreground">Day</dt>
-                <dd>{selected.schedule.weekday}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Time</dt>
-                <dd>{registrationTimeLabel(selected.schedule)}</dd>
-              </div>
-              <div>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+              <RegistrationScheduleEditor
+                key={selected.registrationId ?? selected.id}
+                registrationId={
+                  selected.registrationStatus === "active"
+                    ? selected.registrationId
+                    : null
+                }
+                schedule={selected.schedule}
+                slots={scheduleSlots.filter(
+                  (slot) => slot.programId === selected.programId,
+                )}
+                onSaved={() => router.invalidate()}
+                onBusyChange={setEditorBusy}
+              />
+              <dl className="grid min-w-10 gap-1.5 text-sm">
                 <dt className="text-muted-foreground">Age</dt>
-                <dd>{ageFromDateOfBirth(selected.dateOfBirth) ?? ""}</dd>
-              </div>
-            </dl>
-            {selected.registrationId &&
-              selected.registrationStatus === "active" &&
-              scheduleSlots.length > 0 && (
-                <RegistrationScheduleEditor
-                  key={selected.registrationId}
-                  registrationId={selected.registrationId}
-                  schedule={selected.schedule}
-                  slots={scheduleSlots.filter(
-                    (slot) => slot.programId === selected.programId,
-                  )}
-                  onSaved={() => router.invalidate()}
-                  onBusyChange={setEditorBusy}
-                />
-              )}
+                <dd className="leading-9">
+                  {ageFromDateOfBirth(selected.dateOfBirth) ?? "—"}
+                </dd>
+              </dl>
+            </div>
             <StudentDetailEditor
               key={selected.registrationId ?? selected.id}
               embedded

@@ -115,7 +115,7 @@ describe("registration roster", () => {
             schedule: registrationScheduleSummary(
               {
                 sourceKey: "imported",
-                weekday: "Friday",
+                weekday: "Thursday",
                 session: "Session 1",
               },
               [morning, afternoon],
@@ -141,13 +141,28 @@ describe("registration roster", () => {
       />,
     );
     fireEvent.click(screen.getByRole("row", { name: /Edit registration/ }));
-    const time = screen.getByLabelText<HTMLSelectElement>(
-      "Registered lesson time",
+    const dialog = within(screen.getByRole("dialog"));
+    const time = dialog.getByLabelText<HTMLSelectElement>(
+      "Lesson day and time",
     );
-    expect(time.value).toBe("5:am");
+    expect(time.value).toBe("4:am");
+    expect(time.selectedOptions[0]?.textContent).toContain(
+      "Thursday · 9:30 AM–11 AM",
+    );
+    expect(dialog.queryByText("Day", { exact: true })).toBeNull();
+    expect(dialog.queryByText("Time", { exact: true })).toBeNull();
+    expect(
+      dialog.queryByRole("button", { name: "Save lesson time" }),
+    ).toBeNull();
     expect(
       within(time).queryByRole("option", { name: /Session 2|Other program/ }),
     ).toBeNull();
+    fireEvent.change(time, { target: { value: "5:pm" } });
+    fireEvent.click(
+      dialog.getByRole("button", { name: "Discard time change" }),
+    );
+    expect(time.value).toBe("4:am");
+    expect(saveRegistrationSchedule).not.toHaveBeenCalled();
     fireEvent.change(time, { target: { value: "5:pm" } });
     fireEvent.click(screen.getByRole("button", { name: "Save lesson time" }));
     await waitFor(() =>
@@ -181,7 +196,9 @@ describe("registration roster", () => {
     expect(screen.getByRole("row", { name: /Session 2/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("row", { name: /Session 2/ }));
     expect(
-      within(screen.getByRole("dialog")).getByText("Session 2 · Time pending"),
+      within(screen.getByRole("dialog")).getByText(
+        "Thursday · Session 2 · Time pending",
+      ),
     ).toBeTruthy();
   });
   it("shows no results until one program is explicitly selected", () => {
@@ -355,12 +372,9 @@ describe("registration roster", () => {
       screen.getByRole("row", { name: /Edit registration.*Sunday/ }),
     );
     expect(
-      within(screen.getByRole("dialog")).getByText("Sunday", { exact: true }),
-    ).toBeDefined();
-    expect(
-      within(screen.getByRole("dialog")).getByText("Full Day · 10 AM–3 PM", {
-        exact: true,
-      }),
+      within(screen.getByRole("dialog")).getByText(
+        "Sunday · Full Day · 10 AM–3 PM",
+      ),
     ).toBeDefined();
     expect(
       within(screen.getByRole("dialog")).queryByText("Purchase date"),

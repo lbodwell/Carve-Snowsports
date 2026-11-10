@@ -82,17 +82,21 @@ export type RegistrationScheduleSummary = ReturnType<
   typeof registrationScheduleSummary
 >;
 
-export function registrationTimeLabel(schedule: RegistrationScheduleSummary) {
-  const cohort = /^Session [12]$/.test(schedule.cohort)
-    ? schedule.cohort
-    : null;
-  const hours = schedule.hours?.replace(
+export function formatLessonHours(hours: string) {
+  return hours.replace(
     /\b(\d{1,2}):(\d{2})\b/g,
     (_match, hourText: string, minute: string) => {
       const hour = Number(hourText);
       return `${hour % 12 || 12}${minute === "00" ? "" : `:${minute}`} ${hour < 12 ? "AM" : "PM"}`;
     },
   );
+}
+
+export function registrationTimeLabel(schedule: RegistrationScheduleSummary) {
+  const cohort = /^Session [12]$/.test(schedule.cohort)
+    ? schedule.cohort
+    : null;
+  const hours = schedule.hours ? formatLessonHours(schedule.hours) : null;
   if (hours)
     return cohort
       ? `${cohort} · ${hours}`

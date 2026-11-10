@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import type { FormEvent } from "react";
 import type {
   RegistrationScheduleOption,
@@ -7,6 +8,10 @@ import type {
 import { Button } from "@/components/ui/button";
 import { FieldError, FieldLabel } from "@/components/ui/field";
 import { weekdayNames } from "@/domain/grouping/registration-schedule";
+import {
+  formatLessonHours,
+  registrationTimeLabel,
+} from "@/domain/imports/registration-schedule-summary";
 import { saveRegistrationSchedule } from "@/server/functions/grouping-draft";
 
 export function RegistrationScheduleEditor({
@@ -16,7 +21,7 @@ export function RegistrationScheduleEditor({
   onSaved,
   onBusyChange,
 }: {
-  registrationId: string;
+  registrationId: string | null;
   schedule: RegistrationScheduleSummary;
   slots: ReadonlyArray<RegistrationScheduleOption>;
   onSaved: () => void | Promise<void>;
@@ -37,7 +42,7 @@ export function RegistrationScheduleEditor({
         key: `${weekday}:${slot.id}`,
         weekday,
         timeSlotId: slot.id,
-        label: `${weekdayNames[weekday]} · ${slot.label} · ${slot.startsAt.slice(0, 5)}–${slot.endsAt.slice(0, 5)}`,
+        label: `${weekdayNames[weekday]} · ${formatLessonHours(`${slot.startsAt.slice(0, 5)}–${slot.endsAt.slice(0, 5)}`)} · ${slot.label}`,
       })),
     )
     .sort((a, b) => a.weekday - b.weekday || a.label.localeCompare(b.label));
@@ -45,11 +50,20 @@ export function RegistrationScheduleEditor({
     ? `${schedule.resolved.weekday}:${schedule.resolved.timeSlotId}`
     : "";
   const chosen = options.find((option) => option.key === selection);
-  const canSave = chosen && chosen.key !== current && !saving;
+  const changed = chosen && chosen.key !== current;
+  const currentLabel = [schedule.weekday, registrationTimeLabel(schedule)]
+    .filter(Boolean)
+    .join(" · ");
+
+  function reset() {
+    setSelection(null);
+    setError("");
+    setSaved(false);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSave) return;
+    if (!registrationId || !changed || saving) return;
     setSaving(true);
     setError("");
     onBusyChange?.(true);
@@ -76,29 +90,31 @@ export function RegistrationScheduleEditor({
     }
   }
 
-  if (!options.length)
+  if (!registrationId || !options.length)
     return (
-      <p className="text-muted-foreground text-sm">
-        No lesson times are configured for this registration.
-      </p>
+      <dl className="grid gap-1 text-sm">
+        <dt className="text-muted-foreground">Lesson day and time</dt>
+        <dd>{currentLabel}</dd>
+      </dl>
     );
 
   return (
-    <form className="grid gap-2" onSubmit={handleSubmit}>
-      <FieldLabel htmlFor={fieldId}>Registered lesson time</FieldLabel>
-      <div className="flex flex-wrap gap-2">
+    <form className="grid min-w-0 gap-1.5" onSubmit={handleSubmit}>
+      <FieldLabel htmlFor={fieldId}>Lesson day and time</FieldLabel>
+      <div className="relative">
         <select
           id={fieldId}
-          className="border-input bg-background min-h-9 min-w-0 grow rounded-md border px-2 text-sm"
+          className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full appearance-none truncate rounded-lg border pr-8 pl-2.5 text-sm outline-none focus-visible:ring-3"
           value={selection ?? current}
           disabled={saving}
           onChange={(event) => {
             setSelection(event.target.value);
+            setError("");
             setSaved(false);
           }}
         >
           <option value="" disabled>
-            Choose a lesson time
+            {currentLabel}
           </option>
           {options.map((option) => (
             <option key={option.key} value={option.key}>
@@ -106,10 +122,27 @@ export function RegistrationScheduleEditor({
             </option>
           ))}
         </select>
-        <Button type="submit" variant="outline" disabled={!canSave}>
-          {saving ? "Saving time…" : "Save lesson time"}
-        </Button>
+        <ChevronDown
+          aria-hidden
+          className="text-muted-foreground pointer-events-none absolute top-1/2 right-2.5 size-4 -translate-y-1/2"
+        />
       </div>
+      {changed && (
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={reset}
+            disabled={saving}
+          >
+            Discard time change
+          </Button>
+          <Button type="submit" size="sm" disabled={saving}>
+            {saving ? "Saving time…" : "Save lesson time"}
+          </Button>
+        </div>
+      )}
       {error && <FieldError>{error}</FieldError>}
       {saved && (
         <p role="status" className="text-muted-foreground text-sm">
