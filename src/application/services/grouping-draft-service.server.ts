@@ -1126,13 +1126,20 @@ export async function setRegistrationSchedule(
         and(
           eq(registrations.id, parsed.registrationId),
           eq(seasons.organizationId, actor.organizationId),
+          isNull(seasons.archivedAt),
+          isNull(registrations.archivedAt),
+          eq(registrations.status, "active"),
         ),
       )
       .for("update", { of: registrations });
     if (!registration)
       throw new ApplicationError("NOT_FOUND", "Registration not found.");
     const [slot] = await tx
-      .select({ id: timeSlots.id, cohort: timeSlots.cohort })
+      .select({
+        id: timeSlots.id,
+        cohort: timeSlots.cohort,
+        allowedWeekdays: timeSlots.allowedWeekdays,
+      })
       .from(timeSlots)
       .where(
         and(
@@ -1141,10 +1148,10 @@ export async function setRegistrationSchedule(
           eq(timeSlots.active, true),
         ),
       );
-    if (!slot)
+    if (!slot?.allowedWeekdays.includes(parsed.weekday))
       throw new ApplicationError(
         "VALIDATION",
-        "Choose an active time in this program.",
+        "Choose an active lesson time available on this day in this program.",
       );
     if (
       registration.sourceSnapshot?.sourceKey &&

@@ -13,7 +13,13 @@ export type ScheduleSlot = {
   startsOn: string | null;
   endsOn: string | null;
   excludedDates: Array<string>;
+  allowedWeekdays?: ReadonlyArray<number>;
 };
+
+export type RegistrationScheduleOption = Pick<
+  ScheduleSlot,
+  "id" | "label" | "cohort" | "startsAt" | "endsAt"
+> & { programId: string; allowedWeekdays: ReadonlyArray<number> };
 
 export function registrationScheduleSummary(
   source: Record<string, unknown> | null,
@@ -38,6 +44,8 @@ export function registrationScheduleSummary(
     : null;
   const cohort = slot?.cohort ?? importedCohort(source);
   return {
+    resolved,
+    requiredCohort: source?.sourceKey ? importedCohort(source) : null,
     weekday,
     session,
     hours: slot

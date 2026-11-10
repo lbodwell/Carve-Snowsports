@@ -31,6 +31,7 @@ function StudentRosterPage() {
         }}
         disciplines={workspace.disciplines}
         abilityLevels={workspace.abilityLevels}
+        scheduleSlots={workspace.scheduleSlots}
       />
     </AdminShell>
   );

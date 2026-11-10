@@ -2,8 +2,12 @@ import { Link } from "@tanstack/react-router";
 import { Archive, ArrowLeft, Save } from "lucide-react";
 import { useState } from "react";
 import type { FormEvent } from "react";
-import type { RegistrationScheduleSummary } from "@/domain/imports/registration-schedule-summary";
+import type {
+  RegistrationScheduleOption,
+  RegistrationScheduleSummary,
+} from "@/domain/imports/registration-schedule-summary";
 import { RegistrationScheduleDetails } from "@/features/admin/registration-schedule-details";
+import { RegistrationScheduleEditor } from "@/features/admin/registration-schedule-editor";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -69,6 +73,7 @@ type StudentDetail = {
     disciplineLabel: string | null;
     abilityLevelLabel: string | null;
     schedule: RegistrationScheduleSummary;
+    scheduleSlots: ReadonlyArray<RegistrationScheduleOption>;
   }>;
 };
 
@@ -246,6 +251,14 @@ export function StudentDetailEditor({
                   {signup.abilityLevelLabel ?? "Ability not set"}
                 </p>
                 <RegistrationScheduleDetails schedule={signup.schedule} />
+                {signup.status === "active" && (
+                  <RegistrationScheduleEditor
+                    registrationId={signup.id}
+                    schedule={signup.schedule}
+                    slots={signup.scheduleSlots}
+                    onSaved={onSaved}
+                  />
+                )}
               </article>
             ))
           ) : (

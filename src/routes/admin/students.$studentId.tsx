@@ -64,9 +64,7 @@ function StudentDetailPage() {
           disciplines={disciplines}
           abilityLevels={abilityLevels}
           programName={programName}
-          onSaved={() => {
-            void router.invalidate();
-          }}
+          onSaved={() => router.invalidate()}
           onArchived={() => navigate({ to: "/admin/students" })}
         />
         <AuditHistoryPanel

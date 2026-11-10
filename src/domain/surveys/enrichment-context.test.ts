@@ -22,6 +22,40 @@ it("keeps Friday morning, afternoon and numbered cohorts distinct", () => {
     },
   ]);
   for (const n of [1, 2]) {
+    const legacy = {
+      sourceKey: "aspenware",
+      product: `PM | Ski | Children's Seasonal Program | 26/27 | 4-6yrs | Friday | Session ${n}`,
+      weekday: "Friday",
+      session: `Session ${n}`,
+    };
+    expect(resolveRegistrationSchedule(legacy, slots)?.timeSlotId).toBe(
+      `${n}-pm`,
+    );
+    expect(
+      resolveRegistrationSchedule(
+        legacy,
+        slots.filter((slot) => slot.id.endsWith("-am")),
+      ),
+    ).toBeNull();
+    const legacyWithClock = {
+      ...legacy,
+      product: `${legacy.product} | 1pm`,
+      session: "1pm",
+    };
+    expect(
+      resolveRegistrationSchedule(legacyWithClock, slots)?.timeSlotId,
+    ).toBe(`${n}-pm`);
+    for (const snapshot of [legacy, legacyWithClock]) {
+      expect(
+        resolveRegistrationSchedule(
+          {
+            ...snapshot,
+            groupingSchedule: { weekday: 5, timeSlotId: `${n}-am` },
+          },
+          slots,
+        )?.timeSlotId,
+      ).toBe(`${n}-am`);
+    }
     const source = {
       weekday: "Friday",
       session: `Session ${n}`,

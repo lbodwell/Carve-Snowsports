@@ -96,6 +96,25 @@ describe("Aspenware registration export analysis", () => {
       ).toMatchObject({ session: "Session 1", lessonTime: "1pm" });
     },
   );
+  it.each([1, 2])(
+    "derives 1 PM for the 26/27 Friday ages 4–6 ski product in session %i",
+    (session) => {
+      const product = `PM | Ski | Children's Seasonal Program | 26/27 | 4-6yrs | Friday | Session ${session}`;
+      expect(parseProductDimensions(product)).toMatchObject({
+        session: `Session ${session}`,
+        lessonTime: "1pm",
+      });
+      expect(
+        parseProductDimensions(product.replace("4-6yrs", "2-5yrs")).lessonTime,
+      ).toBeUndefined();
+      expect(
+        parseProductDimensions(product.replace("26/27", "27/28")).lessonTime,
+      ).toBeUndefined();
+      expect(parseProductDimensions(`${product} | 9:30 AM`).lessonTime).toBe(
+        "9:30am",
+      );
+    },
+  );
   it.each(["($719.00)", "-$719.00", "$-719.00"])(
     "keeps refund prompts (%s) out of sale enrichment without losing returns",
     (refundPrice) => {

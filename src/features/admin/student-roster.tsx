@@ -1,7 +1,10 @@
 import { Link, useRouter } from "@tanstack/react-router";
 import { Search, UserPlus, UsersRound, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import type { RegistrationScheduleSummary } from "@/domain/imports/registration-schedule-summary";
+import type {
+  RegistrationScheduleOption,
+  RegistrationScheduleSummary,
+} from "@/domain/imports/registration-schedule-summary";
 import { RefreshButton } from "@/components/refresh-button";
 import {
   RosterDetailsDialog,
@@ -11,6 +14,7 @@ import {
 import { registrationTimeLabel } from "@/domain/imports/registration-schedule-summary";
 
 import { StudentDetailEditor } from "@/features/admin/student-detail-editor";
+import { RegistrationScheduleEditor } from "@/features/admin/registration-schedule-editor";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,6 +78,7 @@ export function StudentRoster({
   onProgramChange,
   disciplines = [],
   abilityLevels = [],
+  scheduleSlots = [],
 }: {
   students: Array<StudentRow>;
   programs?: Array<{ id: string; name: string; seasonName: string }>;
@@ -81,6 +86,7 @@ export function StudentRoster({
   onProgramChange?: (id: string) => void;
   disciplines?: Array<{ id: string; label: string }>;
   abilityLevels?: Array<{ id: string; label: string }>;
+  scheduleSlots?: ReadonlyArray<RegistrationScheduleOption>;
 }) {
   const [query, setQuery] = useState("");
   const [discipline, setDiscipline] = useState("all");
@@ -114,7 +120,10 @@ export function StudentRoster({
   const [sort, setSort] = useState("name");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [selected, setSelected] = useState<StudentRow | null>(null);
+  const [selectedId, setSelected] = useState<string | null>(null);
+  const selected = students.find(
+    (row) => (row.registrationId ?? row.id) === selectedId,
+  );
   const [editorBusy, setEditorBusy] = useState(false);
   const detailsTrigger = useRef<HTMLElement | null>(null);
   const filter = (setter: (value: string) => void) => (value: string) => {
@@ -559,7 +568,7 @@ export function StudentRoster({
                           aria-label={`Edit registration for ${student.firstName} ${student.lastName} · ${student.schedule.weekday ?? ""} · ${registrationTimeLabel(student.schedule)}`}
                           onOpen={(element) => {
                             detailsTrigger.current = element;
-                            setSelected(student);
+                            setSelected(student.registrationId ?? student.id);
                           }}
                         >
                           <TableCell className="font-medium">
@@ -637,6 +646,20 @@ export function StudentRoster({
                 <dd>{ageFromDateOfBirth(selected.dateOfBirth) ?? ""}</dd>
               </div>
             </dl>
+            {selected.registrationId &&
+              selected.registrationStatus === "active" &&
+              scheduleSlots.length > 0 && (
+                <RegistrationScheduleEditor
+                  key={selected.registrationId}
+                  registrationId={selected.registrationId}
+                  schedule={selected.schedule}
+                  slots={scheduleSlots.filter(
+                    (slot) => slot.programId === selected.programId,
+                  )}
+                  onSaved={() => router.invalidate()}
+                  onBusyChange={setEditorBusy}
+                />
+              )}
             <StudentDetailEditor
               key={selected.registrationId ?? selected.id}
               embedded

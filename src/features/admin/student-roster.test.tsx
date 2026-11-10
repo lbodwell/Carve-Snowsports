@@ -11,6 +11,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { StudentRoster } from "./student-roster";
 import type { ComponentProps, ReactNode } from "react";
 import { registrationScheduleSummary } from "@/domain/imports/registration-schedule-summary";
+import { saveRegistrationSchedule } from "@/server/functions/grouping-draft";
 import {
   archiveStudent,
   updateStudent,
@@ -26,6 +27,9 @@ vi.mock("@/server/functions/student-roster", () => ({
   registerStudent: vi.fn(),
   updateStudent: vi.fn().mockResolvedValue({}),
   archiveStudent: vi.fn().mockResolvedValue({}),
+}));
+vi.mock("@/server/functions/grouping-draft", () => ({
+  saveRegistrationSchedule: vi.fn().mockResolvedValue(undefined),
 }));
 vi.stubGlobal(
   "ResizeObserver",
@@ -82,6 +86,84 @@ const rows: ComponentProps<typeof StudentRoster>["students"] = Array.from(
   }),
 );
 describe("registration roster", () => {
+  it("saves a Friday time for the selected registration and limits imported choices to its cohort", async () => {
+    const morning = {
+      id: "am",
+      label: "Session 1 AM",
+      cohort: "session-1",
+      programId: "program",
+      allowedWeekdays: [4, 5],
+      startsAt: "09:30",
+      endsAt: "11:00",
+      startsOn: null,
+      endsOn: null,
+      excludedDates: [],
+    };
+    const afternoon = {
+      ...morning,
+      id: "pm",
+      label: "Session 1 PM",
+      allowedWeekdays: [5],
+      startsAt: "13:00",
+      endsAt: "15:00",
+    };
+    render(
+      <StudentRoster
+        students={[
+          {
+            ...rows[0]!,
+            schedule: registrationScheduleSummary(
+              {
+                sourceKey: "imported",
+                weekday: "Friday",
+                session: "Session 1",
+              },
+              [morning, afternoon],
+            ),
+          },
+        ]}
+        scheduleSlots={[
+          morning,
+          afternoon,
+          {
+            ...afternoon,
+            id: "wrong-cohort",
+            cohort: "session-2",
+            label: "Session 2 PM",
+          },
+          {
+            ...afternoon,
+            id: "wrong-program",
+            programId: "other",
+            label: "Other program",
+          },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("row", { name: /Edit registration/ }));
+    const time = screen.getByLabelText<HTMLSelectElement>(
+      "Registered lesson time",
+    );
+    expect(time.value).toBe("5:am");
+    expect(
+      within(time).queryByRole("option", { name: /Session 2|Other program/ }),
+    ).toBeNull();
+    fireEvent.change(time, { target: { value: "5:pm" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save lesson time" }));
+    await waitFor(() =>
+      expect(saveRegistrationSchedule).toHaveBeenCalledWith({
+        data: {
+          registrationId: "registration-0",
+          weekday: 5,
+          timeSlotId: "pm",
+        },
+      }),
+    );
+    expect(updateStudent).not.toHaveBeenCalled();
+    expect(
+      await within(screen.getByRole("dialog")).findByText("Lesson time saved."),
+    ).toBeTruthy();
+  });
   it("distinguishes two registrations for the same student on the same weekday", () => {
     render(
       <StudentRoster

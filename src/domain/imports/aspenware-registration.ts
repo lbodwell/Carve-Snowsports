@@ -6,7 +6,7 @@ import {
 
 export type CsvRecord = Record<string, string>;
 
-export const ASPENWARE_ADAPTER_VERSION = "2026-27@5";
+export const ASPENWARE_ADAPTER_VERSION = "2026-27@6";
 
 export const aspenwareListingHeaders = [
   "DetailRowC0",
@@ -246,12 +246,18 @@ export function parseProductDimensions(product: string): ProductDimensions {
       dimensions.weekday = token;
     } else if (ageBandPattern.test(token)) {
       dimensions.ageBand = token;
-    } else if (sessionTokens.has(token)) {
+    } else if (
+      sessionTokens.has(token) ||
+      /^\d{1,2}(?::[0-5]\d)?\s*(am|pm)$/i.test(token)
+    ) {
       if (token.startsWith("Session")) dimensions.session = token;
       else {
-        dimensions.lessonTime = token;
+        dimensions.lessonTime =
+          token === "Full Day"
+            ? token
+            : token.toLowerCase().replace(/\s+/g, "");
         if (!dimensions.session?.startsWith("Session"))
-          dimensions.session = token;
+          dimensions.session = dimensions.lessonTime;
       }
     } else if (token.includes("Program")) {
       dimensions.program = token;
@@ -259,6 +265,17 @@ export function parseProductDimensions(product: string): ProductDimensions {
       dimensions.unmappedTokens.push(token);
     }
   }
+  // The 26/27 Friday ski product for ages 4–6 omits the start time in Aspenware.
+  if (
+    !dimensions.lessonTime &&
+    dimensions.program === "Children's Seasonal Program" &&
+    dimensions.season === "26/27" &&
+    dimensions.discipline === "Ski" &&
+    dimensions.weekday === "Friday" &&
+    dimensions.ageBand === "4-6yrs" &&
+    dimensions.session?.startsWith("Session")
+  )
+    dimensions.lessonTime = "1pm";
   return dimensions;
 }
 
