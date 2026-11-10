@@ -1,5 +1,6 @@
 import { generateLessonCalendar } from "./lesson-calendar";
 import { rangesOverlap } from "./time-ranges";
+import { parseProductDimensions } from "@/domain/imports/aspenware-registration";
 
 export type SessionCalendar = {
   startsAt: string;
@@ -51,10 +52,20 @@ export function sessionsOverlap(
 }
 
 export function importedCohort(source: Record<string, unknown> | null) {
-  const label = String(source?.session ?? "")
+  let label = String(source?.session ?? "")
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "");
+  // Older imports could store the clock token in place of the numbered session.
+  if (
+    typeof source?.product === "string" &&
+    /^1(?::00)?pm$/.test(label) &&
+    String(source.weekday).toLowerCase() === "friday"
+  )
+    label =
+      parseProductDimensions(source.product)
+        .session?.toLowerCase()
+        .replace(/\s+/g, "") ?? label;
   return label === "session1"
     ? "session-1"
     : label === "session2"

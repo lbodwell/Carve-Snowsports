@@ -82,6 +82,122 @@ const rows: ComponentProps<typeof StudentRoster>["students"] = Array.from(
   }),
 );
 describe("registration roster", () => {
+  it.each([1, 2])(
+    "shows and saves the Friday time for Session %i",
+    async (session) => {
+      const morning = {
+        id: "am",
+        label: `Session ${session} AM`,
+        cohort: `session-${session}`,
+        programId: "program",
+        allowedWeekdays: [4],
+        startsAt: "09:30",
+        endsAt: "11:00",
+        startsOn: null,
+        endsOn: null,
+        excludedDates: [],
+      };
+      const afternoon = {
+        ...morning,
+        id: "pm",
+        label: `Session ${session} Friday PM`,
+        allowedWeekdays: [5],
+        startsAt: "13:00",
+        endsAt: "15:00",
+      };
+      render(
+        <StudentRoster
+          students={[
+            {
+              ...rows[0]!,
+              schedule: registrationScheduleSummary(
+                {
+                  sourceKey: "imported",
+                  weekday: "Thursday",
+                  session: `Session ${session}`,
+                },
+                [morning, afternoon],
+              ),
+            },
+          ]}
+          scheduleSlots={[
+            morning,
+            afternoon,
+            {
+              ...afternoon,
+              id: "wrong-cohort",
+              cohort: `session-${3 - session}`,
+              label: `Session ${3 - session} Friday PM`,
+            },
+            {
+              ...afternoon,
+              id: "wrong-program",
+              programId: "other",
+              label: "Other program",
+            },
+          ]}
+        />,
+      );
+      fireEvent.click(screen.getByRole("row", { name: /Edit registration/ }));
+      const dialog = within(screen.getByRole("dialog"));
+      const day = dialog.getByLabelText<HTMLSelectElement>("Day");
+      const time = dialog.getByLabelText<HTMLSelectElement>("Time");
+      expect(day.value).toBe("4");
+      expect(time.value).toBe("am");
+      expect(time.selectedOptions[0]?.label).toBe(
+        `9:30 AM–11 AM · Session ${session}`,
+      );
+      expect(
+        dialog.queryByRole("button", { name: "Save lesson time" }),
+      ).toBeNull();
+      const save = dialog.getByRole("button", { name: "Save changes" });
+      expect(save.hasAttribute("disabled")).toBe(true);
+      fireEvent.change(day, { target: { value: "5" } });
+      expect(time.value).toBe("");
+      expect(Array.from(time.options, (option) => option.value)).toEqual([
+        "",
+        "pm",
+      ]);
+      expect(
+        within(time).getByRole("option", {
+          name: `1 PM–3 PM · Session ${session}`,
+        }),
+      ).toBeTruthy();
+      fireEvent.change(dialog.getByLabelText("Placement notes"), {
+        target: { value: "Unsaved" },
+      });
+      expect(save.hasAttribute("disabled")).toBe(true);
+      fireEvent.change(time, { target: { value: "pm" } });
+      expect(save.hasAttribute("disabled")).toBe(false);
+      fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+      expect(updateStudent).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("row", { name: /Edit registration/ }));
+      const reopened = within(screen.getByRole("dialog"));
+      const reopenedDay = reopened.getByLabelText<HTMLSelectElement>("Day");
+      const reopenedTime = reopened.getByLabelText<HTMLSelectElement>("Time");
+      expect(reopenedDay.value).toBe("4");
+      expect(reopenedTime.value).toBe("am");
+      fireEvent.change(reopenedDay, { target: { value: "5" } });
+      fireEvent.change(reopenedTime, { target: { value: "pm" } });
+      fireEvent.click(reopened.getByRole("button", { name: "Save changes" }));
+      await waitFor(() =>
+        expect(updateStudent).toHaveBeenCalledWith({
+          data: {
+            studentId: "student-0",
+            scheduleOnly: true,
+            registrationSchedules: [
+              {
+                registrationId: "registration-0",
+                weekday: 5,
+                timeSlotId: "pm",
+              },
+            ],
+          },
+        }),
+      );
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    },
+  );
   it("distinguishes two registrations for the same student on the same weekday", () => {
     render(
       <StudentRoster
@@ -99,7 +215,9 @@ describe("registration roster", () => {
     expect(screen.getByRole("row", { name: /Session 2/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("row", { name: /Session 2/ }));
     expect(
-      within(screen.getByRole("dialog")).getByText("Session 2 · Time pending"),
+      within(screen.getByRole("dialog")).getByText(
+        "Thursday · Session 2 · Time pending",
+      ),
     ).toBeTruthy();
   });
   it("shows no results until one program is explicitly selected", () => {
@@ -273,12 +391,9 @@ describe("registration roster", () => {
       screen.getByRole("row", { name: /Edit registration.*Sunday/ }),
     );
     expect(
-      within(screen.getByRole("dialog")).getByText("Sunday", { exact: true }),
-    ).toBeDefined();
-    expect(
-      within(screen.getByRole("dialog")).getByText("Full Day · 10 AM–3 PM", {
-        exact: true,
-      }),
+      within(screen.getByRole("dialog")).getByText(
+        "Sunday · Full Day · 10 AM–3 PM",
+      ),
     ).toBeDefined();
     expect(
       within(screen.getByRole("dialog")).queryByText("Purchase date"),

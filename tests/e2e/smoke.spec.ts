@@ -47,7 +47,14 @@ test("serves health and the authenticated staff workspace", async ({
   await firstStudent.click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(
-    page.getByRole("dialog").getByText("Time", { exact: true }),
+    page
+      .getByRole("dialog")
+      .getByRole("combobox", { name: "Day", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("combobox", { name: "Time", exact: true }),
   ).toBeVisible();
   const saveStudent = page.getByRole("button", {
     name: "Save changes",
@@ -367,7 +374,12 @@ test("imports a new student, syncs their survey, and finalizes unstaffed placeme
       fullPage: true,
     });
   await importedRow.click();
-  await expect(page.getByRole("dialog")).toContainText("10 AM–12 PM");
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("combobox", { name: "Time", exact: true })
+      .locator("option:checked"),
+  ).toHaveText("10 AM–12 PM · Needs review");
   if (process.env.CARVE_UI_PROOF === "1")
     await page.screenshot({
       path: ".tmp/registration-details.png",

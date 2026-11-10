@@ -341,6 +341,7 @@ async function loadAdminWorkspace(
     disciplines: configuredDisciplines,
     abilityLevels: configuredLevels,
     programOptions,
+    scheduleSlots,
   };
 }
 
@@ -538,14 +539,23 @@ export const getStudent = createServerFn({ method: "GET" })
       abilityLevels: configuredLevels,
       student: projectStudentDetail(actor, {
         ...student,
-        signups: signupRows.map(({ sourceSnapshot, programId, ...signup }) => ({
-          ...signup,
-          schedule: registrationScheduleSummary(
-            sourceSnapshot,
-            slots.filter((slot) => slot.programId === programId),
-            { startsOn: signup.seasonStartsOn, endsOn: signup.seasonEndsOn },
-          ),
-        })),
+        signups: signupRows.map(({ sourceSnapshot, programId, ...signup }) => {
+          const scheduleSlots = slots.filter(
+            (slot) => slot.programId === programId,
+          );
+          return {
+            ...signup,
+            scheduleSlots,
+            schedule: registrationScheduleSummary(
+              sourceSnapshot,
+              scheduleSlots,
+              {
+                startsOn: signup.seasonStartsOn,
+                endsOn: signup.seasonEndsOn,
+              },
+            ),
+          };
+        }),
         notes: student.notes ?? "",
         guardianName: guardian
           ? `${guardian.firstName} ${guardian.lastName}`.trim()

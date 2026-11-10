@@ -1,4 +1,5 @@
 import type { SessionCalendar } from "@/domain/calendar/session-calendar";
+import { parseProductDimensions } from "@/domain/imports/aspenware-registration";
 import {
   importedCohort,
   sessionsOverlap,
@@ -68,6 +69,7 @@ export function resolveRegistrationSchedule(
   }>,
 ): RegistrationSchedule | null {
   if (!source) return null;
+  const cohort = importedCohort(source);
   const explicit = source.groupingSchedule as
     Partial<RegistrationSchedule> | undefined;
   if (
@@ -79,7 +81,7 @@ export function resolveRegistrationSchedule(
       (slot) =>
         slot.id === explicit.timeSlotId &&
         ((!source.sourceKey && !source.session) ||
-          (slot.cohort ?? "season") === importedCohort(source)) &&
+          (slot.cohort ?? "season") === cohort) &&
         (slot.allowedWeekdays === undefined ||
           slot.allowedWeekdays.includes(explicit.weekday!)),
     )
@@ -89,6 +91,11 @@ export function resolveRegistrationSchedule(
   const weekday = weekdayNames.findIndex(
     (day) => day.toLowerCase() === String(source.weekday).toLowerCase(),
   );
+  const available = slots.filter(
+    (slot) =>
+      slot.allowedWeekdays === undefined ||
+      slot.allowedWeekdays.includes(weekday),
+  );
   const label = String(source.session ?? "")
     .trim()
     .toLowerCase();
@@ -96,9 +103,9 @@ export function resolveRegistrationSchedule(
     String(source.lessonTime ?? "")
       .trim()
       .toLowerCase() ||
-    String(source.product ?? "")
-      .match(/\|\s*(1(?::00)?pm)\s*(?:\||$)/i)?.[1]
-      ?.toLowerCase() ||
+    (typeof source.product === "string"
+      ? parseProductDimensions(source.product).lessonTime
+      : null) ||
     "";
   const clock = (lessonTime || label)
     .replace(/\s+/g, "")
@@ -115,9 +122,9 @@ export function resolveRegistrationSchedule(
         : label === "full day"
           ? ["10:00", "15:00"]
           : null;
-  const matches = slots.filter(
+  const matches = available.filter(
     (slot) =>
-      (slot.cohort ?? "season") === importedCohort(source) &&
+      (slot.cohort ?? "season") === cohort &&
       slot.label.trim().toLowerCase() === label &&
       (!lessonTime ||
         !slot.startsAt ||
@@ -131,7 +138,7 @@ export function resolveRegistrationSchedule(
   );
   const clockMatches =
     weekday === 0 || weekday === 6
-      ? slots.filter(
+      ? available.filter(
           (slot) =>
             (slot.cohort ?? "season") === "season" &&
             weekendHours &&
@@ -140,35 +147,29 @@ export function resolveRegistrationSchedule(
         )
       : [];
   const weekdayCohortMatches =
-    (weekday === 4 || weekday === 5) && importedCohort(source) !== "season"
-      ? slots.filter(
+    (weekday === 4 || weekday === 5) && cohort !== "season"
+      ? available.filter(
           (slot) =>
-            slot.cohort === importedCohort(source) &&
+            slot.cohort === cohort &&
             slot.startsAt?.slice(0, 5) === (startTime ?? "09:30") &&
             slot.endsAt?.slice(0, 5) ===
               (startTime === "13:00" ? "15:00" : "11:00"),
         )
       : [];
-  const candidates = (
-    matches.length
-      ? matches
-      : weekdayCohortMatches.length
-        ? weekdayCohortMatches
-        : startTime
-          ? slots.filter(
-              (slot) =>
-                (slot.cohort ?? "season") === importedCohort(source) &&
-                slot.startsAt?.slice(0, 5) === startTime &&
-                (!slot.endsAt ||
-                  slot.endsAt.slice(0, 5) <=
-                    (clock?.[3] === "am" ? "12:30" : "23:59")),
-            )
-          : clockMatches
-  ).filter(
-    (slot) =>
-      slot.allowedWeekdays === undefined ||
-      slot.allowedWeekdays.includes(weekday),
-  );
+  const candidates = matches.length
+    ? matches
+    : weekdayCohortMatches.length
+      ? weekdayCohortMatches
+      : startTime
+        ? available.filter(
+            (slot) =>
+              (slot.cohort ?? "season") === cohort &&
+              slot.startsAt?.slice(0, 5) === startTime &&
+              (!slot.endsAt ||
+                slot.endsAt.slice(0, 5) <=
+                  (clock?.[3] === "am" ? "12:30" : "23:59")),
+          )
+        : clockMatches;
   return weekday >= 0 && candidates.length === 1
     ? { weekday, timeSlotId: candidates[0]!.id }
     : null;

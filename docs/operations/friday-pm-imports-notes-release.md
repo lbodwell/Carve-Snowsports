@@ -2,7 +2,9 @@
 
 Migration `0022_friday-pm-survey-notes` adds Friday 13:00–15:00 slots for both numbered sessions to existing programs. It inherits each cohort's AM calendar when present, preserves previous medical review decisions, and hides exact empty survey answers without deleting their original responses. New programs receive the PM slots by default. Apply this migration before running the updated application.
 
-Imported products can carry both `Session 1`/`Session 2` and `1pm`; these now retain both dimensions. Existing snapshots can also resolve PM from the original product text. Staff can correct a registration's session through the existing schedule controls. A product carrying only a numbered session retains its prior AM interpretation; the importer cannot infer PM without time evidence.
+Imported products can carry both `Session 1`/`Session 2` and an explicit start time. The 26/27 Friday ski product for ages 4–6 also maps to 13:00 when Aspenware omits the clock. The application uses the saved product name for existing registrations, so those registrations resolve to PM after deployment without a fresh import. The Friday ages 2–5 products keep their morning schedule.
+
+Staff can change an active registration from the Students roster or detail page. The editor offers configured times in the registration's program and keeps imported registrations in their purchased cohort. Use Save changes to commit the time along with any profile edits. Remove any assignment in an open grouping draft before changing the time. A saved schedule takes precedence over Aspenware's inferred time and survives reapplying an import for the same source registration.
 
 Survey matching now compares both cohort and actual hours. Friday AM surveys no longer match PM registrations. Review the PM survey options and run Re-link and sync after release to reassess existing enrollment evidence.
 

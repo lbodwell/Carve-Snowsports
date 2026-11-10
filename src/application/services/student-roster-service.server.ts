@@ -4,6 +4,10 @@ import { z } from "zod";
 import type { Actor } from "@/application/policies/authorization";
 import { ApplicationError } from "@/application/errors";
 import { requirePermission } from "@/application/policies/authorization";
+import {
+  registrationScheduleSchema,
+  writeRegistrationSchedule,
+} from "@/application/services/grouping-draft-service.server";
 import { db } from "@/db/client.server";
 import {
   abilityLevels,
@@ -187,8 +191,14 @@ export const registerStudentSchema = z.object({
 
 export type RegisterStudentInput = z.infer<typeof registerStudentSchema>;
 
-export const updateStudentSchema = z.object({
+const registrationScheduleChanges = z.array(
+  registrationScheduleSchema.omit({ applyToMatching: true }),
+);
+
+const updateStudentProfileSchema = z.object({
   studentId: z.uuid("Invalid student."),
+  scheduleOnly: z.literal(false).optional(),
+  registrationSchedules: registrationScheduleChanges.optional(),
   registrationId: z.uuid("Invalid registration.").optional(),
   firstName: z.string().trim().min(1, "First name is required.").max(100),
   lastName: z.string().trim().min(1, "Last name is required.").max(100),
@@ -198,6 +208,15 @@ export const updateStudentSchema = z.object({
   ]),
   ...studentProfileFields,
 });
+
+export const updateStudentSchema = z.union([
+  updateStudentProfileSchema,
+  z.object({
+    studentId: updateStudentProfileSchema.shape.studentId,
+    scheduleOnly: z.literal(true),
+    registrationSchedules: registrationScheduleChanges.min(1),
+  }),
+]);
 
 export type UpdateStudentInput = z.infer<typeof updateStudentSchema>;
 
@@ -501,17 +520,19 @@ export async function registerStudent(
 export async function updateStudent(actor: Actor, input: UpdateStudentInput) {
   requirePermission(actor, "people:manage");
   const parsed = updateStudentSchema.parse(input);
-  await assertPlacementConfiguration(
-    actor,
-    parsed.disciplineId,
-    parsed.abilityLevelId,
-  );
+  if (!parsed.scheduleOnly)
+    await assertPlacementConfiguration(
+      actor,
+      parsed.disciplineId,
+      parsed.abilityLevelId,
+    );
 
   return db.transaction(async (tx) => {
     const [organization] = await tx
       .select({ id: organizations.id })
       .from(organizations)
-      .where(eq(organizations.id, actor.organizationId));
+      .where(eq(organizations.id, actor.organizationId))
+      .for("update");
     if (!organization) {
       throw new ApplicationError("NOT_FOUND", "Organization not found.");
     }
@@ -526,10 +547,15 @@ export async function updateStudent(actor: Actor, input: UpdateStudentInput) {
           eq(people.organizationId, organization.id),
           isNull(people.archivedAt),
         ),
-      );
+      )
+      .for("update", { of: people });
     if (!student) {
       throw new ApplicationError("NOT_FOUND", "Student not found.");
     }
+
+    for (const schedule of parsed.registrationSchedules ?? [])
+      await writeRegistrationSchedule(tx, actor, schedule, student.id);
+    if (parsed.scheduleOnly) return;
 
     const [targetRegistration] = parsed.registrationId
       ? await tx

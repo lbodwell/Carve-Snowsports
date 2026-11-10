@@ -31,6 +31,7 @@ import {
   registrations,
   seasons,
   students,
+  timeSlots,
   users,
 } from "@/db/schema";
 
@@ -144,6 +145,81 @@ describe("people write transactions", () => {
     await testSql.end({ timeout: 5 });
     await adminSql.unsafe("DROP DATABASE IF EXISTS carve_test WITH (FORCE)");
     await adminSql.end({ timeout: 5 });
+  });
+
+  test("saves lesson times with the profile and rolls back if any registration belongs to another student", async () => {
+    const profile = {
+      firstName: "Casey",
+      lastName: "Schedule",
+      dateOfBirth: "2017-02-01",
+      guardianName: "",
+      guardianPhone: "",
+      guardianEmail: "",
+      medicalInfo: "",
+      notes: "",
+    };
+    const student = await createStudentRegistration(adminActor, profile);
+    const otherStudent = await createStudentRegistration(adminActor, {
+      ...profile,
+      firstName: "Jordan",
+    });
+    const [registration] = await db
+      .select()
+      .from(registrations)
+      .where(eq(registrations.id, student.registrationId));
+    const [slot] = await db
+      .insert(timeSlots)
+      .values({
+        programId: registration!.programId,
+        key: "people-write-friday",
+        label: "Friday afternoon",
+        startsAt: "13:00",
+        endsAt: "15:00",
+        allowedWeekdays: [5],
+      })
+      .returning();
+    const change = {
+      registrationId: student.registrationId,
+      weekday: 5,
+      timeSlotId: slot!.id,
+    };
+    const readSchedule = async () => {
+      const [stored] = await db
+        .select()
+        .from(registrations)
+        .where(eq(registrations.id, student.registrationId));
+      return stored?.sourceSnapshot?.groupingSchedule;
+    };
+    const readName = async () => {
+      const [person] = await db
+        .select()
+        .from(people)
+        .where(eq(people.id, student.studentId));
+      return person?.firstName;
+    };
+    const update = {
+      ...profile,
+      studentId: student.studentId,
+      firstName: "Casey Updated",
+    };
+    await expect(
+      updateStudent(adminActor, {
+        ...update,
+        registrationSchedules: [
+          change,
+          { ...change, registrationId: otherStudent.registrationId },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await readSchedule()).toBeUndefined();
+    expect(await readName()).toBe("Casey");
+
+    await updateStudent(adminActor, {
+      ...update,
+      registrationSchedules: [change],
+    });
+    expect(await readSchedule()).toEqual({ weekday: 5, timeSlotId: slot!.id });
+    expect(await readName()).toBe("Casey Updated");
   });
 
   test("creates a student registration with audit history", async () => {

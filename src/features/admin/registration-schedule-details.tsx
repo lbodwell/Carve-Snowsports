@@ -1,5 +1,4 @@
 import type { RegistrationScheduleSummary } from "@/domain/imports/registration-schedule-summary";
-import { registrationTimeLabel } from "@/domain/imports/registration-schedule-summary";
 
 export function RegistrationScheduleDetails({
   schedule,
@@ -7,9 +6,9 @@ export function RegistrationScheduleDetails({
   schedule: RegistrationScheduleSummary;
 }) {
   const fields = [
-    ["Lesson day", schedule.weekday ?? "Not recorded"],
-    ["Time", registrationTimeLabel(schedule)],
-    ["Seasonal cohort", schedule.cohort],
+    ...(!schedule.resolved || schedule.cohort === "Regular season"
+      ? [["Seasonal cohort", schedule.cohort]]
+      : []),
     ["Purchased age band", schedule.ageBand ?? "Not recorded"],
     ["Schedule status", schedule.status],
   ];

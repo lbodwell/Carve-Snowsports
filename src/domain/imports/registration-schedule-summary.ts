@@ -13,7 +13,13 @@ export type ScheduleSlot = {
   startsOn: string | null;
   endsOn: string | null;
   excludedDates: Array<string>;
+  allowedWeekdays?: ReadonlyArray<number>;
 };
+
+export type RegistrationScheduleOption = Pick<
+  ScheduleSlot,
+  "id" | "label" | "cohort" | "startsAt" | "endsAt"
+> & { programId: string; allowedWeekdays: ReadonlyArray<number> };
 
 export function registrationScheduleSummary(
   source: Record<string, unknown> | null,
@@ -38,6 +44,8 @@ export function registrationScheduleSummary(
     : null;
   const cohort = slot?.cohort ?? importedCohort(source);
   return {
+    resolved,
+    requiredCohort: source?.sourceKey ? importedCohort(source) : null,
     weekday,
     session,
     hours: slot
@@ -74,17 +82,21 @@ export type RegistrationScheduleSummary = ReturnType<
   typeof registrationScheduleSummary
 >;
 
-export function registrationTimeLabel(schedule: RegistrationScheduleSummary) {
-  const cohort = /^Session [12]$/.test(schedule.cohort)
-    ? schedule.cohort
-    : null;
-  const hours = schedule.hours?.replace(
+export function formatLessonHours(hours: string) {
+  return hours.replace(
     /\b(\d{1,2}):(\d{2})\b/g,
     (_match, hourText: string, minute: string) => {
       const hour = Number(hourText);
       return `${hour % 12 || 12}${minute === "00" ? "" : `:${minute}`} ${hour < 12 ? "AM" : "PM"}`;
     },
   );
+}
+
+export function registrationTimeLabel(schedule: RegistrationScheduleSummary) {
+  const cohort = /^Session [12]$/.test(schedule.cohort)
+    ? schedule.cohort
+    : null;
+  const hours = schedule.hours ? formatLessonHours(schedule.hours) : null;
   if (hours)
     return cohort
       ? `${cohort} · ${hours}`
